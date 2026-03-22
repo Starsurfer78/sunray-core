@@ -1,0 +1,5 @@
+if(EXISTS "E:/TRAE/sunray-core/build_gcc/tests/sunray_tests-b12d07c_tests.cmake")
+  include("E:/TRAE/sunray-core/build_gcc/tests/sunray_tests-b12d07c_tests.cmake")
+else()
+  add_test(sunray_tests_NOT_BUILT-b12d07c sunray_tests_NOT_BUILT-b12d07c)
+endif()
