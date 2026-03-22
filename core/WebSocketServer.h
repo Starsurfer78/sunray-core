@@ -106,6 +106,11 @@ public:
     /// Thread-safe: stores the latest telemetry snapshot for the next broadcast.
     void pushTelemetry(const TelemetryData& data);
 
+    /// Broadcast a raw NMEA sentence to all connected WebSocket clients.
+    /// Sends {"type":"nmea","line":"<sentence>"} immediately.
+    /// Thread-safe: may be called from any thread.
+    void broadcastNmea(const std::string& line);
+
     // ── Command registration ──────────────────────────────────────────────────
 
     /// Register the callback invoked on each incoming WebSocket command.

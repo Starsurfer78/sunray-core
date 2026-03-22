@@ -11,6 +11,7 @@ add_executable(sunray_tests
     test_robot.cpp
     test_simulation_driver.cpp
     test_websocket_server.cpp
+    test_gps_driver.cpp
     # test_state_machine.cpp
 )
 
@@ -19,6 +20,7 @@ target_link_libraries(sunray_tests PRIVATE
     sunray_hal
     sunray_platform
     sunray_simulation_driver
+    sunray_gps_driver
     Catch2::Catch2WithMain
 )
 

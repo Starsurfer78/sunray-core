@@ -58,24 +58,24 @@ Stand: März 2026
 - [x] RobotConstants.h (alle Magic Numbers)
 - [x] config.example.json
 
-### A.8 GPS-Treiber (ZED-F9P via USB) 🔲 Nächster Schritt
+### A.8 GPS-Treiber (ZED-F9P via USB) ✅ Code fertig — Pi-Test ausstehend
 
 Referenz: `e:/TRAE/Sunray/sunray/src/ublox/ublox.cpp` (alter Code), Port: `/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00`
 
-- [ ] `hal/GpsDriver/GpsDriver.h` — Interface: `GpsData` Struct (lat, lon, relPosN/E, solution, numSV, hAccuracy, dgpsAge, nmeaGGA)
-- [ ] `hal/GpsDriver/UbloxGpsDriver.cpp` — Eigener Thread, UBX-State-Machine (Parser aus altem ublox.cpp portieren)
-  - [ ] UBX-NAV-RELPOSNED → RTK-Solution (0=invalid/1=float/2=fixed), relPosN/E
-  - [ ] UBX-NAV-HPPOSLLH → Lat/Lon (1e-7°), hAccuracy
-  - [ ] UBX-NAV-VELNED → Groundspeed, Heading
-  - [ ] UBX-RXM-RTCM → Korrekturen-Eingangsstatus
-  - [ ] NMEA GGA → Roher String (→ WebSocket-Stream)
-- [ ] Optionale F9P-Konfiguration beim Start (config-Key `gps_configure: true/false`) — UBX-CFG Pakete wie im alten Code
-- [ ] `Robot::run()` — `StateEstimator::updateGps()` aufrufen → echte Koordinaten in Telemetrie
-- [ ] `WebSocketServer` — NMEA-Zeilen als `{"type":"nmea","line":"..."}` pushen → LogPanel GPS-Tab
-- [ ] `config.example.json` — `gps_port`, `gps_baud`, `gps_configure` Schlüssel ergänzen
-- [ ] Tests: MockGpsDriver, GPS-Qualitätswechsel (Fix→Float→NoFix)
+- [x] `hal/GpsDriver/GpsDriver.h` — Interface: `GpsData` Struct (lat, lon, relPosN/E, solution, numSV, hAccuracy, dgpsAge, nmeaGGA)
+- [x] `hal/GpsDriver/UbloxGpsDriver.cpp` — Eigener Thread, UBX-State-Machine (Parser aus altem ublox.cpp portiert)
+  - [x] UBX-NAV-RELPOSNED → RTK-Solution (0=invalid/1=float/2=fixed), relPosN/E
+  - [x] UBX-NAV-HPPOSLLH → Lat/Lon (1e-7°), hAccuracy
+  - [x] UBX-NAV-VELNED → Groundspeed (geparst, noch nicht exponiert)
+  - [x] UBX-RXM-RTCM → Korrekturen-Eingangsstatus (dgpsAge_ms)
+  - [x] NMEA GGA → Roher String (→ WebSocket-Stream)
+- [x] Optionale F9P-Konfiguration beim Start (`gps_configure: true/false`) — UBX-CFG-VALSET (5 Hz, USB messages)
+- [x] `Robot::run()` — `StateEstimator::updateGps()` aufgerufen → echte Koordinaten in Telemetrie
+- [x] `WebSocketServer::broadcastNmea()` — NMEA als `{"type":"nmea","line":"..."}` pushen
+- [x] `config.example.json` — `gps_port`, `gps_baud`, `gps_configure` ergänzt
+- [x] Tests: MockGpsDriver, GpsData defaults, Qualitäts-Transitionen, UBX-Decode-Sanity (9 Tests)
 
-### A.9 Alfred Build-Test ⏸ Hardware nötig
+### A.9 Alfred Build-Test ⏸ Hardware nötig (inkl. GPS-Treiber Pi-Test)
 
 - [ ] Kompilieren auf Raspberry Pi 4B
 - [ ] Alfred fährt mit neuem Core identisch wie vorher

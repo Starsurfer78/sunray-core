@@ -22,6 +22,7 @@
 // All other methods are not thread-safe.
 
 #include "hal/HardwareInterface.h"
+#include "hal/GpsDriver/GpsDriver.h"
 #include "core/Config.h"
 #include "core/Logger.h"
 #include "core/WebSocketServer.h"
@@ -108,6 +109,10 @@ public:
     /// Call before loop(). Does NOT transfer ownership.
     void setWebSocketServer(WebSocketServer* ws) { ws_ = ws; }
 
+    /// Optional: attach a GPS driver. Ownership transferred.
+    /// Call before loop(). GPS data is polled each run() cycle.
+    void setGpsDriver(std::unique_ptr<GpsDriver> gps) { gps_ = std::move(gps); }
+
     /// Load map from JSON file. Returns true on success.
     /// Call before startMowing() / startDocking().
     bool loadMap(const std::filesystem::path& path);
@@ -148,7 +153,11 @@ private:
 
     // ── Runtime state ─────────────────────────────────────────────────────────
 
-    WebSocketServer*  ws_ = nullptr;  ///< optional, not owned
+    WebSocketServer*  ws_  = nullptr;  ///< optional, not owned
+    std::unique_ptr<GpsDriver> gps_;  ///< optional GPS driver (owned)
+
+    GpsData     lastGps_;             ///< last GPS snapshot from gps_->getData()
+    std::string lastNmeaGGA_;         ///< last NMEA GGA line forwarded to WebSocket
 
     std::atomic<bool>     running_{false};
     unsigned long         controlLoops_ = 0;

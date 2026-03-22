@@ -163,13 +163,28 @@ Last updated: 2026-03-22 (full repo scan)
 
 ---
 
+### hal/GpsDriver/GpsDriver.h + UbloxGpsDriver.h/.cpp
+
+**Status:** ✅ Complete (A.8, 2026-03-22)
+**Purpose:** ZED-F9P GPS receiver driver — UBX binary parser + background reader thread
+**Key types:** `GpsSolution` (Invalid/Float/Fixed), `GpsData` (lat/lon/relPosN/E/solution/numSV/hAccuracy/dgpsAge_ms/nmeaGGA/valid)
+**UBX messages parsed:** NAV-RELPOSNED (RTK solution, relPosN/E), NAV-HPPOSLLH (lat/lon, hAccuracy), RXM-RTCM (dgpsAge)
+**Config keys:** `gps_port` (default: usb-u-blox serial path), `gps_baud` (default: 115200), `gps_configure` (bool, default: false)
+**Configuration:** UBX-CFG-VALSET — enables 5 required USB messages at 5 Hz; only sent if `gps_configure=true`
+**Thread safety:** `dataMutex_` guards all `GpsData` reads/writes; parser runs exclusively in `readerLoop` thread
+**Robot integration:** `Robot::setGpsDriver()` setter; polled each `run()` cycle → `stateEst_.updateGps()` + NMEA push via `ws_->broadcastNmea()`
+**WebSocket:** `broadcastNmea(line)` sends `{"type":"nmea","line":"..."}` immediately to all clients
+**Tests:** 9 tests in `tests/test_gps_driver.cpp` (MockGpsDriver, decode sanity, quality transitions)
+**Pi-Test:** Ausstehend (kein Hardware-Zugang) — gehört zu A.9
+
+---
+
 ## Pending Modules
 
-### Phase 2 (after A.8 Alfred Build-Test)
+### Phase 2 (after A.9 Alfred Build-Test)
 
 - `hal/PicoRobotDriver/` — RP2040 Pico direct PWM/Hall driver
 - GPS fusion in StateEstimator (complementary filter, fusionPI logic)
-- Real gps_lat/gps_lon in telemetry
 - A* pathfinding in Map (simplified placeholder currently)
 
 ### webui/src/views/Settings.vue
@@ -202,4 +217,4 @@ Last updated: 2026-03-22 (full repo scan)
 - CMakeLists.txt: ✅ Complete (root + all subdirs)
 - FetchContent: nlohmann/json ✅, Catch2 ✅, Asio standalone ✅, Crow v1.2.0 ✅
 - Target platform: Linux / Raspberry Pi 4B
-- A.8 (Alfred Build-Test auf Pi): ⏸ zurückgestellt — erfordert Hardware-Zugang
+- GPS Driver (A.8): ✅ Code fertig — Pi-Test (A.9) erfordert Hardware-Zugang

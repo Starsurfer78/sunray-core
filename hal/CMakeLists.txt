@@ -13,3 +13,6 @@ add_subdirectory(SerialRobotDriver)
 
 # SimulationDriver — software-only driver for testing without hardware
 add_subdirectory(SimulationDriver)
+
+# GpsDriver — ZED-F9P via USB serial (A.8)
+add_subdirectory(GpsDriver)

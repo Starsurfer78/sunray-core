@@ -600,6 +600,27 @@ void WebSocketServer::pushTelemetry(const TelemetryData& data) {
     hasNewTelemetry_  = true;
 }
 
+void WebSocketServer::broadcastNmea(const std::string& line) {
+    if (!running_.load()) return;
+
+    // Build JSON: {"type":"nmea","line":"<sentence>"}
+    nlohmann::json j;
+    j["type"] = "nmea";
+    j["line"] = line;
+    const std::string msg = j.dump();
+
+    // Snapshot connections and broadcast
+    std::vector<crow::websocket::connection*> snap;
+    {
+        std::lock_guard<std::mutex> lk(impl_->connMutex);
+        snap.assign(impl_->connections.begin(), impl_->connections.end());
+    }
+    for (auto* c : snap) {
+        try { c->send_text(msg); }
+        catch (...) {}
+    }
+}
+
 // ── JSON serialization ────────────────────────────────────────────────────────
 //
 // Format frozen to match sunray/mission_api.cpp:254-274.

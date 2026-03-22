@@ -94,9 +94,23 @@ void Robot::run() {
     sensors_  = hw_->readSensors();
     battery_  = hw_->readBattery();
 
-    // ── 4. State estimation (odometry dead-reckoning) ─────────────────────────
+    // ── 4. State estimation ───────────────────────────────────────────────────
     stateEst_.update(odometry_, dt_ms);
-    // TODO (Phase 2): stateEst_.updateGps(gps.posE, gps.posN, gps.isFix, gps.isFloat);
+    if (gps_) {
+        lastGps_ = gps_->getData();
+        if (lastGps_.valid) {
+            stateEst_.updateGps(
+                lastGps_.relPosE, lastGps_.relPosN,
+                lastGps_.solution == GpsSolution::Fixed,
+                lastGps_.solution == GpsSolution::Float);
+        }
+        // Push NMEA line to WebSocket when it changes
+        if (ws_ && !lastGps_.nmeaGGA.empty() &&
+            lastGps_.nmeaGGA != lastNmeaGGA_) {
+            lastNmeaGGA_ = lastGps_.nmeaGGA;
+            ws_->broadcastNmea(lastNmeaGGA_);
+        }
+    }
 
     // ── 5. Build OpContext ────────────────────────────────────────────────────
     OpContext ctx{
@@ -303,9 +317,8 @@ WebSocketServer::TelemetryData Robot::buildTelemetry() const {
         d.gps_sol  = 0;
         d.gps_text = "---";
     }
-    // gps_lat/lon: Phase 2 — real WGS-84 coords from GPS receiver
-    d.gps_lat   = 0.0;
-    d.gps_lon   = 0.0;
+    d.gps_lat   = lastGps_.lat;
+    d.gps_lon   = lastGps_.lon;
     d.bumper_l  = sensors_.bumperLeft;
     d.bumper_r  = sensors_.bumperRight;
     d.motor_err = sensors_.motorFault;
