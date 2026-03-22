@@ -1,0 +1,351 @@
+#pragma once
+// Op.h — Op State Machine base class, OpContext, and all Op declarations.
+//
+// Design differences from original sunray/src/op/op.h:
+//   - No Arduino includes, no global variables, no CONSOLE macro
+//   - Every method receives OpContext& instead of reading globals
+//   - Op instances owned by OpManager (not global singletons)
+//   - millis() replaced by OpContext::now_ms (from steady_clock in Robot)
+//   - motor.*  replaced by OpContext::setMotorPwm / setLinearAngularSpeed
+//   - battery.* replaced by OpContext::battery (BatteryData snapshot)
+//   - Navigation stubs (x, y, isDocking) — filled by A.5 StateEstimator
+//
+// Op transition mechanism (unchanged logic):
+//   Op::requestOp()   — sets pending op with priority
+//   Op::changeOp()    — requestOp at PRIO_NORMAL
+//   Op::checkStop()   — if shouldStop: end() → activate pending → begin()
+//   OpManager::tick() — calls checkStop() + run() each loop iteration
+
+#include "hal/HardwareInterface.h"
+#include "core/Config.h"
+#include "core/Logger.h"
+
+#include <algorithm>
+#include <chrono>
+#include <string>
+
+namespace sunray {
+
+// ── Forward declarations ───────────────────────────────────────────────────────
+
+class Op;
+class OpManager;
+
+// Forward declare navigation types to avoid circular includes.
+// Definitions live in core/navigation/.
+namespace nav {
+    class StateEstimator;
+    class Map;
+    class LineTracker;
+} // namespace nav
+
+// ── OpContext ─────────────────────────────────────────────────────────────────
+//
+// Snapshot of robot state passed to every Op method each loop iteration.
+// Robot populates this from its last sensor reads before calling OpManager::tick().
+
+struct OpContext {
+    // ── Dependencies (stable, set once at Robot construction) ─────────────────
+    HardwareInterface& hw;
+    Config&            config;
+    Logger&            logger;
+    OpManager&         opMgr;
+
+    // ── Sensor snapshots (updated every run() cycle) ──────────────────────────
+    SensorData   sensors;
+    BatteryData  battery;
+    OdometryData odometry;
+
+    // ── Navigation state (A.5 — populated by Robot::run() from StateEstimator) ──
+    float x           = 0.0f;  ///< local metres east of origin
+    float y           = 0.0f;  ///< local metres north of origin
+    float heading     = 0.0f;  ///< radians, 0=east (atan2 convention)
+    bool  insidePerimeter   = true;   ///< false → stop and dock
+    bool  isDockingRoute    = false;  ///< map.isDocking() equivalent
+    bool  gpsHasFix         = false;  ///< RTK fixed
+    bool  gpsHasFloat       = false;  ///< at least RTK float
+    unsigned long gpsFixAge_ms = 9999999; ///< ms since last valid GPS
+
+    // ── Navigation objects (A.5 — null until loaded) ──────────────────────────
+    nav::StateEstimator* stateEst    = nullptr;  ///< pose estimator (owned by Robot)
+    nav::Map*            map         = nullptr;  ///< active waypoint map
+    nav::LineTracker*    lineTracker = nullptr;  ///< Stanley controller
+
+    // ── Timing ─────────────────────────────────────────────────────────────────
+    unsigned long now_ms = 0;  ///< Robot::run() timestamp (ms since epoch)
+
+    // ── Motor helpers ──────────────────────────────────────────────────────────
+
+    /// Stop all motors immediately.
+    void stopMotors() { hw.setMotorPwm(0, 0, 0); }
+
+    /// Set mow motor (on=true: PWM 200, off: PWM 0).
+    void setMowMotor(bool on) { hw.setMotorPwm(0, 0, on ? 200 : 0); }
+
+    /// Differential-drive speed control (replaces motor.setLinearAngularSpeed).
+    ///   v:     linear velocity  (m/s, + = forward)
+    ///   omega: angular velocity (rad/s, + = turn left)
+    /// Converts to left/right PWM using config: motor_max_speed_ms, wheel_base_m.
+    void setLinearAngularSpeed(float v, float omega) {
+        const float maxSpeed  = config.get<float>("motor_max_speed_ms", 0.5f);
+        const float wheelBase = config.get<float>("wheel_base_m",       0.285f);
+        const float vLeft  = v - omega * wheelBase * 0.5f;
+        const float vRight = v + omega * wheelBase * 0.5f;
+        const int   pwmL = std::clamp(static_cast<int>(vLeft  / maxSpeed * 255.0f), -255, 255);
+        const int   pwmR = std::clamp(static_cast<int>(vRight / maxSpeed * 255.0f), -255, 255);
+        hw.setMotorPwm(pwmL, pwmR, 0);  // mow unchanged by speed calls
+    }
+};
+
+// ── Op ────────────────────────────────────────────────────────────────────────
+
+class Op {
+public:
+    Op();
+    virtual ~Op() = default;
+
+    /// Human-readable name used in telemetry (must match Mission Service op strings).
+    virtual std::string name() { return "Op"; }
+
+    // ── Priority levels ────────────────────────────────────────────────────────
+
+    enum TransitionPriority : uint8_t {
+        PRIO_LOW      = 10,
+        PRIO_NORMAL   = 50,
+        PRIO_HIGH     = 80,
+        PRIO_CRITICAL = 100,
+    };
+
+    // ── Transition state ───────────────────────────────────────────────────────
+
+    bool          initiatedByOperator = false;
+    bool          shouldStop          = false;
+    unsigned long startTime_ms        = 0;   ///< now_ms at begin()
+    Op*           previousOp          = nullptr;
+    Op*           nextOp              = nullptr;
+
+    // ── Transition methods ─────────────────────────────────────────────────────
+
+    /// Request transition to anOp at priority. Ignored if same op or lower priority
+    /// than an already-pending request.
+    void requestOp(OpContext& ctx, Op& anOp, uint8_t priority, bool returnBackOnExit = false);
+
+    /// Convenience wrapper: requestOp at PRIO_NORMAL.
+    void changeOp(OpContext& ctx, Op& anOp, bool returnBackOnExit = false);
+
+    /// Operator command: map OperationType enum → specific Op.
+    virtual void changeOperationTypeByOperator(OpContext& ctx, const std::string& opType);
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+    virtual void begin(OpContext& ctx);
+    virtual void run(OpContext& ctx);
+    virtual void end(OpContext& ctx);
+
+    /// If shouldStop: end() → activate pending → begin().
+    /// Called by OpManager::tick() before run().
+    void checkStop(OpContext& ctx);
+
+    // ── Events (all default to no-op; override in subclasses) ─────────────────
+
+    virtual void onGpsNoSignal(OpContext& ctx);
+    virtual void onGpsFixTimeout(OpContext& ctx);
+    virtual void onRainTriggered(OpContext& ctx);
+    virtual void onLiftTriggered(OpContext& ctx);
+    virtual void onMotorError(OpContext& ctx);
+    virtual void onObstacle(OpContext& ctx);
+    virtual void onObstacleRotation(OpContext& ctx);
+    virtual void onNoFurtherWaypoints(OpContext& ctx);
+    virtual void onTargetReached(OpContext& ctx);
+    virtual void onBatteryUndervoltage(OpContext& ctx);
+    virtual void onBatteryLowShouldDock(OpContext& ctx);
+    virtual void onChargerConnected(OpContext& ctx);
+    virtual void onChargerDisconnected(OpContext& ctx);
+    virtual void onChargingCompleted(OpContext& ctx);
+    virtual void onBadChargingContact(OpContext& ctx);
+    virtual void onKidnapped(OpContext& ctx, bool state);
+    virtual void onImuTilt(OpContext& ctx);
+    virtual void onImuError(OpContext& ctx);
+    virtual void onTimetableStartMowing(OpContext& ctx);
+    virtual void onTimetableStopMowing(OpContext& ctx);
+
+    // ── Op chain helpers ───────────────────────────────────────────────────────
+
+    /// Follow nextOp chain to find the terminal (goal) Op.
+    Op* getGoalOp();
+
+    /// Returns goal Op name for logging/telemetry.
+    std::string getOpChain() const;
+};
+
+// ── OpManager ─────────────────────────────────────────────────────────────────
+//
+// Owns all Op instances (no global singletons).
+// Robot creates one OpManager and calls tick() each loop iteration.
+
+class IdleOp;
+class MowOp;
+class DockOp;
+class ChargeOp;
+class EscapeReverseOp;
+class EscapeForwardOp;
+class GpsWaitFixOp;
+class ErrorOp;
+
+class OpManager {
+public:
+    OpManager();
+
+    /// Called each loop iteration: checkStop() + run() on active op.
+    void tick(OpContext& ctx);
+
+    /// Direct access to the current active op.
+    Op* activeOp() const { return activeOp_; }
+
+    /// Request a transition (called from Op::requestOp).
+    void setPending(Op& op, uint8_t priority, bool returnBackOnExit, Op& caller);
+
+    /// Operator command shortcut.
+    void changeOperationTypeByOperator(OpContext& ctx, const std::string& opType);
+
+    // ── Op instances (owned here, not global) ─────────────────────────────────
+    // Forward-declared above — definitions in each .cpp file
+    IdleOp&          idle()    { return *idle_; }
+    MowOp&           mow()     { return *mow_; }
+    DockOp&          dock()    { return *dock_; }
+    ChargeOp&        charge()  { return *charge_; }
+    EscapeReverseOp& escape()  { return *escape_; }
+    GpsWaitFixOp&    gpsWait() { return *gpsWait_; }
+    ErrorOp&         error()   { return *error_; }
+
+private:
+    // unique_ptr to avoid forward-declaration issues with inline constructors
+    std::unique_ptr<IdleOp>          idle_;
+    std::unique_ptr<MowOp>           mow_;
+    std::unique_ptr<DockOp>          dock_;
+    std::unique_ptr<ChargeOp>        charge_;
+    std::unique_ptr<EscapeReverseOp> escape_;
+    std::unique_ptr<EscapeForwardOp> escapeForward_;
+    std::unique_ptr<GpsWaitFixOp>    gpsWait_;
+    std::unique_ptr<ErrorOp>         error_;
+
+    Op*     activeOp_      = nullptr;
+    Op*     pendingOp_     = nullptr;
+    uint8_t pendingPriority_ = 0;
+};
+
+// ── Individual Op declarations ────────────────────────────────────────────────
+
+class IdleOp : public Op {
+public:
+    std::string name() override { return "Idle"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+};
+
+class MowOp : public Op {
+public:
+    std::string name() override { return "Mow"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onGpsNoSignal(OpContext& ctx)         override;
+    void onGpsFixTimeout(OpContext& ctx)       override;
+    void onObstacle(OpContext& ctx)            override;
+    void onMotorError(OpContext& ctx)          override;
+    void onRainTriggered(OpContext& ctx)       override;
+    void onBatteryLowShouldDock(OpContext& ctx)override;
+    void onNoFurtherWaypoints(OpContext& ctx)  override;
+    void onTimetableStopMowing(OpContext& ctx) override;
+    void onKidnapped(OpContext& ctx, bool state) override;
+    void onImuTilt(OpContext& ctx)             override;
+    void onImuError(OpContext& ctx)            override;
+};
+
+class DockOp : public Op {
+public:
+    bool lastMapRoutingFailed   = false;
+    int  mapRoutingFailedCounter = 0;
+
+    std::string name() override { return "Dock"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onObstacle(OpContext& ctx)          override;
+    void onTargetReached(OpContext& ctx)     override;
+    void onNoFurtherWaypoints(OpContext& ctx)override;
+    void onGpsFixTimeout(OpContext& ctx)     override;
+    void onGpsNoSignal(OpContext& ctx)       override;
+    void onChargerConnected(OpContext& ctx)  override;
+    void onKidnapped(OpContext& ctx, bool state) override;
+};
+
+class ChargeOp : public Op {
+public:
+    unsigned long retryTime_ms          = 0;
+    unsigned long nextConsoleDetails_ms = 0;
+    bool          retryTouchDock        = false;
+
+    std::string name() override { return "Charge"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onChargerDisconnected(OpContext& ctx)  override;
+    void onBadChargingContact(OpContext& ctx)   override;
+    void onBatteryUndervoltage(OpContext& ctx)  override;
+    void onRainTriggered(OpContext& ctx)        override;
+    void onChargerConnected(OpContext& ctx)     override;
+    void onTimetableStartMowing(OpContext& ctx) override;
+    void onTimetableStopMowing(OpContext& ctx)  override;
+};
+
+class EscapeReverseOp : public Op {
+public:
+    unsigned long driveReverseStopTime_ms = 0;
+    bool          hitLeft  = false;
+    bool          hitRight = false;
+
+    std::string name() override { return "EscapeReverse"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onKidnapped(OpContext& ctx, bool state) override;
+    void onImuTilt(OpContext& ctx)  override;
+    void onImuError(OpContext& ctx) override;
+};
+
+class EscapeForwardOp : public Op {
+public:
+    unsigned long driveForwardStopTime_ms = 0;
+
+    std::string name() override { return "EscapeForward"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onKidnapped(OpContext& ctx, bool state) override;
+    void onImuTilt(OpContext& ctx)  override;
+    void onImuError(OpContext& ctx) override;
+};
+
+class GpsWaitFixOp : public Op {
+public:
+    unsigned long waitStartTime_ms = 0;
+
+    std::string name() override { return "GpsWait"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+};
+
+class ErrorOp : public Op {
+public:
+    unsigned long nextBuzzTime_ms = 0;
+
+    std::string name() override { return "Error"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+};
+
+} // namespace sunray

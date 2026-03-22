@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(start /B npm run dev)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":5173\")",
+      "Bash(grep -r \"NMEA\\\\|gps_lat\\\\|gps_lon\\\\|parseGps\\\\|gps.*parse\\\\|latitude\\\\|longitude\" e:TRAEsunray-core --include=*.h --include=*.cpp)",
+      "Bash(wc -l \"e:/TRAE/Sunray/ublox_f9p_configs\"/*.txt)",
+      "Bash(grep -n \"GNGGA\\\\|GNRMC\\\\|GNGSA\\\\|GPGGA\\\\|$NMEA\\\\|parseNMEA\\\\|NMEA\" \"e:/TRAE/Sunray/sunray/src/ublox/ublox.cpp\")"
+    ]
+  }
+}

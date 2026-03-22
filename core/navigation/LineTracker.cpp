@@ -1,0 +1,219 @@
+// LineTracker.cpp — Stanley path-tracking controller.
+//
+// Ported from sunray/LineTracker.cpp — trackLine() function.
+// Removed: GPS-speed obstacle detection, localization-mode branches (April-tag,
+//   Reflector-tag, Guidance-sheet), LiDAR/sonar slow-down checks.
+// Kept: Stanley formula, rotation phase, kidnap detection, target progression.
+//
+// All motor output:  ctx.setLinearAngularSpeed(linear, angular)
+// All Op callbacks:  ctx.opMgr.activeOp()->on*()
+
+#include "core/navigation/LineTracker.h"
+#include "core/navigation/Map.h"
+#include "core/navigation/StateEstimator.h"
+#include "core/op/Op.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace sunray {
+namespace nav {
+
+static constexpr float TWO_PI = 2.0f * static_cast<float>(M_PI);
+
+// ── Construction ──────────────────────────────────────────────────────────────
+
+LineTracker::LineTracker(std::shared_ptr<Config> config)
+    : config_(std::move(config))
+{}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+
+void LineTracker::reset() {
+    rotateLeft_        = false;
+    rotateRight_       = false;
+    angleToTargetFits_ = false;
+    stateKidnapped_    = false;
+    lateralError_      = 0.0f;
+    targetDist_        = 0.0f;
+    trackerDiffDelta_  = 0.0f;
+}
+
+// ── Geometry helpers ──────────────────────────────────────────────────────────
+
+float LineTracker::scalePI(float v) {
+    float r = std::fmod(v, TWO_PI);
+    if (r >  PI) r -= TWO_PI;
+    if (r < -PI) r += TWO_PI;
+    return r;
+}
+
+float LineTracker::distancePI(float a, float b) {
+    float d = scalePI(a - b);
+    if (d < -PI) d += TWO_PI;
+    if (d >  PI) d -= TWO_PI;
+    return d;
+}
+
+float LineTracker::scalePIangles(float setAngle, float currAngle) {
+    return scalePI(setAngle)
+        + std::round((currAngle - scalePI(setAngle)) / TWO_PI) * TWO_PI;
+}
+
+float LineTracker::distanceLineInfinite(float px, float py,
+                                         float x1, float y1,
+                                         float x2, float y2) {
+    // Signed cross-track distance; sign: positive = left of line direction.
+    const float dx  = x2 - x1;
+    const float dy  = y2 - y1;
+    const float len = std::sqrt(dx*dx + dy*dy);
+    if (len < 1e-6f) return 0.0f;
+    return (dy * (px - x1) - dx * (py - y1)) / len;
+}
+
+float LineTracker::distanceLine(float px, float py,
+                                 float x1, float y1,
+                                 float x2, float y2) {
+    const float dx   = x2 - x1;
+    const float dy   = y2 - y1;
+    const float len2 = dx*dx + dy*dy;
+    if (len2 < 1e-12f) {
+        const float ex = px - x1, ey = py - y1;
+        return std::sqrt(ex*ex + ey*ey);
+    }
+    const float t  = std::clamp(((px-x1)*dx + (py-y1)*dy) / len2, 0.0f, 1.0f);
+    const float cx = x1 + t*dx - px;
+    const float cy = y1 + t*dy - py;
+    return std::sqrt(cx*cx + cy*cy);
+}
+
+// ── Main tracking ─────────────────────────────────────────────────────────────
+
+void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimator) {
+    const float stateX     = estimator.x();
+    const float stateY     = estimator.y();
+    const float stateDelta = estimator.heading();
+    const float speed      = estimator.groundSpeed();
+
+    const Point& target     = map.targetPoint;
+    const Point& lastTarget = map.lastTargetPoint;
+
+    // ── Heading error to target ───────────────────────────────────────────────
+
+    float targetDelta = std::atan2(target.y - stateY, target.x - stateX);
+    if (map.trackReverse) targetDelta = scalePI(targetDelta + PI);
+    targetDelta       = scalePIangles(targetDelta, stateDelta);
+    trackerDiffDelta_ = distancePI(stateDelta, targetDelta);
+
+    // ── Cross-track (lateral) error ───────────────────────────────────────────
+
+    lateralError_ = distanceLineInfinite(stateX, stateY,
+                                          lastTarget.x, lastTarget.y,
+                                          target.x,     target.y);
+
+    const float distToPath = distanceLine(stateX, stateY,
+                                           lastTarget.x, lastTarget.y,
+                                           target.x,     target.y);
+
+    // ── Target-distance ───────────────────────────────────────────────────────
+
+    targetDist_          = map.distanceToTargetPoint(stateX, stateY);
+    const float lastTargetDist = map.distanceToLastTargetPoint(stateX, stateY);
+
+    const bool targetReached = (targetDist_ < TARGET_REACHED_TOLERANCE);
+
+    // ── Angle check: rotate or track? ─────────────────────────────────────────
+    //   Allow rotation only near waypoints or when far off-path (as in original).
+
+    if ((targetDist_ < 0.5f) || (lastTargetDist < 0.5f) || (distToPath > 0.5f)
+        || rotateLeft_ || rotateRight_)
+    {
+        angleToTargetFits_ = (std::fabs(trackerDiffDelta_) / PI * 180.0f < 120.0f);
+    } else {
+        angleToTargetFits_ = (std::fabs(trackerDiffDelta_) / PI * 180.0f < 45.0f);
+    }
+
+    // ── Speed and angular control ─────────────────────────────────────────────
+
+    float linear  = 0.0f;
+    float angular = 0.0f;
+
+    const float setSpeed = config_
+        ? config_->get<float>("motor_set_speed_ms", 0.3f)
+        : 0.3f;
+
+    if (!angleToTargetFits_) {
+        // ── Rotate phase: no forward motion ─────────────────────────────────
+        linear  = 0.0f;
+        angular = ROTATE_SPEED_RADPS;
+
+        if (!rotateLeft_ && !rotateRight_) {
+            if (trackerDiffDelta_ < 0.0f) rotateLeft_  = true;
+            else                           rotateRight_ = true;
+        }
+        if (rotateLeft_) angular *= -1.0f;
+
+        // Once within 90° reset rotation bias (allow Stanley to take over).
+        if (std::fabs(trackerDiffDelta_) / PI * 180.0f < 90.0f) {
+            rotateLeft_  = false;
+            rotateRight_ = false;
+        }
+    } else {
+        // ── Stanley tracking phase ───────────────────────────────────────────
+        rotateLeft_  = false;
+        rotateRight_ = false;
+
+        float k, p;
+        if (map.trackSlow) {
+            k = config_ ? config_->get<float>("stanley_k_slow",     0.2f) : 0.2f;
+            p = config_ ? config_->get<float>("stanley_p_slow",     0.5f) : 0.5f;
+            linear = config_ ? config_->get<float>("dock_linear_speed_ms", 0.1f) : 0.1f;
+        } else {
+            k = config_ ? config_->get<float>("stanley_k_normal", 1.0f) : 1.0f;
+            p = config_ ? config_->get<float>("stanley_p_normal", 2.0f) : 2.0f;
+            linear = setSpeed;
+            // Reduce speed when approaching a non-straight (turning) waypoint.
+            if ((setSpeed > 0.2f) && (targetDist_ < 0.5f) && !map.nextPointIsStraight()) {
+                linear = 0.1f;
+            }
+        }
+
+        // Stanley formula: p*headingError + atan2(k*crossTrack, 0.001+|speed|)
+        angular = p * trackerDiffDelta_
+                + std::atan2(k * lateralError_, 0.001f + std::fabs(speed));
+
+        if (map.trackReverse) linear *= -1.0f;
+    }
+
+    // ── Kidnap detection ──────────────────────────────────────────────────────
+    //   If the robot is more than KIDNAP_TOLERANCE off the planned line,
+    //   fire onKidnapped(true). Clear when back on path.
+
+    if (std::fabs(distToPath) > KIDNAP_TOLERANCE) {
+        if (!stateKidnapped_) {
+            stateKidnapped_ = true;
+            ctx.opMgr.activeOp()->onKidnapped(ctx, true);
+        }
+    } else {
+        if (stateKidnapped_) {
+            stateKidnapped_ = false;
+            ctx.opMgr.activeOp()->onKidnapped(ctx, false);
+        }
+    }
+
+    // ── Apply motor command ───────────────────────────────────────────────────
+    ctx.setLinearAngularSpeed(linear, angular);
+
+    // ── Waypoint progression ──────────────────────────────────────────────────
+    if (targetReached) {
+        rotateLeft_  = false;
+        rotateRight_ = false;
+        ctx.opMgr.activeOp()->onTargetReached(ctx);
+        if (!map.nextPoint(false, stateX, stateY)) {
+            ctx.opMgr.activeOp()->onNoFurtherWaypoints(ctx);
+        }
+    }
+}
+
+} // namespace nav
+} // namespace sunray

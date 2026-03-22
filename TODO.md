@@ -58,7 +58,24 @@ Stand: März 2026
 - [x] RobotConstants.h (alle Magic Numbers)
 - [x] config.example.json
 
-### A.8 Alfred Build-Test ⏸ Hardware nötig
+### A.8 GPS-Treiber (ZED-F9P via USB) 🔲 Nächster Schritt
+
+Referenz: `e:/TRAE/Sunray/sunray/src/ublox/ublox.cpp` (alter Code), Port: `/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00`
+
+- [ ] `hal/GpsDriver/GpsDriver.h` — Interface: `GpsData` Struct (lat, lon, relPosN/E, solution, numSV, hAccuracy, dgpsAge, nmeaGGA)
+- [ ] `hal/GpsDriver/UbloxGpsDriver.cpp` — Eigener Thread, UBX-State-Machine (Parser aus altem ublox.cpp portieren)
+  - [ ] UBX-NAV-RELPOSNED → RTK-Solution (0=invalid/1=float/2=fixed), relPosN/E
+  - [ ] UBX-NAV-HPPOSLLH → Lat/Lon (1e-7°), hAccuracy
+  - [ ] UBX-NAV-VELNED → Groundspeed, Heading
+  - [ ] UBX-RXM-RTCM → Korrekturen-Eingangsstatus
+  - [ ] NMEA GGA → Roher String (→ WebSocket-Stream)
+- [ ] Optionale F9P-Konfiguration beim Start (config-Key `gps_configure: true/false`) — UBX-CFG Pakete wie im alten Code
+- [ ] `Robot::run()` — `StateEstimator::updateGps()` aufrufen → echte Koordinaten in Telemetrie
+- [ ] `WebSocketServer` — NMEA-Zeilen als `{"type":"nmea","line":"..."}` pushen → LogPanel GPS-Tab
+- [ ] `config.example.json` — `gps_port`, `gps_baud`, `gps_configure` Schlüssel ergänzen
+- [ ] Tests: MockGpsDriver, GPS-Qualitätswechsel (Fix→Float→NoFix)
+
+### A.9 Alfred Build-Test ⏸ Hardware nötig
 
 - [ ] Kompilieren auf Raspberry Pi 4B
 - [ ] Alfred fährt mit neuem Core identisch wie vorher
@@ -67,7 +84,7 @@ Stand: März 2026
 
 ---
 
-## B — Pico-Driver (Phase 2 — nach A.8)
+## B — Pico-Driver (Phase 2 — nach A.9)
 
 - [ ] `hal/PicoRobotDriver/PicoRobotDriver.h + .cpp`
 - [ ] PWM-Ausgabe (1–20 kHz, 5V Amplitude) für BLDC-Controller
@@ -85,9 +102,14 @@ Stand: März 2026
 - [x] PUT /api/config Endpoint (Crow-Seite)
 - [x] Sektion 3 — Diagnose (Motor-Tests, IMU-Kalibrierung, Log-Stream)
 
-### C.2 Mission Service (Python)
+### C.2 GeoJSON Import/Export ✅
 
-- [ ] GeoJSON-Import — CaSSAndRA-Karten einlesen (WGS84 → lokal, Import-Dialog)
+- [x] GET /api/map/geojson — Export als FeatureCollection (WGS84, download)
+- [x] POST /api/map/geojson — Import, WGS84→lokal, origin-Ableitung, map.json reload
+- [x] MapEditor: Import-Button, Export-Button, Origin-Zeile (lat/lon + Von GPS)
+
+### C.2b Mission Service (Python — Phase 2)
+
 - [ ] MissionRunner — Waypoint-Sending (AT+W Batches à 30 Punkte)
 - [ ] Dynamisches Nachladen wenn Buffer leer
 
@@ -111,6 +133,22 @@ Stand: März 2026
 
 - [ ] Verlauf-View — Session-History, gemähte Fläche %, Coverage-Overlay
 - [ ] Statistiken-View — Gesamtstunden, km, Akku-Zyklen, Trends
+
+### C.4b Mähzonen (mehrere Zonen im Perimeter) 🔲 Konzept fehlt noch
+
+- [ ] MapEditor: Zone-Werkzeug — Polygon innerhalb des Perimeters zeichnen
+- [ ] MapData: `zones: { id, name, polygon: Pt[], settings: ZoneSettings }[]`
+- [ ] Zonen-Einstellungen pro Zone: Schnittbreite, Fahrgeschwindigkeit, Muster (Streifen/Spirale)
+- [ ] Reihenfolge der Zonen (Drag-Drop oder Nummerierung)
+- [ ] C++: Map.h zones[] → Robot priorisiert Zonen bei MowOp
+
+### C.4c Mähbahnen-Berechnung 🔲 Konzept fehlt noch
+
+- [ ] Konzept: Bahnberechnungs-Algorithmus (Streifen-Rotation, Startpunkt, Überlappung)
+- [ ] Einstellungen: Bahnbreite, Winkel, Überlappung %, Startseite
+- [ ] Kantenmähen: erste Runde am Perimeter / No-Go-Rand, konfigurierbar (Ja/Nein, Anzahl Runden)
+- [ ] Vorschau der berechneten Bahnen im MapEditor (read-only overlay)
+- [ ] Pfad-Export an Robot (AT+W Batches)
 
 ### C.5 Später (Phase C)
 

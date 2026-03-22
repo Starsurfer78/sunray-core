@@ -1,0 +1,46 @@
+{
+    "_comment": "Sunray Core — example configuration. Copy to /etc/sunray/config.json and adjust.",
+
+    "driver":              "serial",
+    "driver_port":         "/dev/ttyS0",
+    "driver_baud":         115200,
+    "i2c_bus":             "/dev/i2c-1",
+
+    "ticks_per_meter":     120,
+    "wheel_base_m":        0.285,
+
+    "stanley_k":           0.5,
+    "stanley_k_normal":    1.0,
+    "stanley_p_normal":    2.0,
+    "stanley_k_slow":      0.2,
+    "stanley_p_slow":      0.5,
+    "motor_set_speed_ms":  0.3,
+    "dock_linear_speed_ms": 0.1,
+
+    "gps_no_motion_threshold_m": 0.05,
+
+    "battery_low_v":       22.0,
+    "battery_critical_v":  20.0,
+    "battery_full_v":      29.4,
+
+    "buzzer_enabled":      true,
+    "port_expander_addr":  "0x20",
+
+    "undock_speed_ms":            0.1,
+    "undock_distance_m":          0.5,
+    "undock_charger_timeout_ms":  3000,
+    "undock_position_timeout_ms": 10000,
+    "undock_heading_tolerance_rad": 0.175,
+    "undock_encoder_check_ms":    1000,
+    "undock_encoder_min_ticks":   5,
+
+    "stuck_detect_timeout_ms":    5000,
+    "stuck_recovery_max_attempts": 3,
+
+    "dock_retry_max_attempts":    3,
+
+    "obstacle_loop_max_count":    5,
+    "obstacle_loop_window_ms":    30000,
+
+    "rain_delay_min":      60
+}

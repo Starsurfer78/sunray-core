@@ -105,6 +105,11 @@ int main(int argc, char* argv[]) {
             const float lon = static_cast<float>(params.value("lon", 0.0));
             robot.setPose(lon, lat, 0.0f);
         }
+        else if (cmd == "drive") {
+            const float lin = static_cast<float>(params.value("linear",  0.0));
+            const float ang = static_cast<float>(params.value("angular", 0.0));
+            robot.manualDrive(lin, ang);
+        }
     });
 
     // Simulator commands → SimulationDriver (only wired in --sim mode)
