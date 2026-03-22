@@ -31,6 +31,11 @@ const defaultTelemetry: Telemetry = {
 
 const telemetry  = ref<Telemetry>({ ...defaultTelemetry })
 const connected  = ref(false)
+
+// Exported raw refs for cross-composable use (e.g. useSessionTracker).
+// Do NOT use these directly in components — call useTelemetry() instead.
+export const _telemetry = telemetry
+export const _connected = connected
 const lastUpdate = ref(0)
 const logs       = ref<string[]>([])
 

@@ -129,10 +129,12 @@ Referenz: `e:/TRAE/Sunray/sunray/src/ublox/ublox.cpp` (alter Code), Port: `/dev/
 - [x] Hindernis-Platzierung auf Karte (MapEditor)
 - [x] Dashboard Design-Referenz umsetzen (webui/design/dashboard_reference.html)
 
-### C.4 Verlauf & Statistiken (neu)
+### C.4 Verlauf & Statistiken ✅
 
-- [ ] Verlauf-View — Session-History, gemähte Fläche %, Coverage-Overlay
-- [ ] Statistiken-View — Gesamtstunden, km, Akku-Zyklen, Trends
+- [x] `useSessionTracker.ts` — Singleton-Composable, trackt Mow-Sessions via Telemetrie,
+       speichert in localStorage (max 50 Sessions, min 30 s, 400 Pfadpunkte)
+- [x] Verlauf-View — Session-Liste, Mini-Pfad-Canvas, Dauer/Strecke/Akku, Delete/Clear
+- [x] Statistiken-View — 4 Summary-Cards, Balkendiagramm (letzte 10), längste Session
 
 ### C.4b Mähzonen (mehrere Zonen im Perimeter) 🔲 Konzept fehlt noch
 
