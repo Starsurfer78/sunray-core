@@ -39,7 +39,7 @@ Last updated: 2026-03-22 (full repo scan)
 **Status:** ✅ Complete
 **Purpose:** Alfred (STM32) driver — flat implementation of HardwareInterface
 **Depends on:** platform/Serial, platform/I2C, platform/PortExpander, core/Config
-**Protocol:** AT+M@50Hz, AT+S@2Hz, AT+V once. CRC verify on RX (XOR), CRC append on TX.
+**Protocol:** AT+M@50Hz, AT+S@2Hz, AT+V once. CRC verify on RX (byte sum), CRC append on TX.
 **Bugs fixed:** BUG-05 (long cast for tick overflow), BUG-07 (PWM/encoder swap in send+parse), BUG-08 (no Pi-side mow clamp), IMP-01 (ovCheck in summaryFrame field 12)
 **Notes:** Fan via CPU temp (>65°C on, <60°C off). WiFi LED via wpa_cli (7s interval). keepPowerOn(false) → 5s grace → shutdown now. Battery fallback 28V when MCU disconnected.
 
@@ -107,11 +107,12 @@ Last updated: 2026-03-22 (full repo scan)
 
 ### core/navigation/Map.h + .cpp
 
-**Status:** ✅ Complete (A.5)
+**Status:** ✅ Complete (A.5 + C.4b update 2026-03-22)
 **Purpose:** Waypoint/polygon management, perimeter enforcement, obstacle tracking
-**Key types:** `Point`, `PolygonPoints`, `WayType` (PERIMETER/EXCLUSION/DOCK/MOW/FREE)
+**Key types:** `Point`, `PolygonPoints`, `WayType` (PERIMETER/EXCLUSION/DOCK/MOW/FREE), `Zone`, `ZoneSettings`, `ZonePattern`
 **Key methods:** `load()`, `save()`, `startMowing()`, `startDocking()`, `nextPoint()`, `isInsideAllowedArea()`, `addObstacle()`, `getDockingPos()`
 **Public state:** `targetPoint`, `lastTargetPoint`, `trackReverse`, `trackSlow`, `wayMode`, `percentCompleted`
+**Zones (C.4b):** `zones_` vector loaded/saved in map.json. `ZoneSettings`: name, stripWidth, speed, pattern (stripe/spiral). Sorted by `zone.order` on load. Accessible via `zones()` accessor.
 **Notes:** Phase 1 uses simplified A* pathfinding. JSON map format set by Mission Service.
 
 ### core/navigation/LineTracker.h + .cpp
@@ -186,6 +187,26 @@ Last updated: 2026-03-22 (full repo scan)
 - `hal/PicoRobotDriver/` — RP2040 Pico direct PWM/Hall driver
 - GPS fusion in StateEstimator (complementary filter, fusionPI logic)
 - A* pathfinding in Map (simplified placeholder currently)
+
+### webui/src/views/MapEditor.vue
+
+**Status:** ✅ Complete (C.2/C.3 + C.4b zones + C.4c Mähbahnen 2026-03-22)
+**Purpose:** Interactive canvas-based map editor — perimeter, No-Go zones, Mähzonen, dock path, obstacles, mow path computation
+**Tools:** select, perimeter, exclusion, zone (C.4b), dockPath, obstacle, delete
+**Zone feature (C.4b):** Zone type (id, order, polygon, ZoneSettings{name,stripWidth,speed,pattern}). Zone tool draws polygon, opens zones panel on close. Zones panel: ordered list, inline edit (name/strip/speed/pattern), ▲/▼ reorder, ✕ delete. Canvas: purple fill (#a855f7), selected zone highlighted. Zones serialized in /api/map JSON.
+**Mähbahnen (C.4c):** Collapsible panel "Mähbahnen-Berechnung" below zones. Settings: angle (0-179°), stripWidth, overlap %, edgeMowing checkbox + edgeRounds, turnType (K-Turn/Zero-Turn), startSide. "Bahnen berechnen" → computeMowPath() → cyan/orange preview overlay on canvas. "Als Mähpfad speichern" → mapData.mow.
+**Map format:** perimeter/mow/dock/dockPath/exclusions/obstacles/zones/origin — GET+POST /api/map
+**GeoJSON:** Import/Export via /api/map/geojson
+**Canvas:** custom 2D renderer, pan/zoom, vertex drag, snap-to-first, Escape cancel. Preview: cyan=forward, orange=reverse, dashed lines for rev segments.
+
+### webui/src/composables/useMowPath.ts
+
+**Status:** ✅ Complete (C.4c 2026-03-22)
+**Purpose:** Mowing path algorithm — computes MowPt[] waypoints from perimeter+exclusions+settings
+**Exports:** `MowPt`, `MowPathSettings`, `DEFAULT_SETTINGS`, `computeMowPath()`, `inwardOffsetPolygon()`
+**Algorithm:** 1) optional headland rings (inward offset, configurable rounds) 2) strip generation (rotated scanlines, exclusion clipping, boustrophedon ordering) 3) K-Turn (3-point: forward/slow → reverse/slow → nextStart) or Zero-Turn transitions
+**K-Turn encoding:** waypoints carry `rev=true` (drive backward) + `slow=true` (reduce speed). Backwards-compatible with C++ MowPoint struct.
+**Settings:** angle (0-179°), stripWidth, overlap (0-50%), edgeMowing, edgeRounds (1-5), turnType (kturn/zeroturn), startSide (auto/top/bottom/left/right)
 
 ### webui/src/views/Settings.vue
 

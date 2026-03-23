@@ -1,23 +1,41 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useTelemetry } from '../composables/useTelemetry'
+import { type MowPt, type MowPathSettings, DEFAULT_SETTINGS, computeMowPath } from '../composables/useMowPath'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Pt = [number, number]  // [x, y] in local metres (east=+x, north=+y)
 
 interface Origin { lat: number; lon: number }
 
+interface ZoneSettings {
+  name:       string
+  stripWidth: number        // metres
+  speed:      number        // m/s
+  pattern:    'stripe' | 'spiral'
+}
+
+interface Zone {
+  id:       string
+  polygon:  Pt[]
+  order:    number
+  settings: ZoneSettings
+}
+
+// MowPt is imported from useMowPath composable
+
 interface MapData {
   perimeter:  Pt[]
-  mow:        Pt[]
+  mow:        MowPt[]
   dock:       Pt[]       // single station point [x,y]
   dockPath:   Pt[]       // open polyline: approach waypoints leading to dock
   exclusions: Pt[][]
   obstacles:  Pt[]
+  zones:      Zone[]
   origin?:    Origin
 }
 
-type Tool = 'select' | 'perimeter' | 'exclusion' | 'dockPath' | 'obstacle' | 'delete'
+type Tool = 'select' | 'perimeter' | 'exclusion' | 'dockPath' | 'obstacle' | 'delete' | 'zone'
 
 // exIdx sentinel values for vertex identity
 const EX_PERIMETER = -1
@@ -33,13 +51,24 @@ const OBSTACLE_RADIUS_M = 0.5
 const canvas    = ref<HTMLCanvasElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-const mapData    = reactive<MapData>({ perimeter: [], mow: [], dock: [], dockPath: [], exclusions: [], obstacles: [] })
+const mapData    = reactive<MapData>({ perimeter: [], mow: [] as MowPt[], dock: [], dockPath: [], exclusions: [], obstacles: [], zones: [] })
 const origin     = reactive<{ lat: string; lon: string }>({ lat: '', lon: '' })
 const activeTool = ref<Tool>('select')
 const drawingPts = ref<Pt[]>([])
 const mouseLocal = ref<Pt>([0, 0])
 const status     = ref('')
 const dirty      = ref(false)
+
+// Zones panel state
+const zonesOpen      = ref(true)
+const selectedZoneId = ref<string | null>(null)
+const editingZoneId  = ref<string | null>(null)
+
+// Mähbahnen-Berechnung state
+const pathPanelOpen  = ref(false)
+const previewMow     = ref<MowPt[]>([])
+const pathSettings   = reactive<MowPathSettings>({ ...DEFAULT_SETTINGS })
+const pathZoneId     = ref<string | null>(null)  // Zone for which the path is computed
 
 // ── Canvas viewport ────────────────────────────────────────────────────────────
 let scale   = 20
@@ -86,7 +115,7 @@ function draw() {
   ctx.clearRect(0, 0, W, H)
 
   // Grid
-  ctx.strokeStyle = '#1f2937'
+  ctx.strokeStyle = '#1e3a5f'
   ctx.lineWidth   = 1
   const gridStep = scale >= 10 ? 5 : 10
   const gridPx   = gridStep * scale
@@ -101,11 +130,33 @@ function draw() {
   ctx.beginPath(); ctx.moveTo(ox - 10, oy); ctx.lineTo(ox + 10, oy); ctx.stroke()
   ctx.beginPath(); ctx.moveTo(ox, oy - 10); ctx.lineTo(ox, oy + 10); ctx.stroke()
 
-  // Mow points
-  ctx.fillStyle = '#4b5563'
-  for (const [mx, my] of mapData.mow) {
-    const [cx, cy] = toCanvas(mx, my)
+  // Saved mow points (grey = normal, dark-red = reverse segment)
+  for (const mp of mapData.mow) {
+    const [cx, cy] = toCanvas(mp.p[0], mp.p[1])
+    ctx.fillStyle = mp.rev ? '#7f1d1d' : '#4b5563'
     ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill()
+  }
+
+  // Preview mow path (cyan = forward, orange = reverse)
+  if (previewMow.value.length > 1) {
+    for (let i = 0; i < previewMow.value.length - 1; i++) {
+      const a = previewMow.value[i]
+      const b = previewMow.value[i + 1]
+      const [ax, ay] = toCanvas(a.p[0], a.p[1])
+      const [bx, by] = toCanvas(b.p[0], b.p[1])
+      ctx.strokeStyle = b.rev ? '#fb923c' : '#22d3ee'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash(b.rev ? [4, 3] : [])
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = b.rev ? '#fb923c' : '#22d3ee'
+      drawArrow(ctx, ax, ay, bx, by)
+    }
+    for (const mp of previewMow.value) {
+      const [cx, cy] = toCanvas(mp.p[0], mp.p[1])
+      ctx.fillStyle = mp.rev ? '#fb923c' : '#22d3ee'
+      ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2); ctx.fill()
+    }
   }
 
   // Exclusion zones
@@ -119,6 +170,35 @@ function draw() {
     ctx.fill(); ctx.stroke()
     ctx.fillStyle = '#ef4444'
     for (const [mx, my] of excl) { const [cx, cy] = toCanvas(mx, my); ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill() }
+  }
+
+  // Mow zones (purple/violet — ordering by zone.order)
+  const sortedZones = [...mapData.zones].sort((a, b) => a.order - b.order)
+  for (const zone of sortedZones) {
+    if (zone.polygon.length < 2) continue
+    const isSelected = zone.id === selectedZoneId.value
+    ctx.beginPath()
+    const [zx0, zy0] = toCanvas(zone.polygon[0][0], zone.polygon[0][1]); ctx.moveTo(zx0, zy0)
+    for (let i = 1; i < zone.polygon.length; i++) {
+      const [zx, zy] = toCanvas(zone.polygon[i][0], zone.polygon[i][1]); ctx.lineTo(zx, zy)
+    }
+    ctx.closePath()
+    ctx.fillStyle   = isSelected ? 'rgba(168,85,247,0.28)' : 'rgba(168,85,247,0.13)'
+    ctx.strokeStyle = isSelected ? '#d8b4fe' : '#a855f7'
+    ctx.lineWidth   = isSelected ? 2.5 : 1.5
+    ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#a855f7'
+    for (const [mx, my] of zone.polygon) {
+      const [zx, zy] = toCanvas(mx, my)
+      ctx.beginPath(); ctx.arc(zx, zy, 4, 0, Math.PI * 2); ctx.fill()
+    }
+    // Zone label (order + name) at centroid
+    const cx_ = zone.polygon.reduce((s, p) => s + p[0], 0) / zone.polygon.length
+    const cy_ = zone.polygon.reduce((s, p) => s + p[1], 0) / zone.polygon.length
+    const [lx, ly] = toCanvas(cx_, cy_)
+    ctx.fillStyle = isSelected ? '#f3e8ff' : '#d8b4fe'
+    ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(`${zone.order}. ${zone.settings.name}`, lx, ly)
   }
 
   // Perimeter
@@ -200,7 +280,7 @@ function draw() {
   // Currently drawing preview (polygon or polyline)
   if (drawingPts.value.length > 0) {
     const tool  = activeTool.value
-    const color = tool === 'exclusion' ? '#f87171' : tool === 'dockPath' ? '#7dd3fc' : '#86efac'
+    const color = tool === 'exclusion' ? '#f87171' : tool === 'dockPath' ? '#7dd3fc' : tool === 'zone' ? '#d8b4fe' : '#86efac'
     ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4])
     ctx.beginPath()
     const [fx, fy] = toCanvas(drawingPts.value[0][0], drawingPts.value[0][1]); ctx.moveTo(fx, fy)
@@ -225,6 +305,7 @@ function draw() {
 
 // ── Vertex helpers ─────────────────────────────────────────────────────────────
 function getVertexList(ref: VertexRef): Pt[] {
+  if (ref.kind === 'zone') return mapData.zones[ref.exIdx]?.polygon ?? []
   if (ref.kind === 'perimeter' || ref.exIdx === EX_PERIMETER) return mapData.perimeter
   if (ref.exIdx === EX_DOCK) return mapData.dock
   if (ref.kind === 'dockPath'  || ref.exIdx === EX_DOCKPATH)  return mapData.dockPath
@@ -250,6 +331,7 @@ function findNearestVertex(cx: number, cy: number, thresh: number): VertexRef | 
   check(mapData.dockPath,  'dockPath',  EX_DOCKPATH)
   check(mapData.obstacles, 'obstacle',  EX_OBSTACLE)
   mapData.exclusions.forEach((ex, i) => check(ex, 'exclusion', i))
+  mapData.zones.forEach((z, i) => check(z.polygon, 'zone', i))
 
   return best
 }
@@ -261,11 +343,27 @@ async function loadMap() {
     if (!res.ok) { status.value = `Laden fehlgeschlagen: HTTP ${res.status}`; return }
     const j = await res.json()
     mapData.perimeter  = j.perimeter  ?? []
-    mapData.mow        = j.mow        ?? []
+    mapData.mow        = (j.mow ?? []).map((e: unknown) =>
+      Array.isArray(e)
+        ? { p: e as Pt }                                          // legacy [x,y]
+        : { p: (e as MowPt).p, rev: (e as MowPt).rev, slow: (e as MowPt).slow }  // new format
+    )
     mapData.dock       = j.dock       ?? []
     mapData.dockPath   = j.dockPath   ?? []
     mapData.exclusions = j.exclusions ?? []
     mapData.obstacles  = j.obstacles  ?? []
+    mapData.zones      = (j.zones ?? []).map((z: Zone, i: number) => ({
+      id:       z.id ?? String(i),
+      polygon:  z.polygon ?? [],
+      order:    z.order   ?? (i + 1),
+      settings: {
+        name:       z.settings?.name       ?? `Zone ${i + 1}`,
+        stripWidth: z.settings?.stripWidth ?? 0.18,
+        speed:      z.settings?.speed      ?? 1.0,
+        pattern:    z.settings?.pattern    ?? 'stripe',
+      },
+    }))
+    selectedZoneId.value = null; editingZoneId.value = null
     if (j.origin) { origin.lat = String(j.origin.lat); origin.lon = String(j.origin.lon) }
     dirty.value  = false
     status.value = 'Karte geladen.'
@@ -287,11 +385,16 @@ async function saveMap() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         perimeter:  mapData.perimeter,
-        mow:        mapData.mow,
+        mow:        mapData.mow.map(mp =>
+          mp.rev || mp.slow
+            ? { p: mp.p, ...(mp.rev  ? { rev:  true } : {}), ...(mp.slow ? { slow: true } : {}) }
+            : mp.p   // compact [x,y] when no flags
+        ),
         dock:       derivedDock,
         dockPath:   mapData.dockPath,
         exclusions: mapData.exclusions,
         obstacles:  mapData.obstacles,
+        zones:      mapData.zones,
         ...(origin.lat && origin.lon
           ? { origin: { lat: parseFloat(origin.lat), lon: parseFloat(origin.lon) } }
           : {}),
@@ -311,7 +414,8 @@ function fitView() {
   if (!el) return
   const allPts: Pt[] = [
     ...mapData.perimeter, ...mapData.dock, ...mapData.dockPath,
-    ...mapData.mow, ...mapData.exclusions.flat(), ...mapData.obstacles,
+    ...mapData.mow.map(mp => mp.p), ...mapData.exclusions.flat(), ...mapData.obstacles,
+    ...mapData.zones.flatMap(z => z.polygon),
   ]
   if (allPts.length === 0) { originX = el.width / 2; originY = el.height / 2; scale = 20; return }
   const xs = allPts.map(p => p[0]), ys = allPts.map(p => p[1])
@@ -369,7 +473,7 @@ const perimeterExists = computed(() => mapData.perimeter.length >= 3)
 const isDrawing       = computed(() => drawingPts.value.length > 0)
 
 function selectTool(t: Tool) {
-  if (t === 'dockPath' && !perimeterExists.value) {
+  if ((t === 'dockPath' || t === 'zone') && !perimeterExists.value) {
     status.value = 'Bitte zuerst einen Perimeter anlegen.'
     return
   }
@@ -404,8 +508,81 @@ function closePolygon() {
   } else if (activeTool.value === 'exclusion') {
     mapData.exclusions = [...mapData.exclusions, [...drawingPts.value]]
     status.value = 'No-Go-Zone hinzugefügt.'
+  } else if (activeTool.value === 'zone') {
+    const newOrder = mapData.zones.length + 1
+    const id       = Date.now().toString()
+    mapData.zones.push({
+      id,
+      polygon:  [...drawingPts.value],
+      order:    newOrder,
+      settings: { name: `Zone ${newOrder}`, stripWidth: 0.18, speed: 1.0, pattern: 'stripe' },
+    })
+    selectedZoneId.value = id
+    editingZoneId.value  = id
+    status.value = `Mähzone ${newOrder} hinzugefügt.`
   }
   drawingPts.value = []; dirty.value = true; draw()
+}
+
+// ── Zone helpers ───────────────────────────────────────────────────────────────
+
+function clearZones() { mapData.zones = []; selectedZoneId.value = null; editingZoneId.value = null; dirty.value = true; draw() }
+
+// ── Mähbahnen-Berechnung ───────────────────────────────────────────────────────
+
+function computePreview() {
+  const zone = mapData.zones.find(z => z.id === pathZoneId.value)
+  if (!zone) { status.value = 'Bitte eine Mähzone auswählen (Zonen-Panel).'; return }
+  if (zone.polygon.length < 3) { status.value = 'Zone hat zu wenig Punkte (mind. 3).'; return }
+  // Mähfläche = zone.polygon ∩ mapData.perimeter.
+  // Streifen: Scanline clippt zone.polygon, dann Intervall-Schnitt mit Perimeter.
+  // Randbahnen: inward-offset Zone (clipped auf Perimeter) +
+  //             inward-offset Perimeter (clipped auf Zone) — deckt beide Fälle ab.
+  const perimClip = mapData.perimeter.length >= 3
+    ? mapData.perimeter as [number,number][]
+    : null
+
+  previewMow.value = computeMowPath(
+    zone.polygon as [number,number][],
+    mapData.exclusions as [number,number][][],
+    { ...pathSettings, stripWidth: zone.settings.stripWidth },
+    perimClip,
+  )
+  status.value = `Mähpfad für "${zone.settings.name}" berechnet: ${previewMow.value.length} Wegpunkte`
+  draw()
+}
+
+function saveMowPath() {
+  if (previewMow.value.length === 0) return
+  mapData.mow = [...previewMow.value]
+  dirty.value = true
+  status.value = `Mähpfad gespeichert (${mapData.mow.length} Punkte).`
+  previewMow.value = []
+  draw()
+}
+
+function discardPreview() { previewMow.value = []; draw() }
+
+function deleteZone(id: string) {
+  mapData.zones = mapData.zones.filter(z => z.id !== id)
+  // Renumber order
+  mapData.zones.forEach((z, i) => { z.order = i + 1 })
+  if (selectedZoneId.value === id) { selectedZoneId.value = null; editingZoneId.value = null }
+  dirty.value = true; draw()
+}
+
+function moveZone(id: string, dir: -1 | 1) {
+  const idx = mapData.zones.findIndex(z => z.id === id)
+  if (idx < 0) return
+  const swapIdx = idx + dir
+  if (swapIdx < 0 || swapIdx >= mapData.zones.length) return
+  // Swap order values
+  const tmp = mapData.zones[idx].order
+  mapData.zones[idx].order    = mapData.zones[swapIdx].order
+  mapData.zones[swapIdx].order = tmp
+  // Re-sort by order
+  mapData.zones.sort((a, b) => a.order - b.order)
+  dirty.value = true; draw()
 }
 
 // Finish dock path polyline
@@ -422,7 +599,16 @@ function deleteNearestVertex(cx: number, cy: number) {
   const ref = findNearestVertex(cx, cy, SNAP_PX)
   if (!ref) { status.value = 'Kein Punkt in der Nähe.'; return }
 
-  if (ref.exIdx === EX_OBSTACLE) {
+  if (ref.kind === 'zone') {
+    const zone = mapData.zones[ref.exIdx]
+    if (zone) {
+      zone.polygon.splice(ref.idx, 1)
+      if (zone.polygon.length < 3) {
+        mapData.zones.splice(ref.exIdx, 1)
+        if (selectedZoneId.value === zone.id) selectedZoneId.value = null
+      }
+    }
+  } else if (ref.exIdx === EX_OBSTACLE) {
     mapData.obstacles.splice(ref.idx, 1)
   } else if (ref.exIdx === EX_DOCK) {
     mapData.dock = []
@@ -441,6 +627,10 @@ function deleteNearestVertex(cx: number, cy: number) {
 function canvasClick(e: MouseEvent) {
   // Suppress click if it was the end of a drag
   if (dragTarget) return
+  // Suppress the individual clicks that are part of a double-click (BUG-010 fix):
+  // dblclick fires canvasClick twice before canvasDblClick — the second click
+  // would add a spurious vertex at the closing position before closePolygon().
+  if (e.detail >= 2) return
 
   const el   = canvas.value!
   const rect = el.getBoundingClientRect()
@@ -465,7 +655,7 @@ function canvasClick(e: MouseEvent) {
     drawingPts.value = [...drawingPts.value, [mx, my]]; draw(); return
   }
 
-  if (activeTool.value === 'perimeter' || activeTool.value === 'exclusion') {
+  if (activeTool.value === 'perimeter' || activeTool.value === 'exclusion' || activeTool.value === 'zone') {
     // Snap-to-first: close polygon if click near first point
     if (drawingPts.value.length >= 3) {
       const [fx, fy] = toCanvas(drawingPts.value[0][0], drawingPts.value[0][1])
@@ -477,7 +667,7 @@ function canvasClick(e: MouseEvent) {
 }
 
 function canvasDblClick(e: MouseEvent) {
-  if (activeTool.value === 'perimeter' || activeTool.value === 'exclusion') {
+  if (activeTool.value === 'perimeter' || activeTool.value === 'exclusion' || activeTool.value === 'zone') {
     e.preventDefault(); closePolygon()
   } else if (activeTool.value === 'dockPath') {
     e.preventDefault(); finishDockPath()
@@ -600,6 +790,18 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
 })
 watch(activeTool, draw)
+
+// Auto-select first zone when zones list changes; keep selection valid
+watch(() => mapData.zones, (zones) => {
+  if (zones.length === 0) { pathZoneId.value = null; return }
+  if (!zones.find(z => z.id === pathZoneId.value)) pathZoneId.value = zones[0].id
+}, { deep: false })
+
+// Pre-fill stripWidth from the selected zone's settings
+watch(pathZoneId, (id) => {
+  const zone = mapData.zones.find(z => z.id === id)
+  if (zone) pathSettings.stripWidth = zone.settings.stripWidth
+})
 </script>
 
 <template>
@@ -618,21 +820,23 @@ watch(activeTool, draw)
           ['select',    'Zeiger',     'Punkte verschieben (Ziehen) · Karte verschieben (freier Bereich)'],
           ['perimeter', 'Perimeter',  'Perimeter zeichnen — Doppelklick oder Klick auf ersten Punkt zum Schließen'],
           ['exclusion', 'No-Go',      'No-Go-Zone zeichnen'],
+          ['zone',      'Mähzone',    'Mähzone zeichnen — Polygon innerhalb des Perimeters'],
           ['dockPath',  'Dock-Pfad',  'Anfahrtsweg zur Dock-Station zeichnen — letzter Punkt = Station · Doppelklick zum Abschließen'],
           ['obstacle',  'Hindernis',  'Simulations-Hindernis setzen (Kreis r=0.5 m)'],
           ['delete',    'Löschen',    'Nächsten gesetzten Punkt löschen'],
         ] as [Tool, string, string][])"
         :key="tool"
-        :title="tool === 'dockPath' && !perimeterExists ? 'Bitte zuerst Perimeter anlegen' : title"
-        :disabled="tool === 'dockPath' && !perimeterExists"
+        :title="(tool === 'dockPath' || tool === 'zone') && !perimeterExists ? 'Bitte zuerst Perimeter anlegen' : title"
+        :disabled="(tool === 'dockPath' || tool === 'zone') && !perimeterExists"
         @click="selectTool(tool)"
         :class="[
           'px-3 py-1 rounded text-xs font-medium transition-colors',
-          tool === 'dockPath' && !perimeterExists
+          (tool === 'dockPath' || tool === 'zone') && !perimeterExists
             ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
             : activeTool === tool
               ? tool === 'perimeter' ? 'bg-green-700 text-green-100'
               : tool === 'exclusion' ? 'bg-red-700 text-red-100'
+              : tool === 'zone'      ? 'bg-purple-700 text-purple-100'
               : tool === 'dockPath'  ? 'bg-sky-700 text-sky-100'
               : tool === 'obstacle'  ? 'bg-amber-700 text-amber-100'
               : tool === 'delete'    ? 'bg-orange-700 text-orange-100'
@@ -648,6 +852,8 @@ watch(activeTool, draw)
         class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700">⌫ Perimeter</button>
       <button @click="clearExclusions" title="Alle No-Go-Zonen löschen"
         class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700">⌫ No-Go</button>
+      <button @click="clearZones" title="Alle Mähzonen löschen" :disabled="mapData.zones.length === 0"
+        class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-40">⌫ Mähzonen</button>
       <button @click="clearDockPath"   title="Dock-Pfad löschen (letzter Punkt = Dock-Station)"
         class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700">⌫ Dock-Pfad</button>
       <button @click="clearObstacles"  title="Alle Hindernisse löschen"
@@ -723,9 +929,11 @@ watch(activeTool, draw)
       <div class="absolute top-2 right-2 text-xs text-gray-500 select-none pointer-events-none space-y-1">
         <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-green-500 opacity-70" /> Perimeter</div>
         <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-red-500 opacity-70" /> No-Go</div>
+        <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-purple-500 opacity-70" /> Mähzone</div>
         <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-blue-500 opacity-90" /> Dock-Station (letzter Pfadpunkt)</div>
         <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-sky-400 opacity-70" /> Dock-Pfad</div>
         <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-gray-500 opacity-70" /> Mäh-Pfad</div>
+        <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-cyan-400 opacity-70" /> Vorschau Mähpfad</div>
         <div class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-amber-500 opacity-70" /> Hindernis (Sim)</div>
       </div>
 
@@ -744,9 +952,205 @@ watch(activeTool, draw)
           class="pointer-events-auto px-2 py-0.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 font-mono"
           title="Letzten Punkt löschen (Backspace)">⌫ Letzten</button>
       </div>
+      <div v-if="activeTool === 'zone'"
+        class="absolute top-2 left-2 flex items-center gap-2 text-xs text-gray-400 bg-gray-900 bg-opacity-90 rounded px-2 py-1 select-none">
+        <span class="pointer-events-none">Klicken: Punkt setzen &nbsp;·&nbsp; Doppelklick / ⊙ Erstpunkt: schließen &nbsp;·&nbsp; Esc: Abbruch</span>
+        <button v-if="isDrawing" @click="undoLastPoint"
+          class="pointer-events-auto px-2 py-0.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 font-mono"
+          title="Letzten Punkt löschen (Backspace)">⌫ Letzten</button>
+      </div>
       <div v-else-if="activeTool === 'select'"
         class="absolute top-2 left-2 text-xs text-gray-400 bg-gray-900 bg-opacity-80 rounded px-2 py-1 select-none pointer-events-none">
         Punkt ziehen: verschieben &nbsp;·&nbsp; Freier Bereich ziehen: Karte verschieben
+      </div>
+    </div>
+
+    <!-- Zones panel -->
+    <div v-if="mapData.zones.length > 0 || activeTool === 'zone'"
+      class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+      <!-- Panel header -->
+      <button
+        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-gray-800 transition-colors"
+        @click="zonesOpen = !zonesOpen"
+      >
+        <span class="font-semibold text-purple-300">Mähzonen</span>
+        <span class="text-gray-500">({{ mapData.zones.length }})</span>
+        <span class="ml-auto text-gray-500">{{ zonesOpen ? '▾' : '▸' }}</span>
+      </button>
+
+      <!-- Zone list -->
+      <div v-if="zonesOpen" class="border-t border-gray-800">
+        <div v-if="mapData.zones.length === 0" class="px-3 py-2 text-xs text-gray-600 italic">
+          Noch keine Mähzonen — Werkzeug "Mähzone" wählen und Polygon zeichnen.
+        </div>
+        <div
+          v-for="z in [...mapData.zones].sort((a,b) => a.order - b.order)"
+          :key="z.id"
+          class="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800 last:border-b-0 cursor-pointer hover:bg-gray-800 transition-colors"
+          :class="selectedZoneId === z.id ? 'bg-gray-800 border-l-2 border-l-purple-500' : ''"
+          @click="selectedZoneId = selectedZoneId === z.id ? null : z.id; editingZoneId = selectedZoneId; draw()"
+        >
+          <!-- Order badge -->
+          <span class="w-5 h-5 rounded-full bg-purple-800 text-purple-200 text-xs flex items-center justify-center font-bold flex-shrink-0">{{ z.order }}</span>
+
+          <!-- Name (editable when selected) -->
+          <template v-if="editingZoneId === z.id">
+            <input
+              v-model="z.settings.name"
+              @click.stop
+              @input="dirty = true"
+              class="w-24 bg-gray-700 border border-purple-600 rounded px-1.5 py-0.5 text-xs text-gray-100 font-medium"
+              placeholder="Name"
+            />
+            <!-- Strip width -->
+            <label class="text-gray-500 text-xs flex-shrink-0">Breite</label>
+            <input
+              v-model.number="z.settings.stripWidth"
+              @click.stop
+              @input="dirty = true"
+              type="number" step="0.01" min="0.05" max="1.0"
+              class="w-16 bg-gray-700 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-gray-100 font-mono"
+            />
+            <span class="text-gray-600 text-xs">m</span>
+            <!-- Speed -->
+            <label class="text-gray-500 text-xs flex-shrink-0">Speed</label>
+            <input
+              v-model.number="z.settings.speed"
+              @click.stop
+              @input="dirty = true"
+              type="number" step="0.1" min="0.1" max="3.0"
+              class="w-14 bg-gray-700 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-gray-100 font-mono"
+            />
+            <span class="text-gray-600 text-xs">m/s</span>
+            <!-- Pattern -->
+            <select
+              v-model="z.settings.pattern"
+              @click.stop
+              @change="dirty = true"
+              class="bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-xs text-gray-100"
+            >
+              <option value="stripe">Streifen</option>
+              <option value="spiral">Spirale</option>
+            </select>
+          </template>
+          <template v-else>
+            <span class="text-xs text-gray-200 font-medium flex-1 min-w-0 truncate">{{ z.settings.name }}</span>
+            <span class="text-xs text-gray-500 flex-shrink-0">{{ z.settings.pattern === 'stripe' ? '≡' : '◎' }} {{ z.settings.stripWidth.toFixed(2) }}m  {{ z.settings.speed.toFixed(1) }}m/s</span>
+          </template>
+
+          <!-- Move + delete -->
+          <div class="flex items-center gap-1 flex-shrink-0 ml-1" @click.stop>
+            <button @click="moveZone(z.id, -1)" :disabled="z.order === 1"
+              class="w-5 h-5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 text-xs disabled:opacity-30 flex items-center justify-center" title="Nach oben">▲</button>
+            <button @click="moveZone(z.id, 1)" :disabled="z.order === mapData.zones.length"
+              class="w-5 h-5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 text-xs disabled:opacity-30 flex items-center justify-center" title="Nach unten">▼</button>
+            <button @click="deleteZone(z.id)"
+              class="w-5 h-5 rounded bg-gray-700 hover:bg-red-800 text-gray-400 hover:text-red-200 text-xs flex items-center justify-center" title="Zone löschen">✕</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mähbahnen-Berechnung panel -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+      <button
+        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-gray-800 transition-colors"
+        @click="pathPanelOpen = !pathPanelOpen"
+      >
+        <span class="font-semibold text-cyan-300">Mähbahnen-Berechnung</span>
+        <span v-if="pathZoneId" class="text-purple-400 text-xs">{{ mapData.zones.find(z => z.id === pathZoneId)?.settings.name }}</span>
+        <span v-if="previewMow.length > 0" class="text-cyan-500 text-xs">({{ previewMow.length }} Punkte Vorschau)</span>
+        <span class="ml-auto text-gray-500">{{ pathPanelOpen ? '▾' : '▸' }}</span>
+      </button>
+      <div v-if="pathPanelOpen" class="border-t border-gray-800 px-3 py-2 space-y-2">
+
+        <!-- Zone selector -->
+        <div v-if="mapData.zones.length === 0" class="text-xs text-amber-500 italic">
+          Keine Mähzonen vorhanden — bitte zuerst eine Zone anlegen (Werkzeug "Mähzone").
+        </div>
+        <div v-else class="flex items-center gap-2 text-xs">
+          <label class="text-gray-400 flex-shrink-0">Zone</label>
+          <select v-model="pathZoneId"
+            class="flex-1 bg-gray-800 border border-purple-700 rounded px-2 py-0.5 text-gray-200 text-xs">
+            <option v-for="z in [...mapData.zones].sort((a,b)=>a.order-b.order)" :key="z.id" :value="z.id">
+              {{ z.order }}. {{ z.settings.name }} ({{ z.settings.stripWidth.toFixed(2) }}m)
+            </option>
+          </select>
+        </div>
+
+        <!-- Row 1: Angle + Strip width + Overlap -->
+        <div class="flex items-center gap-3 flex-wrap text-xs">
+          <label class="text-gray-400">Winkel</label>
+          <input v-model.number="pathSettings.angle" type="range" min="0" max="179" step="1"
+            class="w-24 accent-cyan-500" />
+          <span class="text-gray-300 font-mono w-8">{{ pathSettings.angle }}°</span>
+
+          <div class="w-px h-4 bg-gray-700" />
+
+          <label class="text-gray-400">Bahnbreite</label>
+          <input v-model.number="pathSettings.stripWidth" type="number" step="0.01" min="0.05" max="1.0"
+            class="w-16 bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 font-mono text-xs" />
+          <span class="text-gray-600">m</span>
+
+          <div class="w-px h-4 bg-gray-700" />
+
+          <label class="text-gray-400">Überlappung</label>
+          <input v-model.number="pathSettings.overlap" type="range" min="0" max="50" step="1"
+            class="w-16 accent-cyan-500" />
+          <span class="text-gray-300 font-mono w-8">{{ pathSettings.overlap }}%</span>
+        </div>
+
+        <!-- Row 2: Edge mowing + Turn type + Start side -->
+        <div class="flex items-center gap-3 flex-wrap text-xs">
+          <label class="flex items-center gap-1.5 text-gray-400 cursor-pointer">
+            <input v-model="pathSettings.edgeMowing" type="checkbox" class="accent-cyan-500" />
+            Randstreifen
+          </label>
+          <template v-if="pathSettings.edgeMowing">
+            <label class="text-gray-400">Runden</label>
+            <input v-model.number="pathSettings.edgeRounds" type="number" min="1" max="5" step="1"
+              class="w-12 bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 font-mono text-xs" />
+          </template>
+
+          <div class="w-px h-4 bg-gray-700" />
+
+          <span class="text-gray-400">Wende:</span>
+          <label class="flex items-center gap-1 text-gray-300 cursor-pointer">
+            <input v-model="pathSettings.turnType" type="radio" value="kturn" class="accent-cyan-500" /> K-Turn
+          </label>
+          <label class="flex items-center gap-1 text-gray-300 cursor-pointer">
+            <input v-model="pathSettings.turnType" type="radio" value="zeroturn" class="accent-cyan-500" /> Zero-Turn
+          </label>
+
+          <div class="w-px h-4 bg-gray-700" />
+
+          <label class="text-gray-400">Start</label>
+          <select v-model="pathSettings.startSide"
+            class="bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-xs text-gray-200">
+            <option value="auto">Auto</option>
+            <option value="bottom">Unten</option>
+            <option value="top">Oben</option>
+            <option value="left">Links</option>
+            <option value="right">Rechts</option>
+          </select>
+        </div>
+
+        <!-- Row 3: Action buttons -->
+        <div class="flex items-center gap-2">
+          <button @click="computePreview" :disabled="!pathZoneId || mapData.zones.length === 0"
+            class="px-3 py-1 rounded text-xs font-medium bg-cyan-800 hover:bg-cyan-700 text-cyan-100 disabled:opacity-40 transition-colors">
+            Bahnen berechnen
+          </button>
+          <button v-if="previewMow.length > 0" @click="saveMowPath"
+            class="px-3 py-1 rounded text-xs font-medium bg-green-700 hover:bg-green-600 text-white transition-colors">
+            Als Mähpfad speichern ({{ previewMow.length }})
+          </button>
+          <button v-if="previewMow.length > 0" @click="discardPreview"
+            class="px-2 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-gray-400 transition-colors">
+            Vorschau verwerfen
+          </button>
+        </div>
+
       </div>
     </div>
 
@@ -755,8 +1159,10 @@ watch(activeTool, draw)
       {{ status || 'Bereit.' }}
       &nbsp;·&nbsp; Perimeter: {{ mapData.perimeter.length }} Punkte
       &nbsp;·&nbsp; No-Go: {{ mapData.exclusions.length }} Zone(n)
+      &nbsp;·&nbsp; Mähzonen: {{ mapData.zones.length }}
       &nbsp;·&nbsp; Dock-Pfad: {{ mapData.dockPath.length > 0 ? mapData.dockPath.length + ' Wegpunkte (letzer = Station)' : '—' }}
-      &nbsp;·&nbsp; Mäh-Pfad: {{ mapData.mow.length }} (nur-lesen)
+      &nbsp;·&nbsp; Mäh-Pfad: {{ mapData.mow.length }}
+      <template v-if="previewMow.length > 0">&nbsp;·&nbsp; <span class="text-cyan-600">Vorschau: {{ previewMow.length }}</span></template>
       &nbsp;·&nbsp; Hindernisse: {{ mapData.obstacles.length }}
     </div>
 

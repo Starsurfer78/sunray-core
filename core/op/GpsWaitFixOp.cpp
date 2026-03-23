@@ -8,8 +8,7 @@ static constexpr unsigned long GPS_FIX_TIMEOUT_MS = 120000;  // 2 minutes
 
 void GpsWaitFixOp::begin(OpContext& ctx) {
     ctx.logger.info("GpsWait", "waiting for GPS fix...");
-    ctx.stopMotors();
-    ctx.hw.setMowMotor(0, 0, 0);
+    ctx.stopMotors();  // stops all motors including mow (setMotorPwm 0,0,0)
     waitStartTime_ms = ctx.now_ms;
 }
 

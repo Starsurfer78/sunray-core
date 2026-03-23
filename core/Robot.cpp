@@ -10,6 +10,7 @@
 //   7. ++controlLoops_
 
 #include "core/Robot.h"
+#include "core/MqttClient.h"
 
 #include <filesystem>
 #include <thread>
@@ -172,8 +173,10 @@ void Robot::run() {
     // ── 10. Status LEDs ───────────────────────────────────────────────────────
     updateStatusLeds();
 
-    // ── 11. WebSocket telemetry push ──────────────────────────────────────────
-    if (ws_) ws_->pushTelemetry(buildTelemetry());
+    // ── 11. Telemetry push (WebSocket + MQTT) ────────────────────────────────
+    const auto td = buildTelemetry();
+    if (ws_)   ws_->pushTelemetry(td);
+    if (mqtt_) mqtt_->pushTelemetry(td);
 
     ++controlLoops_;
 }
@@ -336,13 +339,13 @@ void Robot::checkBattery(OpContext& ctx) {
     if (battery_.voltage < criticalV) {
         logger_->error(TAG, "Battery critical (" + std::to_string(battery_.voltage) + "V)");
         hw_->setMotorPwm(0, 0, 0);
-        hw_->setBuzzer(false);
+        hw_->setBuzzer(true);   // BUG-002 fix: alert user on critical battery
         hw_->keepPowerOn(false);
         running_.store(false);
-        opMgr_.activeOp()->onBatteryUndervoltage(ctx);
+        if (Op* op = opMgr_.activeOp()) op->onBatteryUndervoltage(ctx);  // BUG-001 fix
     } else if (battery_.voltage < lowV) {
         logger_->warn(TAG, "Battery low (" + std::to_string(battery_.voltage) + "V) — docking");
-        opMgr_.activeOp()->onBatteryLowShouldDock(ctx);
+        if (Op* op = opMgr_.activeOp()) op->onBatteryLowShouldDock(ctx);  // BUG-001 fix
     }
 }
 
