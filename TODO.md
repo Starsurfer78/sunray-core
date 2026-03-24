@@ -14,7 +14,9 @@ Stand: März 2026
 - [ ] Alfred fährt mit neuem Core identisch wie vorher
 - [ ] Alle Unit Tests grün auf Pi
 
-**Vor A.9 zwingend:** BUG-004 (CRC XOR vs. Summe) + `setMowMotor→setMotorPwm` in GpsWaitFixOp — siehe `docs/STATUS.md`
+**Vor A.9 zwingend (P0 Blocker):**
+- [ ] **STM32 Flashen über Pi:** UART-Bootloader oder SWD/JTAG von Pi aus. Dokumentieren Sie die Hardware-Verkabelung + Flashen-Prozess in `docs/ALFRED_FLASHING.md`. Ohne dies ist A.9 unmöglich!
+- [ ] BUG-004 (CRC XOR vs. Summe) + `setMowMotor→setMotorPwm` in GpsWaitFixOp — siehe `docs/STATUS.md`
 
 ---
 
