@@ -1,6 +1,6 @@
 # Architectural Decisions — sunray-core
 
-Last updated: 2026-03-21
+Last updated: 2026-03-24
 
 ---
 
@@ -100,6 +100,22 @@ Last updated: 2026-03-21
 - Roboter-Marker: Kreis mit Richtungspfeil; Dock-Marker: Amber (`#d97706`) Rechteck mit D
 **Rejected:** Änderungen am Design ohne explizite Freigabe — Referenzdatei nicht anfassen
 **Referenz:** `webui/design/dashboard_reference.html` — nicht verändern ohne explizite Freigabe
+
+---
+
+## 2026-03-24 Decision: Dokumentation in separate Dateien ausgelagert
+
+**Choice:** `docs/ARCHITECTURE.md` (C++-Architektur) und `docs/WEBUI_ARCHITECTURE.md` (Vue-Architektur) als zentrale Referenz, nicht im CLAUDE.md
+**Reason:** CLAUDE.md kompakt halten, Architektur-Details erfordern zu viel Platz — separate Docs für zukünftige Entwickler leichter zu durchsuchen
+**Rejected:** Alles in CLAUDE.md — würde 2000+ Zeilen, unübersichtlich; oder inline-Kommentare — schwer zu finden
+
+---
+
+## 2026-03-24 Decision: MQTT Client und GpsDriver als optionale Feature
+
+**Choice:** MqttClient und UbloxGpsDriver werden via Setter `Robot::setMqttClient()` und `Robot::setGpsDriver()` angehängt (nicht im Konstruktor)
+**Reason:** Phase 1 fokussiert auf SerialRobotDriver + WebSocket; MQTT/GPS sind Add-ons — WebSocket bleibt primär für Mission Service; Testbarkeit: MockHardware braucht keine MqttClient-Dependencies
+**Rejected:** In Konstruktor erzwingen — würde Boilerplate in Tests erhöhen, MQTT-Infrastruktur voraussetzen
 
 ---
 

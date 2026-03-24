@@ -1,6 +1,6 @@
 # Module Index — sunray-core
 
-Last updated: 2026-03-22 (full repo scan)
+Last updated: 2026-03-24 (full repo scan)
 
 ---
 
@@ -136,11 +136,22 @@ Last updated: 2026-03-22 (full repo scan)
 **Pimpl:** Crow headers only in WebSocketServer.cpp — not in .h
 **Robot integration:** `Robot::setWebSocketServer(ws*)` setter; pushed in Robot::run() step 9
 
+### core/MqttClient.h + MqttClient.cpp
+
+**Status:** ✅ Complete (A.8)
+**Purpose:** Optional telemetry push + remote command reception via MQTT broker
+**Key methods:** `connect()`, `loop()`, `publishState()`, `onCommand(callback)`, `disconnect()`
+**Topics:** Publishes to `{prefix}/op`, `{prefix}/state`, `{prefix}/gps`; subscribes to `{prefix}/cmd`
+**Config keys:** `mqtt_enabled` (bool, default: false), `mqtt_host`, `mqtt_port`, `mqtt_keepalive_s`, `mqtt_topic_prefix`, `mqtt_user`, `mqtt_pass`
+**Thread safety:** Background connection thread, mutex-guarded state
+**Tests:** 6 tests in `tests/test_mqtt_client.cpp` (connection lifecycle, publish, subscribe)
+**Notes:** Parallel to WebSocket (not replacement) — both can be active simultaneously
+
 ### config.example.json
 
-**Status:** ✅ Complete (A.7)
-**Purpose:** All 28 Config defaults documented — copy to /etc/sunray/config.json for deployment
-**Notes:** Contains `_comment` key (ignored by nlohmann/json parser).
+**Status:** ✅ Complete (A.7+A.8, ~90 keys)
+**Purpose:** All Config defaults documented — copy to /etc/sunray/config.json for deployment
+**Notes:** Contains `_comment` key (ignored by nlohmann/json parser). Includes MQTT/NTRIP/GPS/Motor/Battery/Dock sections.
 
 ### docs/ARCHITECTURE.md
 
