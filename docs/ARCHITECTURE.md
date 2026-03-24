@@ -1,997 +1,951 @@
-# sunray-core — Architecture Reference
+# sunray-core Architektur
 
-Generated from full repo scan (2026-03-22). All claims sourced directly from code.
-
----
-
-## Table of Contents
-
-1. [Design Principles](#1-design-principles)
-2. [Repository Structure](#2-repository-structure)
-3. [Dependency Graph](#3-dependency-graph)
-4. [Platform Layer (`platform/`)](#4-platform-layer)
-5. [Hardware Abstraction Layer (`hal/`)](#5-hardware-abstraction-layer)
-6. [Core — Config & Logger](#6-core--config--logger)
-7. [Core — Robot](#7-core--robot)
-8. [Core — Op State Machine](#8-core--op-state-machine)
-9. [Core — Navigation](#9-core--navigation)
-10. [Core — WebSocketServer](#10-core--websocketserver)
-11. [Core — RobotConstants](#11-core--robotconstants)
-12. [WebSocket API](#12-websocket-api)
-13. [Config Keys Reference](#13-config-keys-reference)
-14. [Build System](#14-build-system)
-15. [Entry Point (`main.cpp`)](#15-entry-point-maincpp)
+Letzte Aktualisierung: 2026-03-24 (vollständiger Code-Scan)
 
 ---
 
-## 1. Design Principles
+## Inhaltsverzeichnis
 
-| Principle | Implementation |
-|-----------|----------------|
-| No Arduino includes anywhere | `#include <Arduino.h>` absent from all files |
-| No global variables | All state owned by classes, passed via DI |
-| Hardware behind `HardwareInterface` | Core never includes a driver header |
-| No Singleton | `Config`, `Logger`, drivers passed as `shared_ptr`/`unique_ptr` |
-| `config.json` replaces `config.h` | No recompile needed for parameter changes |
-| Every module testable in isolation | MockHardware in tests, NullLogger, no hardware required |
-| Pimpl for heavy dependencies | Crow headers confined to `WebSocketServer.cpp` |
+1. [System-Überblick](#1-system-überblick)
+2. [Module](#2-module)
+3. [WebSocket API](#3-websocket-api)
+4. [Konfiguration](#4-konfiguration)
+5. [Eingeschränkte Bereiche (Phase-2-TODOs)](#5-eingeschränkte-bereiche-phase-2-todos)
+6. [Bekannte Bugs](#6-bekannte-bugs)
 
 ---
 
-## 2. Repository Structure
+## 1. System-Überblick
+
+### Schichtendiagramm
 
 ```
-sunray-core/
-  ├── core/                  platform-independent logic
-  │   ├── Config.h/.cpp      JSON runtime config (nlohmann/json)
-  │   ├── Logger.h           Logging interface + StdoutLogger + NullLogger
-  │   ├── Robot.h/.cpp       Main class — control loop, DI root
-  │   ├── RobotConstants.h   Compile-time architectural constants
-  │   ├── WebSocketServer.h/.cpp   Crow WebSocket server
-  │   ├── op/                Op state machine
-  │   │   ├── Op.h           Base class, OpContext, OpManager, all Op declarations
-  │   │   ├── Op.cpp         OpManager + base method bodies
-  │   │   ├── IdleOp.cpp
-  │   │   ├── MowOp.cpp
-  │   │   ├── DockOp.cpp
-  │   │   ├── ChargeOp.cpp
-  │   │   ├── EscapeReverseOp.cpp  (also EscapeForwardOp)
-  │   │   ├── GpsWaitFixOp.cpp
-  │   │   └── ErrorOp.cpp
-  │   └── navigation/
-  │       ├── StateEstimator.h/.cpp   Odometry dead-reckoning + GPS stub
-  │       ├── Map.h/.cpp              Waypoint/polygon management
-  │       └── LineTracker.h/.cpp      Stanley path-tracking controller
-  ├── hal/
-  │   ├── HardwareInterface.h         Abstract base class
-  │   ├── SerialRobotDriver/          Alfred (STM32) driver
-  │   └── SimulationDriver/           Software-only driver for testing
-  ├── platform/              Linux-specific POSIX wrappers
-  │   ├── Serial.h/.cpp      termios serial port
-  │   ├── I2C.h/.cpp         Linux i2cdev bus wrapper
-  │   └── PortExpander.h/.cpp PCA9555 16-bit I/O expander
-  ├── tests/                 Catch2 unit tests (no hardware required)
-  ├── main.cpp               Entry point — DI wiring
-  ├── config.example.json    All config keys with defaults (copy → /etc/sunray/)
-  └── CMakeLists.txt
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Browser / WebUI                             │
+│   Vue 3 + Vite + Tailwind   ws://host/ws/telemetry   /api/*        │
+└───────────────────────────────────────┬─────────────────────────────┘
+                                        │ WebSocket + HTTP
+┌───────────────────────────────────────▼─────────────────────────────┐
+│                       Crow HTTP/WebSocket Server                    │
+│                    core/WebSocketServer.h/.cpp                      │
+└───────────────────────────────────────┬─────────────────────────────┘
+                                        │ TelemetryData / Commands
+┌───────────────────────────────────────▼─────────────────────────────┐
+│                           Robot (50 Hz)                             │
+│   Config · Logger · OpManager · StateEstimator · Map · LineTracker  │
+└───────────┬────────────────────────────────────────────────────┬────┘
+            │ HardwareInterface (abstract)                        │ GpsDriver (optional)
+   ┌────────▼────────┐                               ┌───────────▼───────────┐
+   │ SerialRobot-    │   oder   SimulationDriver     │  UbloxGpsDriver       │
+   │ Driver          │          (--sim Modus)         │  (ZED-F9P via USB)    │
+   │ (Alfred/STM32)  │                               └───────────────────────┘
+   └────────┬────────┘
+            │ UART AT-Frames (50 Hz)
+   ┌────────▼────────┐
+   │   STM32 Alfred  │ Motortreiber · Encoder · Bumper · Batterie
+   └─────────────────┘
+```
+
+### Kommunikationswege
+
+```
+C++ Core → WebSocket-Server:  Robot::run() → ws_->pushTelemetry()       (50 Hz)
+WebSocket-Server → Browser:   JSON push {"type":"state", ...}            (10 Hz, 100 ms Intervall)
+Browser → WebSocket-Server:   JSON command {"cmd":"start|stop|..."}      (bei Bedarf)
+WebSocket-Server → C++ Core:  WebSocketServer::onMessage() → Robot.*()
+
+Robot::run() → GPS-Driver:    lastGps_ = gpsDriver_->getData()           (50 Hz poll)
+GPS-Driver → NMEA-Push:       ws_->broadcastNmea(line)                   (bei jedem NMEA-Frame)
+
+SerialRobotDriver → STM32:    AT+M (50 Hz), AT+S (2 Hz), AT+V (einmalig)
+STM32 → SerialRobotDriver:    CSV-Response mit CRC-Suffix *XX
+```
+
+### Namespace-Abhängigkeiten (keine Zyklen)
+
+```
+platform  ←  hal  ←  core  ←  main.cpp
 ```
 
 ---
 
-## 3. Dependency Graph
+## 2. Module
 
-```
-main.cpp
-  └── Robot  (owns)
-        ├── HardwareInterface  (unique_ptr — runtime polymorphism)
-        │     ├── SerialRobotDriver   (Alfred/Pi)
-        │     │     ├── platform::Serial
-        │     │     ├── platform::I2C
-        │     │     └── platform::PortExpander (×3)
-        │     └── SimulationDriver    (--sim mode)
-        ├── Config             (shared_ptr)
-        ├── Logger             (shared_ptr)
-        ├── OpManager          (value member — owns all Op instances)
-        │     └── Op subclasses (×8 instances)
-        ├── nav::StateEstimator (value member)
-        ├── nav::Map            (value member)
-        ├── nav::LineTracker    (value member)
-        └── WebSocketServer*   (raw ptr, not owned — set via setter)
+### platform::Serial
 
-namespace dependencies (no cycles):
-  platform  ←  hal  ←  core  ←  main
-```
+**Zweck:** POSIX-termios-Seriell-Port-Wrapper. Ersetzt Arduino `HardwareSerial` und `LinuxSerial.cpp`.
 
----
+**Datei:** `platform/Serial.h` / `platform/Serial.cpp`
 
-## 4. Platform Layer
+**Öffentliche API:**
 
-### `platform::Serial`
+| Methode | Signatur | Beschreibung |
+|---------|----------|--------------|
+| Konstruktor | `Serial(port, baud)` | Wirft `std::runtime_error` bei Fehler |
+| `read` | `int read(uint8_t* buf, size_t maxLen)` | Nicht-blockierend; 0 = kein Datum, -1 = Fehler |
+| `write` | `bool write(const uint8_t* buf, size_t len)` | Schreibt mit Retry bei EAGAIN |
+| `writeStr` | `bool writeStr(const char* str)` | Null-terminierter String |
+| `available` | `int available()` | Bytes im Kernel-RX-Puffer (FIONREAD) |
+| `flush` | `void flush()` | Verwirft alle ungelesenen/ungesendeten Bytes (TCIOFLUSH) |
+| `isOpen` | `bool isOpen() const` | true wenn fd ≥ 0 |
+| `port` | `const std::string& port() const` | Gerätepfad |
 
-**File:** `platform/Serial.h/.cpp`
-**Purpose:** POSIX termios serial port wrapper, replaces Arduino `HardwareSerial` and `LinuxSerial.cpp`.
+**Abhängigkeiten:** Keine (nur POSIX/Linux-Kernel-API)
 
-**Constructor:**
-```cpp
-Serial(const std::string& port, unsigned int baud)
-// throws std::runtime_error if port cannot be opened
-```
-
-**Methods:**
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `read` | `int read(uint8_t* buf, size_t maxLen)` | Non-blocking read. Returns bytes read (0 = no data, -1 = error) |
-| `write` | `bool write(const uint8_t* buf, size_t len)` | Write bytes, retries on EAGAIN |
-| `writeStr` | `bool writeStr(const char* str)` | Write null-terminated string |
-| `available` | `int available()` | Bytes in kernel receive buffer (FIONREAD ioctl) |
-| `flush` | `void flush()` | Discard all unread input and unsent output (TCIOFLUSH) |
-| `isOpen` | `bool isOpen() const` | True if fd ≥ 0 |
-| `port` | `const std::string& port() const` | Device path from constructor |
-
-**Configuration:** Raw 8N1, non-blocking (VMIN=0, VTIME=0). Saves and restores original termios on destruction.
-
-**Fixes vs LinuxSerial.cpp:** All `c_iflag/c_lflag/c_oflag` explicitly zeroed; `tcflush()` before and after `tcsetattr`; constructor throws instead of silently failing.
+**Besonderheiten:** Raw 8N1, nicht-blockierend (VMIN=0, VTIME=0). Alle `c_iflag/c_lflag/c_oflag` explizit auf 0. Move-only (nicht kopierbar).
 
 ---
 
-### `platform::I2C`
+### platform::I2C
 
-**File:** `platform/I2C.h/.cpp`
-**Purpose:** Linux i2cdev bus wrapper, replaces Arduino `Wire.h`.
+**Zweck:** Linux i2cdev-Bus-Wrapper. Ersetzt Arduino `Wire.h`.
 
-**Constructor:**
-```cpp
-explicit I2C(const std::string& bus)
-// throws std::runtime_error if bus cannot be opened
-```
+**Datei:** `platform/I2C.h` / `platform/I2C.cpp`
 
-**Methods:**
+**Öffentliche API:**
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `write` | `bool write(uint8_t addr, const uint8_t* buf, size_t len)` | Write to 7-bit address |
-| `read` | `bool read(uint8_t addr, uint8_t* buf, size_t len)` | Read from 7-bit address |
-| `writeRead` | `bool writeRead(uint8_t addr, const uint8_t* tx, size_t txLen, uint8_t* rx, size_t rxLen)` | Atomic write+read (I2C_RDWR ioctl, Repeated START) |
-| `isOpen` | `bool isOpen() const` | True if fd open |
-| `busPath` | `const std::string& busPath() const` | Bus device path |
+| Methode | Signatur | Beschreibung |
+|---------|----------|--------------|
+| Konstruktor | `I2C(const std::string& bus)` | Wirft bei Fehler |
+| `write` | `bool write(uint8_t addr, const uint8_t* buf, size_t len)` | Schreibe an 7-Bit-Adresse |
+| `read` | `bool read(uint8_t addr, uint8_t* buf, size_t len)` | Lese von 7-Bit-Adresse |
+| `writeRead` | `bool writeRead(addr, tx, txLen, rx, rxLen)` | Atomares Write+Read via I2C_RDWR (Repeated-START) |
+| `isOpen` | `bool isOpen() const` | — |
+| `busPath` | `const std::string& busPath() const` | — |
 
-**Alfred I2C Device Map (bus `/dev/i2c-1`):**
+**Abhängigkeiten:** Keine
 
-| Address | Device | Purpose |
-|---------|--------|---------|
-| `0x20` | PCA9555 EX2 | Buzzer (IO1.1), SWD-CS6 (IO0.6) |
-| `0x21` | PCA9555 EX1 | IMU power (IO1.6), Fan (IO1.7), ADC mux (IO1.0-3) |
-| `0x22` | PCA9555 EX3 | LED1 green/red (IO0.0/1), LED2 (IO0.2/3), LED3 (IO0.4/5) |
-| `0x50` | BL24C256A EEPROM | Persistent storage |
-| `0x68` | MCP3421 ADC | Battery voltage measurement |
-| `0x70` | TCA9548A mux | Selects IMU/EEPROM/ADC sub-bus |
+**Alfred-Gerätekarte (Bus `/dev/i2c-1`):**
+
+| Adresse | Gerät | Funktion |
+|---------|-------|----------|
+| `0x20` | PCA9555 EX2 | Buzzer (IO1.1) |
+| `0x21` | PCA9555 EX1 | IMU-Power, Fan, ADC-Mux |
+| `0x22` | PCA9555 EX3 | LED1/2/3 (grün/rot) |
+| `0x50` | BL24C256A EEPROM | Persistenter Speicher |
+| `0x68` | MCP3421 ADC | Batteriespannungsmessung |
+| `0x70` | TCA9548A Mux | Sub-Bus-Selektor |
 
 ---
 
-### `platform::PortExpander`
+### platform::PortExpander
 
-**File:** `platform/PortExpander.h/.cpp`
-**Purpose:** PCA9555 16-bit I/O port expander driver.
+**Zweck:** PCA9555 16-Bit-I/O-Port-Expander-Treiber (LEDs, Buzzer, Fan, IMU-Power).
 
-**Constructor:**
-```cpp
-PortExpander(I2C& bus, uint8_t addr)
-// Does NOT talk to hardware until first setPin/getPin call
-```
+**Datei:** `platform/PortExpander.h` / `platform/PortExpander.cpp`
 
-**Methods:**
+**Öffentliche API:**
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `setPin` | `bool setPin(uint8_t port, uint8_t pin, bool level)` | Configure as output, set level. Read-modify-write. |
-| `getPin` | `bool getPin(uint8_t port, uint8_t pin)` | Configure as input, return level |
-| `setOutputPort` | `bool setOutputPort(uint8_t port, uint8_t value)` | Write full 8-bit output latch (all 8 pins at once) |
-| `setConfigPort` | `bool setConfigPort(uint8_t port, uint8_t dirMask)` | Set direction register (0=output, 1=input) |
-| `getInputPort` | `bool getInputPort(uint8_t port, uint8_t& value)` | Read full 8-bit input register |
-| `address` | `uint8_t address() const` | I2C address |
+| Methode | Beschreibung |
+|---------|--------------|
+| `setPin(port, pin, level)` | Ausgabe konfigurieren und setzen (Read-Modify-Write) |
+| `getPin(port, pin)` | Eingang lesen |
+| `setOutputPort(port, val)` | Ganzes 8-Bit-Output-Register setzen |
+| `setConfigPort(port, mask)` | Richtungsregister setzen (0=Ausgang, 1=Eingang) |
+| `getInputPort(port, val&)` | Ganzes 8-Bit-Input-Register lesen |
+| `address()` | I2C-Adresse |
 
-**PCA9555 Register Map:**
-
-| Register | Address | Description |
-|----------|---------|-------------|
-| Input Port 0/1 | `0x00/0x01` | Read-only, actual pin state |
-| Output Port 0/1 | `0x02/0x03` | Output latch (driven value) |
-| Config Port 0/1 | `0x06/0x07` | Direction (0=output, 1=input; reset=0xFF) |
+**Abhängigkeiten:** `platform::I2C`
 
 ---
 
-## 5. Hardware Abstraction Layer
+### HardwareInterface
 
-### `HardwareInterface` (abstract)
+**Zweck:** Abstrakte Basisklasse — einzige Grenze zwischen Core und Hardware. Alle Treiber implementieren dieses Interface.
 
-**File:** `hal/HardwareInterface.h`
+**Datei:** `hal/HardwareInterface.h`
 
-#### Data Structures
+**Datenstrukturen:**
 
-**`OdometryData`**
+| Struktur | Felder |
+|----------|--------|
+| `OdometryData` | `leftTicks`, `rightTicks`, `mowTicks` (int), `mcuConnected` (bool) |
+| `SensorData` | `bumperLeft`, `bumperRight`, `lift`, `rain`, `stopButton`, `motorFault`, `nearObstacle` (bool) |
+| `BatteryData` | `voltage`, `chargeVoltage`, `chargeCurrent`, `batteryTemp` (float), `chargerConnected` (bool) |
+| `LedId` | `LED_1` (WiFi), `LED_2` (Status), `LED_3` (GPS) |
+| `LedState` | `OFF`, `GREEN`, `RED` |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `leftTicks` | `int` | Left wheel encoder delta since last `readOdometry()` |
-| `rightTicks` | `int` | Right wheel encoder delta |
-| `mowTicks` | `int` | Mow motor encoder delta |
-| `mcuConnected` | `bool` | False = no valid data this cycle (ticks = 0) |
+**Öffentliche API:**
 
-**`SensorData`**
+| Methode | Beschreibung |
+|---------|--------------|
+| `bool init()` | Hardware öffnen, konfigurieren. `false` → Robot bricht ab. |
+| `void run()` | Periodischer Tick (non-blocking, jede Kontrollloop-Iteration) |
+| `void setMotorPwm(int left, int right, int mow)` | PWM-Bereich: −255…+255 |
+| `void resetMotorFault()` | Latched Motor-Fault löschen |
+| `OdometryData readOdometry()` | Encoder-Deltas seit letztem Aufruf |
+| `SensorData readSensors()` | Momentaufnahme aller Sensor-Zustände |
+| `BatteryData readBattery()` | Energie-/Lade-Momentaufnahme |
+| `void setBuzzer(bool on)` | Buzzer ein/aus |
+| `void setLed(LedId, LedState)` | Panel-LED setzen |
+| `void keepPowerOn(bool)` | `false` → Plattform-Shutdown-Sequenz |
+| `float getCpuTemperature()` | CPU-Temperatur (°C), −9999 wenn nicht verfügbar |
+| `std::string getRobotId()` | Eindeutige ID (eth0-MAC auf Alfred) |
+| `std::string getMcuFirmwareName()` | AT+V Firmware-Name |
+| `std::string getMcuFirmwareVersion()` | AT+V Firmware-Version |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `bumperLeft` | `bool` | Left bumper contact |
-| `bumperRight` | `bool` | Right bumper contact |
-| `lift` | `bool` | Lift sensor (robot lifted off ground) |
-| `rain` | `bool` | Rain sensor |
-| `stopButton` | `bool` | Physical stop button |
-| `motorFault` | `bool` | Motor fault (overload or IC fault) |
-| `nearObstacle` | `bool` | Sonar/ToF proximity — always `false` on Alfred |
-
-**`BatteryData`**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `voltage` | `float` | Battery voltage (V) |
-| `chargeVoltage` | `float` | Charger output voltage (V) |
-| `chargeCurrent` | `float` | Charging current (A), 0 when not charging |
-| `batteryTemp` | `float` | Battery temperature (°C), -9999 if unavailable |
-| `chargerConnected` | `bool` | True when `chargeVoltage > threshold` |
-
-**`LedId`** enum: `LED_1` (bottom, WiFi), `LED_2` (top, status), `LED_3` (middle, GPS)
-**`LedState`** enum: `OFF`, `GREEN`, `RED`
-
-#### Interface Methods
-
-| Method | Description |
-|--------|-------------|
-| `bool init()` | Open hardware, configure. Returns false on failure — Core aborts. |
-| `void run()` | Periodic tick — call every control loop iteration (non-blocking) |
-| `void setMotorPwm(int left, int right, int mow)` | PWM range: -255…+255 |
-| `void resetMotorFault()` | Clear latched motor fault |
-| `OdometryData readOdometry()` | Encoder deltas since last call |
-| `SensorData readSensors()` | Snapshot of all sensor states |
-| `BatteryData readBattery()` | Power/charging snapshot |
-| `void setBuzzer(bool on)` | Activate/deactivate buzzer |
-| `void setLed(LedId, LedState)` | Set panel LED |
-| `void keepPowerOn(bool)` | false = trigger platform shutdown sequence |
-| `float getCpuTemperature()` | CPU temp (°C), -9999 if unavailable |
-| `std::string getRobotId()` | Unique identifier (eth0 MAC on Alfred) |
-| `std::string getMcuFirmwareName()` | AT+V firmware name |
-| `std::string getMcuFirmwareVersion()` | AT+V firmware version |
+**Abhängigkeiten:** Keine (Interface-only)
 
 ---
 
-### `SerialRobotDriver`
+### Config
 
-**File:** `hal/SerialRobotDriver/SerialRobotDriver.h/.cpp`
-**Implements:** `HardwareInterface`
-**Purpose:** Alfred (STM32) driver — communicates via UART AT-frames.
+**Zweck:** JSON-basierte Laufzeit-Konfiguration. Ersetzt Arduino `config.h`-Makros.
 
-**AT Protocol:**
+**Datei:** `core/Config.h` / `core/Config.cpp`
 
-| Frame | Rate | Direction | Content |
-|-------|------|-----------|---------|
-| `AT+M` | 50 Hz | Pi → STM32 → Pi | Motor PWM command + encoder/sensor response |
-| `AT+S` | 2 Hz | Pi → STM32 → Pi | Summary request — battery, bumpers, rain, currents |
-| `AT+V` | once | Pi → STM32 → Pi | Firmware name/version handshake |
+**Öffentliche API:**
 
-**Frame format:** CSV fields + `*XX` CRC suffix (XOR over all bytes before `*`).
+| Methode | Beschreibung |
+|---------|--------------|
+| `Config(path)` | Lädt Datei; fällt bei fehlendem/korruptem JSON auf Defaults zurück |
+| `T get<T>(key, fallback)` | Liest Wert; gibt Fallback bei fehlendem Key oder Typfehler zurück |
+| `void set<T>(key, value)` | Schreibt in In-Memory-Dokument (nicht auf Disk) |
+| `void save()` | Persistiert Dokument (pretty-printed, 4 Leerzeichen). Wirft bei Schreibfehler |
+| `void reload()` | Verwirft ungespeicherte Änderungen, liest von Disk neu |
+| `std::string dump()` | Pretty-printed JSON-String des aktuellen Dokuments |
+| `const path& path()` | Pfad aus Konstruktor |
 
-**Bug fixes applied (from firmware analysis):**
-- `BUG-05`: Unsigned tick overflow — delta computed via `long` cast
-- `BUG-07`: Left/right PWM and encoder swap — compensated internally (Alfred PCB cross-wiring)
-- `BUG-08`: Pi-side mow motor clamp removed — STM32 ramp handles it
+**Abhängigkeiten:** `nlohmann/json` (via FetchContent)
 
-**Internal behaviors:**
-- Fan: on when CPU temp > 65°C, off when < 60°C, checked every ~60 s
-- WiFi LED: `wpa_cli status` polled every 7 s → LED_1
-- Battery fallback: if MCU disconnected, voltage returns 28 V (Pi standalone safe)
-- Shutdown: `keepPowerOn(false)` → 5 s grace → fan off → `shutdown now`
+**Ladereihenfolge:** Eingebaute Defaults → Datei-Werte überschreiben Key für Key. Unbekannte Datei-Keys werden akzeptiert (Forward-Kompatibilität).
 
 ---
 
-### `SimulationDriver`
+### Robot
 
-**File:** `hal/SimulationDriver/SimulationDriver.h/.cpp`
-**Implements:** `HardwareInterface`
-**Purpose:** Software-only driver — no hardware required.
+**Zweck:** Haupt-Roboter-Klasse — DI-Root, 50-Hz-Kontrollloop, State-Machine-Orchestrator.
 
-**Kinematic model:** Differential-drive unicycle. PWM → wheel speed (m/s) → dead-reckoning pose (x, y, heading). Ticks accumulated from arc length.
+**Datei:** `core/Robot.h` / `core/Robot.cpp`
 
-**Additional methods (not in HardwareInterface):**
-
-| Method | Description |
-|--------|-------------|
-| `setBumperLeft(bool)` | Inject left bumper contact |
-| `setBumperRight(bool)` | Inject right bumper contact |
-| `setLift(bool)` | Inject lift sensor |
-| `setGpsQuality(GpsQuality)` | `FIX` / `FLOAT` / `NO_FIX` |
-| `addObstacle(Polygon)` | Polygon — robot entering it triggers bumper |
-| `clearObstacles()` | Remove all polygons |
-| `getPose()` | Current `SimPose` {x, y, heading} |
-| `setPose(SimPose)` | Override pose directly |
-| `getGpsQuality()` | Current GPS quality |
-| `isBuzzerOn()` | Buzzer state |
-
-**Thread safety:** All shared state guarded by `mutex_`.
-
-**Activation:** `main.cpp --sim` flag selects `SimulationDriver` instead of `SerialRobotDriver`.
-
----
-
-## 6. Core — Config & Logger
-
-### `Config`
-
-**File:** `core/Config.h/.cpp`
-**Purpose:** JSON runtime configuration. Replaces Arduino `config.h` macros.
-
-**Constructor:**
-```cpp
-explicit Config(std::filesystem::path path)
-// Loads file; falls back to built-in defaults silently if file absent/corrupt
-```
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `T get<T>(key, fallback)` | Read value; returns fallback on missing key or type error |
-| `void set<T>(key, value)` | Write to in-memory document (not to disk) |
-| `void save()` | Persist in-memory document to file (pretty-printed, 4 spaces). Throws on write error |
-| `void reload()` | Discard unsaved changes, re-read from disk |
-| `std::string dump()` | Pretty-printed JSON string of current document |
-| `const path& path()` | Path from constructor |
-
-**Load order:** Built-in defaults → file values override on a per-key basis. Unknown file keys are accepted (forward compatibility).
-
----
-
-### `Logger`
-
-**File:** `core/Logger.h` (header-only)
-
-**Types:**
-
-| Type | Description |
-|------|-------------|
-| `LogLevel` enum | `DEBUG`, `INFO`, `WARN`, `ERROR` |
-| `Logger` (abstract) | `info(tag, msg)`, `warn(tag, msg)`, `error(tag, msg)`, `debug(tag, msg)` |
-| `StdoutLogger` | Prints to stdout with `[LEVEL][tag] msg` format |
-| `NullLogger` | No output (used in unit tests) |
-
----
-
-## 7. Core — Robot
-
-**File:** `core/Robot.h/.cpp`
-**Purpose:** Main robot class — DI root, 50 Hz control loop, state machine orchestrator.
-
-**Constructor:**
+**Konstruktor:**
 ```cpp
 Robot(std::unique_ptr<HardwareInterface> hw,
       std::shared_ptr<Config>            config,
       std::shared_ptr<Logger>            logger)
-// throws std::invalid_argument if any arg is nullptr
+// Wirft std::invalid_argument wenn ein Argument nullptr ist
 ```
 
-**Lifecycle methods:**
+**Lifecycle:**
 
-| Method | Description |
-|--------|-------------|
-| `bool init()` | Open hardware, reset LEDs. Returns false on hardware failure. |
-| `void loop()` | Run control loop until `stop()`. Sleeps to maintain 50 Hz. |
-| `void run()` | Single control loop iteration (exposed for testing). |
-| `void stop()` | Request graceful shutdown (thread-safe). |
+| Methode | Beschreibung |
+|---------|--------------|
+| `bool init()` | Hardware öffnen, LEDs zurücksetzen. `false` bei Hardware-Fehler. |
+| `void loop()` | Kontrollloop bis `stop()`. Schläft, um 50 Hz zu halten. |
+| `void run()` | Einzelne Kontrollloop-Iteration (für Tests exponiert). |
+| `void stop()` | Graceful-Shutdown anfordern (thread-safe). |
 
-**Command methods:**
+**Operator-Commands:**
 
-| Method | Description |
-|--------|-------------|
-| `void startMowing()` | Dispatch operator command "Mow" to OpManager |
-| `void startDocking()` | Dispatch operator command "Dock" |
-| `void emergencyStop()` | Stop motors + dispatch "Idle" |
-| `bool loadMap(path)` | Load map JSON from file. Call before `startMowing()`. |
-| `void setPose(x, y, heading)` | Override StateEstimator pose |
+| Methode | Beschreibung |
+|---------|--------------|
+| `startMowing()` | "Mow" an OpManager dispatchen |
+| `startDocking()` | "Dock" dispatchen |
+| `emergencyStop()` | Motoren stoppen + "Idle" dispatchen |
+| `loadMap(path)` | Map-JSON laden |
+| `setPose(x, y, heading)` | StateEstimator-Pose überschreiben |
+| `setWebSocketServer(ws*)` | WS-Server anhängen (optional, nicht im Konstruktor) |
+| `setGpsDriver(driver*)` | GPS-Treiber anhängen (optional) |
 
-**Accessors:**
-
-| Method | Description |
-|--------|-------------|
-| `activeOpName()` | Active Op name string ("Idle", "Mow", etc.) |
-| `lastOdometry()` | Last `OdometryData` snapshot |
-| `lastSensors()` | Last `SensorData` snapshot |
-| `lastBattery()` | Last `BatteryData` snapshot |
-| `poseX() / poseY() / poseHeading()` | Current pose from StateEstimator |
-| `isRunning()` | True while `loop()` is running |
-| `controlLoops()` | Total number of `run()` calls |
-| `opManager()` | Direct access to `OpManager` |
-
-**Optional integration:**
-```cpp
-void setWebSocketServer(WebSocketServer* ws)
-// Attach WS server — pushTelemetry() called every run()
-```
-
-**Control loop sequence (one `run()` call):**
+**Kontrollloop-Sequenz (eine `run()`-Iteration):**
 
 ```
-1.  hw_->run()                      — driver tick (AT frames, LEDs, fan, WiFi)
-2.  readOdometry/Sensors/Battery    — sensor snapshot
-3.  stateEst_.update(odo, dt_ms)    — odometry dead-reckoning
-4.  Build OpContext                 — populate all fields from current state
-5.  checkBattery()                  — low voltage → dock/shutdown events
-6.  opMgr_.tick(ctx)                — Op state machine step
-7.  Safety stop                     — bumper/lift/motorFault → setMotorPwm(0,0,0)
-8.  updateStatusLeds()              — LED_2 (status), LED_3 (GPS)
-9.  ws_->pushTelemetry()            — WebSocket telemetry (if WS attached)
-10. ++controlLoops_
+1.  hw_->run()                    — Treiber-Tick (AT-Frames, LEDs, Fan, WiFi)
+2.  readOdometry/Sensors/Battery  — Sensor-Momentaufnahme
+3.  stateEst_.update(odo, dt_ms)  — Odometrie-Dead-Reckoning
+4.  GPS-Poll (wenn gesetzt)       — lastGps_ = gpsDriver_->getData()
+5.  stateEst_.updateGps(...)      — GPS-Update (Phase-2-Stub in Phase 1)
+6.  OpContext aufbauen            — alle Felder aus aktuellem Zustand befüllen
+7.  checkBattery()                — Niederspannungs-Events auslösen
+8.  opMgr_.tick(ctx)              — Op-State-Machine-Schritt
+9.  Safety-Stop                   — bumper/lift/motorFault → setMotorPwm(0,0,0)
+10. updateStatusLeds()            — LED_2 (Status), LED_3 (GPS)
+11. ws_->pushTelemetry()          — WebSocket-Telemetrie (wenn WS angehängt)
+12. ++controlLoops_
 ```
 
-**Battery guard thresholds (from Config):**
-
-| Key | Default | Action |
-|-----|---------|--------|
-| `battery_low_v` | 22.0 V | → `onBatteryLowShouldDock` |
-| `battery_critical_v` | 20.0 V | Motors off + `keepPowerOn(false)` + shutdown |
+**Abhängigkeiten:** `HardwareInterface`, `Config`, `Logger`, `OpManager`, `StateEstimator`, `Map`, `LineTracker`, `WebSocketServer` (optional), `GpsDriver` (optional)
 
 ---
 
-## 8. Core — Op State Machine
+### OpManager + Op-State-Machine
 
-### Overview
+**Zweck:** Betriebszustands-Automat — steuert alle Betriebsmodi des Roboters.
 
-All Op instances are owned by `OpManager` (no global singletons). `OpManager::tick()` is called every control loop iteration.
+**Dateien:** `core/op/Op.h`, `core/op/Op.cpp`, `core/op/IdleOp.cpp`, `core/op/MowOp.cpp`, `core/op/DockOp.cpp`, `core/op/ChargeOp.cpp`, `core/op/EscapeReverseOp.cpp`, `core/op/GpsWaitFixOp.cpp`, `core/op/ErrorOp.cpp`
 
-**Transition mechanism:**
-1. An Op calls `changeOp(ctx, target)` → `requestOp(ctx, target, PRIO_NORMAL)`
-2. `requestOp` calls `opMgr.setPending(target, priority, returnBackOnExit, caller)`
-3. At the start of the next `tick()`: `activeOp->end()` → `target->begin()` → `target->run()`
+**Öffentliche API (OpManager):**
 
-**Priority levels:**
+| Methode | Beschreibung |
+|---------|--------------|
+| `void tick(OpContext&)` | Einen State-Machine-Schritt ausführen |
+| `Op* activeOp()` | Aktuell aktiver Op (kann nullptr sein — guard prüfen!) |
+| `void setPending(Op*, priority, returnBack, caller)` | Transition vormerken |
 
-| Level | Value | Applied to |
-|-------|-------|-----------|
-| `PRIO_LOW` | 10 | — |
-| `PRIO_NORMAL` | 50 | `changeOp()` default |
-| `PRIO_HIGH` | 80 | `error_`, `charge_` minimum; operator commands for Mow/Dock/Charge |
-| `PRIO_CRITICAL` | 100 | Operator stop/error; `onBatteryUndervoltage` |
+**OpContext (jede Iteration an jeden Op übergeben):**
 
-**Return-back mechanism:** `changeOp(ctx, target, true)` sets `target.nextOp = caller`. When `target` completes, it calls `changeOp(ctx, *nextOp)` to return to the caller Op.
-
----
-
-### State Transition Diagram
-
-```
-                    ┌─────────┐
-         charger    │         │
-         connected  │  Idle   │◄── operator "stop" (PRIO_CRITICAL)
-       ─────────────┤         │◄── battery undervoltage (PRIO_CRITICAL)
-       ↓            └────┬────┘
-  ┌─────────┐            │ charger connected (>2s)
-  │  Charge │◄───────────┘
-  │         │
-  │         │ timetable start + battery OK
-  │         ├──────────────────────────────────────────────────► MowOp
-  └────┬────┘ operator "Mow"
-       │
-       │ charger disconnected
-       ↓
-  ┌─────────┐                    ┌──────────────────┐
-  │  Idle   │                    │  EscapeReverseOp │
-  └─────────┘                    │  (3s reverse)    │
-                                 └────────┬─────────┘
-  ┌─────────┐ obstacle           ↑ onObstacle      │ done (returnBack)
-  │  Mow    │────────────────────┘                 ↓
-  │         │                              ┌──────────────┐
-  │         │ GPS lost                     │  (caller Op) │
-  │         ├─────────────────────────────►│  GpsWaitFix  │
-  │         │ (returnBack)                 │  (2min max)  │
-  │         │                              └──────┬───────┘
-  │         │ GPS fix timeout                     │ GPS acquired
-  │         │──────────────────►ErrorOp           └──► (returnBack to caller)
-  │         │
-  │         │ rain / battery low / timetable stop / no more waypoints
-  │         ├─────────────────────────────────────────────────────► DockOp
-  └─────────┘ operator "Dock"
-                                           ┌─────────┐
-  ┌─────────┐ charger connected            │  Error  │
-  │  Dock   │───────────────────────────►  │         │ motors off, buzzer 500ms/5s
-  │         │                         Charge│         │ LED_2 RED
-  │         │ obstacle                      └─────────┘ exit: operator "Idle" only
-  │         ├──► EscapeReverse (returnBack)
-  │         │
-  │         │ routing fails × 5
-  │         ├──────────────────────────────────────────────────────► ErrorOp
-  └─────────┘
-```
-
----
-
-### Op Details
-
-**`IdleOp`** (`name() = "Idle"`)
-- `begin()`: stop all motors
-- `run()`: if charger connected for > 2 s → `ChargeOp`
-- Transition in: operator stop (`PRIO_CRITICAL`), battery undervoltage, charger disconnect from Charge
-
-**`MowOp`** (`name() = "Mow"`)
-- `begin()`: start mow blade (PWM 200), `map->startMowing(x, y)`, `lineTracker->reset()`
-- `run()`: `lineTracker->track(ctx, map, stateEst)`
-- `end()`: stop all motors + mow blade
-- Events: `onObstacle` → EscapeReverse (returnBack), `onGpsNoSignal` → GpsWait (returnBack), `onGpsFixTimeout` → ErrorOp, `onMotorError` → ErrorOp, `onRainTriggered/BatteryLow/TimetableStop/NoFurtherWaypoints` → DockOp, `onKidnapped` → GpsWait (returnBack), `onImuTilt/Error` → ErrorOp
-
-**`DockOp`** (`name() = "Dock"`)
-- `begin()`: `map->startDocking(x, y)`, `lineTracker->reset()`
-- `run()`: if charger connected → `onChargerConnected`; otherwise `lineTracker->track()`
-- Events: `onObstacle` → EscapeReverse (returnBack), `onNoFurtherWaypoints` → retry up to 5×, then ErrorOp; `onGpsNoSignal` → GpsWait (returnBack); `onGpsFixTimeout` → ErrorOp; `onChargerConnected` → ChargeOp; `onKidnapped` → GpsWait (returnBack)
-
-**`ChargeOp`** (`name() = "Charge"`)
-- `begin()`: stop motors, reset retry state
-- `run()`: charger disconnect after 3 s → `onChargerDisconnected`; log V/I every 30 s; full charge (≥28.5 V + current < 0.1 A for ≥60 s) → `onChargingCompleted`
-- Events: `onChargerDisconnected` → IdleOp; `onBadChargingContact` → creep forward 0.02 m/s for 500 ms; `onBatteryUndervoltage` → ErrorOp; `onRainTriggered` → stay; `onTimetableStartMowing` + battery ≥ `battery_low_v` → MowOp
-
-**`EscapeReverseOp`** (`name() = "EscapeReverse"`)
-- `begin()`: record which bumper was hit, set stop time = now + 3 s
-- `run()`: drive -0.1 m/s with steering bias away from hit side; if outside perimeter → dock; after 3 s → check lift (→ ErrorOp) → check perimeter (→ DockOp) → `changeOp(*nextOp)` or IdleOp
-- `EscapeForwardOp` (`name() = "EscapeForward"`): drive +0.1 m/s for 2 s, no steering
-
-**`GpsWaitFixOp`** (`name() = "GpsWait"`)
-- `begin()`: stop motors, record `waitStartTime_ms`
-- `run()`: if `gpsHasFloat || gpsHasFix` → `changeOp(*nextOp)` or IdleOp; if > 2 min without GPS → ErrorOp
-
-**`ErrorOp`** (`name() = "Error"`)
-- `begin()`: stop motors, LED_2 RED, schedule first buzz at now+1 s
-- `run()`: keep motors stopped; buzzer 500 ms on / every 5 s
-- `end()`: LED_2 GREEN, buzzer off
-- **No autonomous exit.** Operator must send "Idle" command explicitly.
-
----
-
-### `OpContext`
-
-Passed to every Op method each loop iteration:
-
-| Field | Type | Source |
-|-------|------|--------|
-| `hw` | `HardwareInterface&` | Robot constructor |
-| `config` | `Config&` | Robot constructor |
-| `logger` | `Logger&` | Robot constructor |
-| `opMgr` | `OpManager&` | Robot member |
+| Feld | Typ | Quelle |
+|------|-----|--------|
+| `hw` | `HardwareInterface&` | Robot-Konstruktor |
+| `config` | `Config&` | Robot-Konstruktor |
 | `sensors` | `SensorData` | `hw.readSensors()` |
 | `battery` | `BatteryData` | `hw.readBattery()` |
 | `odometry` | `OdometryData` | `hw.readOdometry()` |
 | `x`, `y`, `heading` | `float` | StateEstimator |
 | `insidePerimeter` | `bool` | `map.isInsideAllowedArea(x,y)` |
-| `isDockingRoute` | `bool` | `map.isDocking()` |
 | `gpsHasFix`, `gpsHasFloat` | `bool` | StateEstimator |
-| `gpsFixAge_ms` | `unsigned long` | Phase 2 TODO (9999999 in Phase 1) |
-| `now_ms` | `unsigned long` | Monotonic ms since Robot start |
-| `stateEst*` | `nav::StateEstimator*` | Robot member |
-| `map*` | `nav::Map*` | Robot member |
-| `lineTracker*` | `nav::LineTracker*` | Robot member |
+| `gpsFixAge_ms` | `unsigned long` | Phase-2-TODO (hardcoded 9 999 999 in Phase 1) |
+| `now_ms` | `unsigned long` | Monotone ms seit Robot-Start |
+| `stateEst*`, `map*`, `lineTracker*` | Zeiger | Robot-Members |
 
-**Helper methods on `OpContext`:**
+**Prioritätsstufen:**
 
-| Method | Description |
-|--------|-------------|
-| `stopMotors()` | `hw.setMotorPwm(0, 0, 0)` |
-| `setMowMotor(on)` | `hw.setMotorPwm(0, 0, on ? 200 : 0)` |
-| `setLinearAngularSpeed(v, ω)` | Unicycle → PWM conversion using `motor_max_speed_ms`, `wheel_base_m` |
+| Stufe | Wert | Verwendet für |
+|-------|------|---------------|
+| `PRIO_LOW` | 10 | — |
+| `PRIO_NORMAL` | 50 | Standard `changeOp()` |
+| `PRIO_HIGH` | 80 | Error, Charge; Operator-Commands Mow/Dock/Charge |
+| `PRIO_CRITICAL` | 100 | Operator-Stop/Error, `onBatteryUndervoltage` |
 
----
+**Zustandsübergangsdiagramm:**
 
-## 9. Core — Navigation
-
-### `nav::StateEstimator`
-
-**File:** `core/navigation/StateEstimator.h/.cpp`
-**Purpose:** Robot pose estimation from wheel encoder ticks.
-
-**Phase 1:** Odometry dead-reckoning only.
-**Phase 2:** `updateGps()` to be called from `Robot::run()` after GPS read.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `update(OdometryData, dt_ms)` | Integrate encoder deltas into pose (x, y, heading) |
-| `updateGps(posE, posN, isFix, isFloat)` | GPS position override stub (Phase 2) |
-| `x()`, `y()`, `heading()` | Current pose (local metres, radians) |
-| `groundSpeed()` | m/s, low-pass filtered from encoder deltas |
-| `gpsHasFix()`, `gpsHasFloat()` | GPS quality flags |
-| `setPose(x, y, heading)` | Override pose directly |
-| `reset()` | Reset to origin (0, 0, 0) |
-
-**Sanity guard:** Tick delta implying > 0.5 m in 20 ms is rejected (MCU reconnect artifact).
-**Safety clamp:** If odometry drifts beyond ±10 km, pose is reset to origin.
-**Speed LP filter:** `groundSpeed = 0.9 * groundSpeed + 0.1 * newSpeed`
-
-**Config keys used:** `ticks_per_meter` (default 120), `wheel_base_m` (default 0.285)
-
----
-
-### `nav::Map`
-
-**File:** `core/navigation/Map.h/.cpp`
-**Purpose:** Waypoint management, perimeter polygon, obstacle tracking.
-
-**Coordinate system:** Local metres, east = +x, north = +y. Origin set by `AT+P` / Mission Service.
-
-**Data types:**
-`Point` struct: `{float x, float y}` + `distanceTo(Point)`
-`PolygonPoints` = `std::vector<Point>`
-`WayType` enum: `PERIMETER`, `EXCLUSION`, `DOCK`, `MOW`, `FREE`
-
-**Key methods:**
-
-| Method | Description |
-|--------|-------------|
-| `load(path)` | Load JSON map file from Mission Service |
-| `save(path)` | Save map to JSON |
-| `startMowing(x, y)` | Set first target to nearest mow point |
-| `startDocking(x, y)` | Set path toward dock |
-| `retryDocking(x, y)` | Retry after missed contact |
-| `nextPoint(sim, x, y)` | Advance to next waypoint. Returns false when done. |
-| `nextPointIsStraight()` | True if no sharp turn at next waypoint |
-| `isInsideAllowedArea(x, y)` | Inside perimeter AND outside all exclusions |
-| `addObstacle(x, y)` | Mark virtual obstacle (avoidance input to A*) |
-| `getDockingPos(x, y, δ, idx)` | Docking approach position and heading |
-| `mowingCompleted()` | True when all mow points visited |
-
-**Public state:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `targetPoint` | `Point` | Current navigation target |
-| `lastTargetPoint` | `Point` | Previous target (defines tracking line) |
-| `trackReverse` | `bool` | True = drive in reverse to target |
-| `trackSlow` | `bool` | True = reduced speed (docking approach) |
-| `wayMode` | `WayType` | Current navigation mode |
-| `percentCompleted` | `int` | Mowing progress 0–100% |
-
----
-
-### `nav::LineTracker`
-
-**File:** `core/navigation/LineTracker.h/.cpp`
-**Purpose:** Stanley path-tracking controller.
-
-**Stanley formula:**
 ```
-angular = p * headingError + atan2(k * lateralError, 0.001 + |groundSpeed|)
+                   ┌─────────┐
+        charger    │         │
+        connected  │  Idle   │◄── operator "stop" (PRIO_CRITICAL)
+      ─────────────┤         │◄── battery undervoltage (PRIO_CRITICAL)
+      ↓            └────┬────┘
+ ┌─────────┐            │ charger connected >2s
+ │  Charge │◄───────────┘
+ │         │
+ │         │ timetable start + battery OK / operator "Mow"
+ │         ├──────────────────────────────────────────────► MowOp
+ └────┬────┘
+      │ charger disconnected
+      ↓
+ ┌─────────┐                    ┌──────────────────┐
+ │  Idle   │                    │ EscapeReverseOp  │
+ └─────────┘                    │ (3s rückwärts)   │
+                                └────────┬─────────┘
+ ┌─────────┐ obstacle / lift     ↑        │ done (returnBack)
+ │  Mow    │─────────────────────┘        ↓
+ │         │                    ┌──────────────────┐
+ │         │ GPS lost           │ GpsWaitFixOp     │
+ │         ├───────────────────►│ (max 2 min)      │
+ │         │ (returnBack)       └──────┬───────────┘
+ │         │                           │ GPS acquired → returnBack
+ │         │ GPS timeout               │
+ │         ├──────────────────────────►│
+ │         │                       ErrorOp
+ │         │ rain / battery low / no waypoints
+ │         ├──────────────────────────────────────────────► DockOp
+ └─────────┘ operator "Dock"
+                                             ┌─────────┐
+ ┌─────────┐ charger connected               │  Error  │
+ │  Dock   │──────────────────────────────►  │         │ kein autonomer Ausgang
+ │         │                          Charge  │         │ nur operator "Idle"
+ │         │ obstacle → EscapeReverse (ret.)  └─────────┘
+ │         │ routing fails × 5 → ErrorOp
+ └─────────┘
 ```
 
-**Methods:**
+**Op-Details:**
 
-| Method | Description |
-|--------|-------------|
-| `reset()` | Clear rotation state — call in Op::begin() |
-| `track(ctx, map, estimator)` | One control iteration: compute steering, fire events, advance waypoints |
-| `lateralError()` | Current cross-track error (m) |
-| `targetDist()` | Distance to current target (m) |
-| `angleToTargetFits()` | True if heading error < threshold (→ Stanley phase active) |
+| Op | Name (frozen) | begin() | run() | Events |
+|----|---------------|---------|-------|--------|
+| `IdleOp` | `"Idle"` | Motoren stoppen | charger >2s → ChargeOp | — |
+| `MowOp` | `"Mow"` | Mähwerk starten (PWM 200), map.startMowing() | lineTracker.track() | obstacle→EscapeRev, GPS lost→GpsWait, timeout→Error, rain/batt/no-waypoints→Dock |
+| `DockOp` | `"Dock"` | map.startDocking() | lineTracker.track() | charger→Charge, obstacle→EscapeRev, fail×5→Error |
+| `ChargeOp` | `"Charge"` | Motoren stoppen | disconnect nach 3s→Idle; full (≥28.5V + <0.1A für 60s)→ggf. MowOp | timetable start→MowOp |
+| `EscapeReverseOp` | `"EscapeReverse"` | Bumper merken, Stopzeit now+3s | −0.1 m/s mit Lenkkorrektur | done→returnBack |
+| `GpsWaitFixOp` | `"GpsWait"` | Motoren stoppen | GPS OK→returnBack; >2 min→ErrorOp | — |
+| `ErrorOp` | `"Error"` | Motoren stopp, LED_2 ROT, Buzzer-Plan | Motoren stopp halten; Buzzer 500ms/5s | nur operator "Idle" |
 
-**Op events fired by `track()`:**
+**Abhängigkeiten:** `HardwareInterface`, `Config`, `Logger`, `StateEstimator`, `Map`, `LineTracker`
 
-| Event | Condition |
+---
+
+### StateEstimator
+
+**Zweck:** Roboter-Positions-Schätzung aus Rad-Encoder-Ticks (Dead-Reckoning). GPS-Fusion als Phase-2-Stub vorbereitet.
+
+**Datei:** `core/navigation/StateEstimator.h` / `core/navigation/StateEstimator.cpp`
+
+**Öffentliche API:**
+
+| Methode | Beschreibung |
+|---------|--------------|
+| `update(OdometryData, dt_ms)` | Encoder-Deltas in Pose (x, y, heading) integrieren |
+| `updateGps(posE, posN, isFix, isFloat)` | GPS-Override (Phase-2-Stub, setzt Flags) |
+| `x()`, `y()`, `heading()` | Aktuelle Pose (lokale Meter, Radiant) |
+| `groundSpeed()` | m/s, Tiefpass-gefiltert aus Encoder-Deltas (α=0.1) |
+| `gpsHasFix()`, `gpsHasFloat()` | GPS-Qualitäts-Flags |
+| `setPose(x, y, heading)` | Pose direkt überschreiben |
+| `reset()` | Auf Ursprung zurücksetzen (0, 0, 0) |
+
+**Sicherheitsmechanismen:**
+- Sanity-Guard: > 0.5 m pro Frame → Tick-Delta verwerfen
+- Safety-Clamp: Drift > ±10 km → auf Ursprung zurücksetzen
+
+**Abhängigkeiten:** `Config` (keys: `ticks_per_meter`, `wheel_base_m`)
+
+---
+
+### LineTracker
+
+**Zweck:** Stanley-Pfad-Tracking-Controller — berechnet Lenkbefehle aus Querablage und Kursabweichung.
+
+**Datei:** `core/navigation/LineTracker.h` / `core/navigation/LineTracker.cpp`
+
+**Stanley-Formel:**
+```
+angular = p × headingError + atan2(k × lateralError, 0.001 + |groundSpeed|)
+```
+
+**Öffentliche API:**
+
+| Methode | Beschreibung |
+|---------|--------------|
+| `reset()` | Rotationsstatus löschen — in Op::begin() aufrufen |
+| `track(ctx, map, estimator)` | Eine Kontroll-Iteration: Lenkung berechnen, Events auslösen, Waypoints fortschalten |
+| `lateralError()` | Aktuelle Querablage (m) |
+| `targetDist()` | Entfernung zum aktuellen Ziel (m) |
+| `angleToTargetFits()` | true wenn Kursabweichung < Schwellwert (Stanley-Phase aktiv) |
+
+**Gefeuerte Events:**
+
+| Event | Bedingung |
 |-------|-----------|
-| `onTargetReached` | Distance to target < `TARGET_REACHED_TOLERANCE` (0.2 m) |
-| `onNoFurtherWaypoints` | `map.nextPoint()` returned false |
-| `onKidnapped(true)` | Distance from planned line > `KIDNAP_TOLERANCE` (3.0 m) |
-| `onKidnapped(false)` | Robot back within 3 m of planned line |
+| `onTargetReached` | Abstand < `TARGET_REACHED_TOLERANCE` (0.2 m) |
+| `onNoFurtherWaypoints` | `map.nextPoint()` gab false zurück |
+| `onKidnapped(true)` | Abstand von geplantem Pfad > `KIDNAP_TOLERANCE` (3.0 m) |
+| `onKidnapped(false)` | Wieder innerhalb 3 m |
 
-**Constants (in `LineTracker.h`):**
-
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `TARGET_REACHED_TOLERANCE` | 0.2 m | Distance at which target is considered reached |
-| `KIDNAP_TOLERANCE` | 3.0 m | Distance off planned line → kidnap event |
-| `ROTATE_SPEED_RADPS` | 29°/s → rad/s | Angular speed during rotation phase |
-
-**Config keys used:**
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `motor_set_speed_ms` | 0.3 | Forward speed during tracking (m/s) |
-| `stanley_k_normal` | 1.0 | Cross-track gain (normal) |
-| `stanley_p_normal` | 2.0 | Heading gain (normal) |
-| `stanley_k_slow` | 0.2 | Cross-track gain (slow/docking) |
-| `stanley_p_slow` | 0.5 | Heading gain (slow/docking) |
-| `dock_linear_speed_ms` | 0.1 | Forward speed during docking approach |
+**Abhängigkeiten:** `Config` (keys: `stanley_k_normal`, `stanley_p_normal`, `stanley_k_slow`, `stanley_p_slow`, `motor_set_speed_ms`, `dock_linear_speed_ms`), `Map`, `StateEstimator`
 
 ---
 
-## 10. Core — WebSocketServer
+### Map
 
-**File:** `core/WebSocketServer.h/.cpp`
-**Library:** Crow v1.2.0 (via FetchContent) + standalone Asio 1.30.2
-**Pimpl:** Crow headers confined to `.cpp` — not in `.h`
+**Zweck:** Waypoint- und Polygon-Verwaltung — Perimeter, Exclusion-Zonen, Mähbahnen, Dock-Pfad, Zonen.
 
-### Constructor
+**Datei:** `core/navigation/Map.h` / `core/navigation/Map.cpp`
 
-```cpp
-WebSocketServer(std::shared_ptr<Config> config,
-                std::shared_ptr<Logger> logger)
+**Datentypen:**
+
+| Typ | Beschreibung |
+|-----|--------------|
+| `Point` | `{float x, float y}` + `distanceTo(Point)` |
+| `WayType` | `PERIMETER`, `EXCLUSION`, `DOCK`, `MOW`, `FREE` |
+| `Zone` | `{id, order, polygon, ZoneSettings{name, stripWidth, speed, pattern}}` |
+| `MowPoint` | `{Point p, bool rev, bool slow}` — K-Turn-Encoding |
+
+**Öffentliche API:**
+
+| Methode | Beschreibung |
+|---------|--------------|
+| `load(path)` | JSON-Map-Datei laden (Format: Mission Service) |
+| `save(path)` | Map in JSON speichern |
+| `startMowing(x, y)` | Ersten Mähpunkt setzen (nächstgelegener Waypoint) |
+| `startDocking(x, y)` | Pfad zum Dock setzen |
+| `retryDocking(x, y)` | Retry nach fehlgeschlagenem Kontakt |
+| `nextPoint(sim, x, y)` | Auf nächsten Waypoint fortschalten. `false` wenn fertig. |
+| `isInsideAllowedArea(x, y)` | Innerhalb Perimeter UND außerhalb aller Exclusions |
+| `addObstacle(x, y)` | Virtuelles Hindernis markieren (A*-Eingabe) |
+| `getDockingPos(x, y, δ, idx)` | Dock-Anfahrts-Position und Heading |
+| `mowingCompleted()` | `true` wenn alle Mähpunkte abgefahren |
+| `zones()` | `const std::vector<Zone>&` — Zonen-Liste (nach `order` sortiert) |
+
+**Öffentlicher Zustand:**
+
+| Feld | Beschreibung |
+|------|--------------|
+| `targetPoint` | Aktuelles Navigationsziel |
+| `lastTargetPoint` | Vorheriges Ziel (definiert Tracking-Linie) |
+| `trackReverse` | `true` = rückwärts fahren |
+| `trackSlow` | `true` = reduzierte Geschwindigkeit (Docking-Ansatz) |
+| `wayMode` | Aktueller Navigationsmodus |
+| `percentCompleted` | Mähfortschritt 0–100% |
+
+**Abhängigkeiten:** `Config`
+
+---
+
+### SerialRobotDriver
+
+**Zweck:** Alfred/STM32-Treiber — implementiert `HardwareInterface` über UART-AT-Frames.
+
+**Datei:** `hal/SerialRobotDriver/SerialRobotDriver.h` / `hal/SerialRobotDriver/SerialRobotDriver.cpp`
+
+**AT-Protokoll:**
+
+| Frame | Rate | Richtung | Inhalt |
+|-------|------|----------|--------|
+| `AT+M` | 50 Hz | Pi ↔ STM32 | Motor-PWM-Befehl + Encoder/Sensor-Antwort |
+| `AT+S` | 2 Hz | Pi ↔ STM32 | Summary: Batterie, Bumper, Regen, Ströme |
+| `AT+V` | einmalig | Pi ↔ STM32 | Firmware-Name/Version-Handshake |
+
+**Frame-Format:** CSV-Felder + `*XX` CRC-Suffix (Byte-Summe aller Bytes vor `*`).
+
+> **⚠ BUG-004:** Dokumentation beschreibt XOR, Implementierung verwendet Addition. Vor A.9-Hardware-Test klären.
+
+**Interne Verhaltensweisen:**
+- Fan: an wenn CPU > 65°C, aus wenn < 60°C (alle ~60 s geprüft)
+- WiFi-LED: `wpa_cli status` alle 7 s gepollt → LED_1
+- Batterie-Fallback: bei MCU-Disconnect wird 28 V zurückgegeben
+- Shutdown: `keepPowerOn(false)` → 5 s Wartezeit → Fan aus → `shutdown now`
+
+**Angewandte Bug-Fixes:** BUG-05 (Tick-Overflow via `long`-Cast), BUG-07 (PWM/Encoder-Swap — Alfred-PCB-Verkabelung kompensiert), BUG-08 (Pi-seitiger Mähmotor-Clamp entfernt)
+
+**Abhängigkeiten:** `platform::Serial`, `platform::I2C`, `platform::PortExpander`, `Config`
+
+---
+
+### SimulationDriver
+
+**Zweck:** Software-only-Treiber — kein serielles Gerät, kein I2C, keine Hardware nötig.
+
+**Datei:** `hal/SimulationDriver/SimulationDriver.h` / `hal/SimulationDriver/SimulationDriver.cpp`
+
+**Kinematisches Modell:** Differentialantrieb-Unicycle. PWM → Radgeschwindigkeit (m/s) → Dead-Reckoning-Pose. Ticks aus Bogenlänge berechnet.
+
+**Zusätzliche API (nicht in HardwareInterface):**
+
+| Methode | Beschreibung |
+|---------|--------------|
+| `setBumperLeft/Right(bool)` | Bumper-Kontakt injizieren |
+| `setLift(bool)` | Lift-Sensor injizieren |
+| `setGpsQuality(FIX/FLOAT/NO_FIX)` | GPS-Qualität setzen |
+| `addObstacle(Polygon)` | Polygon-Hindernis (Ray-Casting bei Kollision) |
+| `clearObstacles()` | Alle Polygone entfernen |
+| `getPose()` | Aktuelle `SimPose {x, y, heading}` |
+| `setPose(SimPose)` | Pose direkt setzen |
+
+**Thread-Safety:** Alle Shared-State-Zugriffe durch `mutex_` geschützt.
+
+**Aktivierung:** `--sim`-Flag in `main.cpp` wählt SimulationDriver statt SerialRobotDriver.
+
+**Abhängigkeiten:** Keine Platform-Abhängigkeit
+
+---
+
+### WebSocketServer
+
+**Zweck:** Crow-basierter HTTP/WebSocket-Server — 10-Hz-Telemetrie-Push, Command-Empfang, statisches Webui-Serving.
+
+**Datei:** `core/WebSocketServer.h` / `core/WebSocketServer.cpp`
+
+**Pimpl:** Crow-Headers nur in `.cpp` — nicht in `.h` (verhindert Header-Pollution).
+
+**Öffentliche API:**
+
+| Methode | Beschreibung |
+|---------|--------------|
+| `WebSocketServer(config, logger)` | Konstruktor |
+| `void start()` | Server-Thread starten (Crow I/O + Push-Loop) |
+| `void stop()` | Server herunterfahren |
+| `void pushTelemetry(TelemetryData)` | Telemetrie in Push-Queue einreihen (thread-safe via mutex) |
+| `void broadcastNmea(std::string)` | NMEA-Zeile sofort an alle Clients senden |
+| `void setRobot(Robot*)` | Robot-Referenz für Command-Routing |
+
+**Threading:** Crow I/O im eigenen Thread-Pool; Push-Loop in `serverThread_`; Telemetrie-Sharing via Mutex.
+
+**Abhängigkeiten:** `Crow` + `Asio` (via FetchContent), `Config`, `Logger`, `Robot` (via Setter)
+
+---
+
+### Platform-Layer (Serial, I2C, PortExpander)
+
+Siehe je eigene Modul-Beschreibung oben. Zusammenfassung:
+
 ```
-
-### Lifecycle
-
-| Method | Description |
-|--------|-------------|
-| `start()` | Configure Crow route, start Crow async, start push thread. Returns immediately. |
-| `stop()` | Set `running_ = false`, join push thread, call `app.stop()` |
-| `isRunning()` | True between `start()` and `stop()` |
-
-Port from config key `ws_port` (default 8765).
-
-### Data feed
-
-```cpp
-void pushTelemetry(const TelemetryData& data)
-// Thread-safe. Stores latest snapshot; push thread broadcasts every 100 ms.
-```
-
-### Command reception
-
-```cpp
-void onCommand(CommandCallback cb)
-// cb(std::string cmd, nlohmann::json params)
-// Called from Crow I/O thread — must be thread-safe
-```
-
-### `TelemetryData` struct
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `op` | `string` | `"Idle"` | Active Op name |
-| `x` | `float` | 0.0 | Local east (m) |
-| `y` | `float` | 0.0 | Local north (m) |
-| `heading` | `float` | 0.0 | Heading (rad, 0=east) |
-| `battery_v` | `float` | 0.0 | Battery voltage (V) |
-| `charge_v` | `float` | 0.0 | Charger output voltage (V) |
-| `gps_sol` | `int` | 0 | NMEA quality (0=none, 4=RTK fix, 5=RTK float) |
-| `gps_text` | `string` | `"---"` | Human-readable GPS quality |
-| `gps_lat` | `double` | 0.0 | WGS-84 latitude (Phase 2) |
-| `gps_lon` | `double` | 0.0 | WGS-84 longitude (Phase 2) |
-| `bumper_l` | `bool` | false | Left bumper |
-| `bumper_r` | `bool` | false | Right bumper |
-| `motor_err` | `bool` | false | Motor fault |
-| `uptime_s` | `ulong` | 0 | Seconds since Robot start |
-
-### Threading model
-
-```
-Thread A (Robot::run() @ 50 Hz)  →  pushTelemetry()  →  mutex → latestTelemetry_
-Thread B (Crow I/O pool)          →  onmessage() → commandCallback_
-Thread C (serverThread_ push loop)→  every 100ms: read latestTelemetry_ → broadcast
+platform::Serial      → termios, POSIX, raw 8N1
+platform::I2C         → Linux /dev/i2c-*, I2C_RDWR ioctl
+platform::PortExpander → PCA9555 via I2C, Read-Modify-Write
 ```
 
 ---
 
-## 11. Core — RobotConstants
+## 3. WebSocket API
 
-**File:** `core/RobotConstants.h`
-**Purpose:** Compile-time architectural constants (NOT runtime-tunable).
-
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `OVERALL_MOTION_TIMEOUT_MS` | 10 000 ms | Max time in motion-requested state before fault |
-| `MOTION_LP_DECAY_MS` | 2 000 ms | Ground-speed LP filter time constant |
-| `GPS_NO_MOTION_THRESHOLD_M` | 0.05 m | Below this displacement → robot considered stationary |
-| `OBSTACLE_ROTATION_TIMEOUT_MS` | 15 000 ms | Max rotation time after obstacle before abort |
-| `OBSTACLE_ROTATION_SPEED_DEG_S` | 10.0 °/s | Angular speed during obstacle-avoidance rotation |
-
----
-
-## 12. WebSocket API
-
-### Endpoint
+### Verbindung
 
 ```
-ws://host:8765/ws/telemetry
+URL:   ws://host:PORT/ws/telemetry
+PORT:  config key "ws_port" (default: 8765)
 ```
 
-Port configurable via `ws_port` in `config.json`.
+### Telemetrie-Push (Server → Client, 10 Hz)
 
-### Server → Client: Telemetry (10 Hz)
+**Format (eingefroren — nicht ändern ohne Frontend-Update):**
 
 ```json
 {
   "type":      "state",
-  "op":        "Mow",
-  "x":         1.5000,
-  "y":         2.5000,
-  "heading":   0.7854,
-  "battery_v": 25.40,
-  "charge_v":  0.00,
+  "op":        "Idle",
+  "x":         1.23,
+  "y":         4.56,
+  "heading":   0.785,
+  "battery_v": 26.4,
+  "charge_v":  0.0,
   "gps_sol":   4,
-  "gps_text":  "RTK",
-  "gps_lat":   51.12345678,
-  "gps_lon":   7.12345678,
+  "gps_text":  "RTK-Fix 12 SV",
+  "gps_lat":   51.234567,
+  "gps_lon":   6.789012,
   "bumper_l":  false,
   "bumper_r":  false,
   "motor_err": false,
-  "uptime_s":  123
+  "uptime_s":  3600
 }
 ```
 
-**Op name values (frozen — must not change):**
-`"Idle"`, `"Mow"`, `"Dock"`, `"Charge"`, `"EscapeReverse"`, `"GpsWait"`, `"Error"`
+**Feldbeschreibung:**
 
-**GPS quality `gps_sol` values:**
+| Feld | Typ | Beschreibung |
+|------|-----|--------------|
+| `type` | string | Immer `"state"` für Telemetrie |
+| `op` | string | Aktiver Op: `"Idle"`, `"Mow"`, `"Dock"`, `"Charge"`, `"Error"`, `"GpsWait"`, `"EscapeReverse"` |
+| `x` | float | Lokale Meter Ost (StateEstimator) |
+| `y` | float | Lokale Meter Nord |
+| `heading` | float | Radiant, 0 = Ost |
+| `battery_v` | float | Batteriespannung (V) |
+| `charge_v` | float | Ladespannung (V) |
+| `gps_sol` | int | 0=None, 4=RTK-Fix, 5=RTK-Float |
+| `gps_text` | string | Menschenlesbare GPS-Zusammenfassung |
+| `gps_lat` | float | GPS-Breitengrad |
+| `gps_lon` | float | GPS-Längengrad |
+| `bumper_l` | bool | Linker Bumper aktiv |
+| `bumper_r` | bool | Rechter Bumper aktiv |
+| `motor_err` | bool | Motor-Fault aktiv |
+| `uptime_s` | int | Sekunden seit Robot-Start |
 
-| Value | Meaning |
-|-------|---------|
-| 0 | No fix (Phase 1 default) |
-| 4 | RTK fixed |
-| 5 | RTK float |
+**Keepalive:** `{"type":"ping"}` wenn keine neuen Telemetrie-Daten verfügbar.
 
-### Server → Client: Keepalive
-
-Sent when no new telemetry within 100 ms:
+### NMEA-Push (Server → Client, bei Bedarf)
 
 ```json
-{"type": "ping"}
+{"type": "nmea", "line": "$GNGGA,120000.00,5114.12345,N,...*XX"}
 ```
 
-### Client → Server: Commands
+Nicht eingefroren — kann jederzeit fehlen oder ergänzt werden.
+
+### Log-Push (Server → Client)
 
 ```json
-{"cmd": "start"}
-{"cmd": "stop"}
-{"cmd": "dock"}
-{"cmd": "charge"}
-{"cmd": "setpos", "lat": 51.12345, "lon": 7.12345}
+{"type": "log", "text": "Robot::run: loop 1500 — op=Mow"}
 ```
 
-| Command | Robot action |
-|---------|-------------|
-| `start` | `robot.startMowing()` |
-| `stop` | `robot.emergencyStop()` |
-| `dock` | `robot.startDocking()` |
-| `charge` | `robot.startDocking()` (alias) |
-| `setpos` | `robot.setPose(lon, lat, 0)` |
+### Commands (Client → Server)
 
-**Format compatibility:** Identical to `sunray/mission_api.cpp:254-274` and Python `SunrayClient`. Any change to field names or Op name strings will break the Mission Service frontend.
+```json
+{"cmd": "start"}    // Mähen starten → Robot::startMowing()
+{"cmd": "stop"}     // Stopp → Robot::emergencyStop()
+{"cmd": "dock"}     // Docking → Robot::startDocking()
+{"cmd": "charge"}   // Laden → ChargeOp
+{"cmd": "setpos", "x": 1.0, "y": 2.0, "heading": 0.0}  // Pose setzen
+```
+
+### REST-Endpoints
+
+| Methode | Pfad | Beschreibung |
+|---------|------|--------------|
+| `GET` | `/ws/telemetry` | WebSocket-Upgrade |
+| `GET` | `/api/config` | Gesamte Config als JSON |
+| `PUT` | `/api/config` | Partial-Update (nur geänderte Keys); sofortiger `config->save()` |
+| `GET` | `/api/map` | Map-JSON lesen (`map.json`) |
+| `POST` | `/api/map` | Map-JSON schreiben; Robot::loadMap() aufrufen |
+| `GET` | `/api/map/geojson` | Map als GeoJSON exportieren |
+| `POST` | `/api/map/geojson` | GeoJSON importieren (Perimeter + Exclusions) |
+| `POST` | `/api/sim/bumper` | Bumper injizieren (nur `--sim`) |
+| `POST` | `/api/sim/gps` | GPS-Qualität setzen (nur `--sim`) |
+| `POST` | `/api/sim/lift` | Lift-Sensor injizieren (nur `--sim`) |
+| `GET` | `/` | Webui `index.html` (aus `webui/dist/`) |
+| `GET` | `/assets/*` | Statische Assets |
 
 ---
 
-## 13. Config Keys Reference
+## 4. Konfiguration
 
-All keys have built-in defaults (defined in `Config::defaults()` in `Config.cpp`).
-Production config: `/etc/sunray/config.json` (see `config.example.json` for template).
+Kopie von `config.example.json` → `/etc/sunray/config.json` für Deployment.
 
-### Hardware / Driver
+### Treiber & Hardware
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `driver` | string | `"serial"` | `"serial"` = Alfred, `"sim"` = SimulationDriver |
-| `driver_port` | string | `"/dev/ttyS0"` | UART device for STM32 |
-| `driver_baud` | int | `115200` | Must match rm18.ino |
-| `i2c_bus` | string | `"/dev/i2c-1"` | Linux I2C bus for PortExpander + ADC |
-| `port_expander_addr` | string | `"0x20"` | I2C address of main PortExpander |
-| `ws_port` | int | `8765` | WebSocket server port |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `driver` | string | `"serial"` | `"serial"` = Alfred/STM32, `"sim"` = Simulation |
+| `driver_port` | string | `"/dev/ttyS0"` | UART-Gerätepfad |
+| `driver_baud` | int | `115200` | UART-Baudrate |
+| `i2c_bus` | string | `"/dev/i2c-1"` | I2C-Bus-Gerätepfad |
 
-### Navigation
+### GPS (ZED-F9P)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `ticks_per_meter` | float | `120` | Encoder ticks per metre of travel |
-| `wheel_base_m` | float | `0.285` | Distance between wheel centres (m) |
-| `stanley_k` | float | `0.5` | Stanley cross-track gain (legacy key) |
-| `stanley_k_normal` | float | `1.0` | Cross-track gain (normal mowing) |
-| `stanley_p_normal` | float | `2.0` | Heading gain (normal mowing) |
-| `stanley_k_slow` | float | `0.2` | Cross-track gain (docking) |
-| `stanley_p_slow` | float | `0.5` | Heading gain (docking) |
-| `motor_set_speed_ms` | float | `0.3` | Forward speed during mowing (m/s) |
-| `dock_linear_speed_ms` | float | `0.1` | Forward speed during docking (m/s) |
-| `motor_max_speed_ms` | float | `0.5` | PWM=255 maps to this speed (m/s) |
-| `gps_no_motion_threshold_m` | float | `0.05` | GPS displacement below this = stationary |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `gps_port` | string | `/dev/serial/by-id/usb-u-blox_...` | GPS-Gerätepfad |
+| `gps_baud` | int | `115200` | GPS-Baudrate |
+| `gps_configure` | bool | `false` | `true`: Konfiguriert 5 Hz + UBX-Messages beim Start |
+| `gps_config_filter` | bool | `true` | Aktiviert Elevationsfilter für stabiles RTK-Signal |
+| `gps_wait_timeout_ms` | int | `600000` | Max. Wartezeit auf GPS-Fix beim Start (ms) |
+| `gps_require_valid` | bool | `true` | Startet nicht ohne gültigen GPS-Fix |
+| `gps_speed_detection` | bool | `true` | GPS-Geschwindigkeitserkennung |
+| `gps_motion_detection` | bool | `true` | Bewegungserkennung via GPS |
+| `gps_motion_detection_timeout_s` | int | `5` | Timeout für Bewegungslosigkeit (s) |
+| `gps_no_motion_threshold_m` | float | `0.05` | Schwellwert für „keine Bewegung" (m) |
 
-### Energy
+### MQTT
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `battery_low_v` | float | `22.0` | Return-to-dock threshold (V) |
-| `battery_critical_v` | float | `20.0` | Emergency shutdown threshold (V) |
-| `battery_full_v` | float | `29.4` | Stop-charging threshold (V) |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `mqtt_enabled` | bool | `false` | MQTT-Client aktivieren |
+| `mqtt_host` | string | `"localhost"` | Broker-Host |
+| `mqtt_port` | int | `1883` | Broker-Port |
+| `mqtt_keepalive_s` | int | `60` | Keepalive-Intervall |
+| `mqtt_topic_prefix` | string | `"sunray"` | Topic-Präfix für alle Nachrichten |
+| `mqtt_user` | string | `""` | Benutzername (leer = anonym) |
+| `mqtt_pass` | string | `""` | Passwort |
 
-### Peripherals
+### NTRIP (RTK-Korrekturen)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `buzzer_enabled` | bool | `true` | Enable/disable buzzer output |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `ntrip_enabled` | bool | `false` | NTRIP-Client aktivieren |
+| `ntrip_host` | string | `"www.sapos-nw-ntrip.de"` | NTRIP-Caster-Host |
+| `ntrip_port` | int | `2101` | NTRIP-Port |
+| `ntrip_mount` | string | `"VRS_3_4G_NW"` | Mountpoint |
+| `ntrip_user` | string | `"user"` | Benutzername |
+| `ntrip_pass` | string | `"pass"` | Passwort |
+
+### Odometrie & Geometrie
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `ticks_per_revolution` | int | `320` | Hall-Sensor-Ticks pro Radumdrehung |
+| `wheel_diameter_m` | float | `0.205` | Raddurchmesser (m) |
+| `wheel_base_m` | float | `0.390` | Radabstand Mitte–Mitte (m) |
+| `robot_length_m` | float | `0.60` | Roboter-Länge (m) |
+| `robot_width_m` | float | `0.43` | Roboter-Breite (m) |
+| `gps_offset_x_m` | float | `0.0` | GPS-Antennen-Offset vorwärts (m) |
+| `gps_offset_y_m` | float | `0.19` | GPS-Antennen-Offset links (m) |
+
+### Motor-PID
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `motor_pid_lp` | float | `0.0` | Encoder-Tiefpassfilter (0 = deaktiviert) |
+| `motor_pid_kp` | float | `0.5` | P-Anteil |
+| `motor_pid_ki` | float | `0.01` | I-Anteil |
+| `motor_pid_kd` | float | `0.01` | D-Anteil |
+
+### Motor-Stromgrenzen (Fahrmotoren)
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `motor_fault_current_a` | float | `3.0` | Hardware-Fehler → Sofortstopp (A) |
+| `motor_overload_current_a` | float | `1.2` | Überlast → verlangsamen/stoppen (A) |
+| `motor_too_low_current_a` | float | `0.005` | Blockade-Erkennung (0 = deaktiviert) |
+| `motor_overload_speed_ms` | float | `0.1` | Geschwindigkeit bei Überlast (m/s) |
+| `enable_fault_detection` | bool | `true` | Hardware-Fault-Erkennung |
+| `enable_overload_detection` | bool | `false` | Überlast-Erkennung |
+| `enable_fault_obstacle_avoidance` | bool | `true` | Fault als Hindernis behandeln |
+| `fault_max_successive_count` | int | `5` | Max. aufeinanderfolgende Faults vor Stop |
+
+### Mähmotor-Stromgrenzen
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `mow_fault_current_a` | float | `8.0` | Mähwerk-Fault-Schwelle (A) |
+| `mow_overload_current_a` | float | `2.0` | Mähwerk-Überlast-Schwelle (A) |
+| `mow_too_low_current_a` | float | `0.005` | Mähwerk-Blockade-Erkennung (A) |
+| `mow_toggle_dir` | bool | `true` | Drehrichtung bei jedem Start wechseln |
+| `enable_mow_motor` | bool | `true` | `false` = testen ohne Messer |
+
+### Navigation (Stanley-Regler)
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `stanley_k` | float | `0.5` | Querablage-Gain (allgemein) |
+| `stanley_k_normal` | float | `0.1` | Querablage-Gain (normal) |
+| `stanley_p_normal` | float | `1.1` | Heading-Gain (normal) |
+| `stanley_k_slow` | float | `0.1` | Querablage-Gain (langsam/Docking) |
+| `stanley_p_slow` | float | `1.1` | Heading-Gain (langsam/Docking) |
+| `motor_set_speed_ms` | float | `0.3` | Vorwärtsgeschwindigkeit beim Tracking (m/s) |
+| `dock_linear_speed_ms` | float | `0.1` | Vorwärtsgeschwindigkeit beim Docking (m/s) |
+| `target_reached_tolerance_m` | float | `0.1` | Ziel als erreicht gelten ab Abstand (m) |
+| `kidnap_detect` | bool | `true` | Entführungs-Erkennung |
+| `kidnap_detect_tolerance_m` | float | `1.0` | Entführungs-Schwelle (m) |
+
+### Batterie
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `battery_low_v` | float | `25.5` | Niedrig → Dock auslösen (V) |
+| `battery_critical_v` | float | `18.9` | Kritisch → Sofortstopp (V) |
+| `battery_full_v` | float | `30.0` | Voll-Spannungsschwelle (V) |
+| `battery_full_current_a` | float | `-0.1` | Voll-Strom-Schwelle (A) |
+| `battery_full_slope` | float | `0.002` | Voll wenn Spannungsanstieg < Schwelle |
+
+### Temperatur
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `overheat_temp_c` | int | `85` | Überhitzung → Dock (°C) |
+| `too_cold_temp_c` | int | `5` | Zu kalt → Dock (°C) |
+| `use_temp_sensor` | bool | `true` | `false` wenn kein HTU21D verbaut |
+
+### Sensoren
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `buzzer_enabled` | bool | `true` | Buzzer aktivieren |
+| `port_expander_addr` | string | `"0x20"` | PCA9555-I2C-Adresse |
+| `bumper_deadtime_ms` | int | `1000` | Totzeit nach Bumper-Auslösung (ms) |
+| `bumper_invert` | bool | `false` | Sensor-Polarität umkehren |
+| `enable_lift_detection` | bool | `true` | Hubsensor aktiv |
+| `lift_obstacle_avoidance` | bool | `true` | Lift → Hindernisausweichen statt nur Motorstopp |
+| `lift_invert` | bool | `false` | Lift-Sensor-Polarität umkehren |
+| `enable_tilt_detection` | bool | `true` | Neigungssensor aktiv |
+
+### Hindernisumgehung
+
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `obstacle_diameter_m` | float | `1.2` | Durchmesser des platzierten virtuellen Hindernisses (m) |
+| `obstacle_loop_max_count` | int | `5` | Max. Hindernisse in Zeitfenster vor ErrorOp |
+| `obstacle_loop_window_ms` | int | `30000` | Zeitfenster für Loop-Erkennung (ms) |
 
 ### Undocking
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `undock_speed_ms` | float | `0.1` | Reverse speed during undock (m/s) |
-| `undock_distance_m` | float | `0.5` | Minimum exit distance from dock point (m) |
-| `undock_charger_timeout_ms` | int | `3000` | Max wait for charger disconnect (ms) |
-| `undock_position_timeout_ms` | int | `10000` | Overall undock timeout (ms) |
-| `undock_heading_tolerance_rad` | float | `0.175` | IMU heading check tolerance (≈ ±10°) |
-| `undock_encoder_check_ms` | int | `1000` | Encoder cross-check window (ms) |
-| `undock_encoder_min_ticks` | int | `5` | Min ticks to confirm movement |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `undock_speed_ms` | float | `0.08` | Rückwärtsgeschwindigkeit beim Undocking (m/s) |
+| `undock_distance_m` | float | `0.32` | Rückwärts-Fahrstrecke (m) |
+| `undock_charger_timeout_ms` | int | `5000` | Timeout für Lader-Disconnect (ms) |
+| `undock_position_timeout_ms` | int | `10000` | Timeout für Startposition erreichen (ms) |
+| `undock_heading_tolerance_rad` | float | `0.175` | Kursabweichungs-Toleranz (~10°) |
+| `undock_encoder_check_ms` | int | `1000` | Encoder-Prüfintervall beim Undocking (ms) |
+| `undock_encoder_min_ticks` | int | `5` | Mindest-Ticks zum Nachweis der Bewegung |
+| `undock_ignore_gps_distance_m` | float | `2.0` | GPS ignorieren innerhalb Dock-Radius (m) |
 
-### Recovery
+### Docking
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `stuck_detect_timeout_ms` | int | `5000` | No movement for this long = stuck (ms) |
-| `stuck_recovery_max_attempts` | int | `3` | Max stuck-recovery attempts before ErrorOp |
-| `dock_retry_max_attempts` | int | `3` | Max docking retries after missed contact |
-| `obstacle_loop_max_count` | int | `5` | Obstacles in window → stuck recovery |
-| `obstacle_loop_window_ms` | int | `30000` | Time window for obstacle loop detection (ms) |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `dock_trackslow_distance_m` | float | `5.0` | Ab diesem Abstand Langsamfahrt zum Dock (m) |
+| `dock_auto_start` | bool | `true` | Nach Laden automatisch wieder mähen |
+| `dock_front_side` | bool | `true` | `true` = Vorderseite zuerst einfahren |
+| `dock_retry_max_attempts` | int | `3` | Max. Docking-Retry-Versuche |
+| `dock_retry_approach_ms` | int | `2000` | Anlauf-Dauer beim Retry (ms) |
+| `dock_retry_contact_timeout_ms` | int | `3000` | Kontakt-Timeout beim Retry (ms) |
 
-### Scheduling
+### Preflight
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `rain_delay_min` | int | `60` | Minutes to wait after rain before restart |
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `preflight_min_voltage` | float | `26.5` | Mindestspannung vor Undock (V) |
+| `preflight_gps_timeout_ms` | int | `60000` | GPS-Wartezeit vor Undock (ms) |
 
----
+### Stuck-Detection
 
-## 14. Build System
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `stuck_detect_timeout_ms` | int | `5000` | Timeout für Steckenbleiben (ms) |
+| `stuck_detect_min_speed_ms` | float | `0.01` | Mindestgeschwindigkeit — darunter = stecken (m/s) |
+| `stuck_recovery_max_attempts` | int | `3` | Max. Wiederherstellungsversuche |
+| `stuck_recovery_reverse_ms` | int | `2000` | Rückwärtsdauer bei Recovery (ms) |
+| `stuck_recovery_pause_ms` | int | `1000` | Pause-Dauer bei Recovery (ms) |
+| `stuck_recovery_forward_ms` | int | `1500` | Vorwärtsdauer nach Recovery (ms) |
 
-**Root:** `CMakeLists.txt` — CMake 3.20+, C++17.
+### Sonstiges
 
-**FetchContent dependencies:**
-
-| Library | Tag | Use |
-|---------|-----|-----|
-| nlohmann/json | v3.11.3 | Config, WebSocketServer JSON |
-| Catch2 | v3.6.0 | Unit tests |
-| asio (standalone) | asio-1-30-2 | Required by Crow (header-only) |
-| Crow | v1.2.0 | WebSocket server |
-
-**Static libraries:**
-
-| Target | Sources |
-|--------|---------|
-| `sunray_platform` | Serial.cpp, I2C.cpp, PortExpander.cpp |
-| `sunray_hal` | HardwareInterface.h (interface only) |
-| `sunray_serial_driver` | SerialRobotDriver.cpp |
-| `sunray_simulation_driver` | SimulationDriver.cpp |
-| `sunray_core` | Config.cpp, Robot.cpp, WebSocketServer.cpp, all Op/*.cpp, all navigation/*.cpp |
-
-**Executable:** `sunray-core` — links all static libraries + Crow::Crow.
-
-**Tests:** `sunray_tests` — links `sunray_core` + `sunray_simulation_driver` + Catch2. No real hardware.
-
-**Platform detection:** Warning issued when building on non-Linux (Serial/I2C use POSIX APIs).
+| Key | Typ | Default | Beschreibung |
+|-----|-----|---------|--------------|
+| `rain_delay_min` | int | `60` | Regen-Verzögerung — Wartezeit nach Regen (min) |
 
 ---
 
-## 15. Entry Point (`main.cpp`)
+## 5. Eingeschränkte Bereiche (Phase-2-TODOs)
 
-**Usage:**
-```bash
-./sunray-core                          # Alfred hardware, config from /etc/sunray/config.json
-./sunray-core /path/to/config.json     # custom config file
-./sunray-core --sim                    # SimulationDriver (no hardware)
-./sunray-core --sim /path/to/config   # both flags
-```
+### GPS-Fusion (StateEstimator)
 
-**DI wiring sequence:**
+**Status:** Stub implementiert, Logik fehlt.
 
-```cpp
-1. Config   = std::make_shared<Config>(configPath)
-2. Logger   = std::make_shared<StdoutLogger>(INFO)
-3. HW       = std::make_unique<SerialRobotDriver>(config)   // or SimulationDriver
-4. Robot    = Robot(std::move(hw), config, logger)
-5. WsServer = std::make_unique<WebSocketServer>(config, logger)
-6. wsServer->onCommand(lambda)   // routes cmd → robot.startMowing/Docking/emergencyStop/setPose
-7. wsServer->start()
-8. robot.setWebSocketServer(wsServer.get())
-9. robot.init()
-10. robot.loop()        // blocks until SIGINT/SIGTERM
-11. wsServer->stop()
-```
+`StateEstimator::updateGps()` setzt in Phase 1 nur `gpsHasFix_`/`gpsHasFloat_`-Flags. Eine echte Positions-Fusion (Komplementärfilter oder Kalman) ist für Phase 2 geplant.
 
-**Signal handling:** `SIGINT` / `SIGTERM` → `robot.stop()` (via `g_robot` pointer, only calls atomic flag write — safe from signal handler).
+**Konsequenz:** Bei GPS-Loss driftet der Robot im reinen Odometrie-Modus, ohne Fehlerkorrekturen. Es gibt kein "Odometry-Only"-Flag in OpContext — MowOp kann nicht unterscheiden.
+
+### A*-Pfadplanung (Map)
+
+**Status:** Placeholder.
+
+`Map` enthält vereinfachte Pfadplanung (direkter Waypoint-Ansatz, keine Hindernis-Umgehung via A*). Echte A*-Implementierung für Phase 2 geplant.
+
+### IMU-Integration (StateEstimator)
+
+**Status:** Vollständig entfernt für Phase 1.
+
+`onImuTilt()` und `onImuError()` in MowOp existieren, werden aber nie aufgerufen (kein IMU-Sensor angebunden). Phase-2-Anforderung.
+
+### `gpsFixAge_ms` in OpContext
+
+**Status:** Hardcoded Wert (BUG-006).
+
+`OpContext.gpsFixAge_ms` ist auf `9 999 999 ms` fest kodiert. GpsWaitFixOp verwendet diesen Wert für den 2-Minuten-Timeout → Verhalten unzuverlässig. Echte Zeitstempel-Differenz für Phase 2.
+
+### Phase-2-Treiber: PicoRobotDriver
+
+**Status:** Nicht begonnen.
+
+`hal/PicoRobotDriver/` für RP2040 Pico mit direktem PWM/Hall-Zugriff. Beginnt erst nach erfolgreichem A.9 (Alfred-Hardware-Test).
+
+### No-Go-Zonen zur Laufzeit
+
+**Status:** Bewusst nicht implementiert (Entscheidung 2026-03-22).
+
+No-Go-Zonen werden ausschließlich im Python-Pfadplaner aus dem Mähpfad herausgeschnitten (Shapely boolean difference). Sunray-Core prüft sie nicht zur Laufzeit.
+
+**Risiko:** Bei Pfadabweichung (Hindernis-Umfahrung) kann der Robot in eine No-Go-Zone fahren. Akzeptiert für Phase 1.
+
+### AT+W Waypoint-Batches
+
+**Status:** Nicht implementiert.
+
+Der berechnete Mähpfad kann bisher nicht über das UART-Protokoll an den Robot übertragen werden. Phase-2-Blocker für autonomes Mähen.
+
+---
+
+## 6. Bekannte Bugs
+
+Vollständige Bug-Liste: siehe **[docs/BUG_REPORT.md](BUG_REPORT.md)**
+
+### P0-Items (Blocker vor A.9-Hardware-Test)
+
+| ID | Datei | Impact | Problem |
+|----|-------|--------|---------|
+| **BUG-004** | `SerialRobotDriver.cpp:246–250` | **kritisch** | CRC-Algorithmus: Dokumentation sagt XOR, Code verwendet Byte-Summe. Wenn Alfred-Firmware XOR nutzt → alle AT-Frames verworfen → Robot antwortet nicht. |
+| (ANALYSIS) | `core/op/GpsWaitFixOp.cpp` | **kritisch** | `ctx.hw.setMowMotor()` aufgerufen — Methode existiert in `HardwareInterface` nicht. Build-Fehler auf Pi. |
+
+### P1-Items (Hoch, vor erstem Feldeinsatz)
+
+| ID | Datei | Impact | Problem |
+|----|-------|--------|---------|
+| **BUG-001** | `core/Robot.cpp:345,348` | hoch | Null-Pointer in `checkBattery()` — `activeOp()` kann `nullptr` sein |
+| **BUG-002** | `core/Robot.cpp:342` | hoch | `setBuzzer(false)` bei kritischer Batterie — Alarm wird AUSGESCHALTET statt eingeschaltet |
+| **BUG-005** | `core/WebSocketServer.cpp:603` | hoch | `broadcastNmea()` aus Robot-Thread + Push-Loop aus serverThread_ = Data Race auf WebSocket-Connection |
+| **BUG-008** | `useMowPath.ts:519–531` | hoch | Bypass-Berechnung nur oben/unten → Robot fährt bei horizontalen Exclusions durch No-Go-Zone |
+| **BUG-010** | `MapEditor.vue:654–671` | hoch | Doppelklick fügt spuriösen Vertex ein → jedes Polygon ist defekt |
+
+### P2-Items (Mittel)
+
+| ID | Datei | Impact | Problem |
+|----|-------|--------|---------|
+| **BUG-003** | `SerialRobotDriver.cpp:329–331` | mittel | `fieldInt()` → `int` Overflow bei langen Mähsessions |
+| **BUG-006** | `core/Robot.cpp:135,228` | mittel | `gpsFixAge_ms` hardcoded 9 999 999 ms → GPS-Recovery unzuverlässig |
+| **BUG-009** | `useMowPath.ts:682–684` | mittel | K-Turn: `stripLen × 2` statt `segLen × 0.4` → Overshoot bei kurzen Randstreifen |
+| **BUG-012** | `MapEditor.vue:545–550` | mittel | Zone.settings.pattern (`spiral`) vollständig ignoriert — UI-Dropdown funktionslos |
+
+### Niedrig
+
+| ID | Datei | Problem |
+|----|-------|---------|
+| **BUG-007** | `WebSocketServer.cpp:481–483` | Exception-Message unsanitized im JSON-Error-Body |
+| **BUG-011** | `MapEditor.vue:421–422` | `fitView()` crasht bei >10 000 Waypoints (Spread-Operator Stack-Overflow) |

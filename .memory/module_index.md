@@ -144,8 +144,13 @@ Last updated: 2026-03-22 (full repo scan)
 
 ### docs/ARCHITECTURE.md
 
-**Status:** ✅ Complete (2026-03-22 full scan)
-**Purpose:** Complete technical documentation — all modules, HardwareInterface, WebSocket API, Config keys, Op State Machine
+**Status:** ✅ Updated (2026-03-24 — vollständige Neufassung)
+**Purpose:** Vollständige technische Architektur-Referenz — alle Module, HardwareInterface, WebSocket API, alle Config-Keys, Op-State-Machine, Phase-2-TODOs, Bug-Übersicht
+
+### docs/WEBUI_ARCHITECTURE.md
+
+**Status:** ✅ Complete (2026-03-24)
+**Purpose:** WebUI-spezifische Architektur — Stack, alle Views, Composables (useTelemetry/useMowPath/useSessionTracker), Karten-Editor (Tool-System, Koordinatensystem, Mähbahnen-Algorithmus), Design-System (Dark Blue Hex-Werte)
 
 ---
 
