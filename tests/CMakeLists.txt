@@ -12,6 +12,8 @@ add_executable(sunray_tests
     test_simulation_driver.cpp
     test_websocket_server.cpp
     test_gps_driver.cpp
+    test_mqtt_client.cpp
+    test_navigation.cpp
     # test_state_machine.cpp
 )
 

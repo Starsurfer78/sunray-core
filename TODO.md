@@ -40,6 +40,7 @@ Stand: März 2026
 - [x] LineTracker — Stanley Controller
 - [x] Map — Polygon, Waypoint-Navigation (A\* Phase 2)
 - [x] MowOp + DockOp Navigation gefüllt
+- [x] tests/test_navigation.cpp — StateEstimator (5), LineTracker (4), Map (5) Tests
 
 ### A.6 WebSocket-Server ✅
 
@@ -136,23 +137,42 @@ Referenz: `e:/TRAE/Sunray/sunray/src/ublox/ublox.cpp` (alter Code), Port: `/dev/
 - [x] Verlauf-View — Session-Liste, Mini-Pfad-Canvas, Dauer/Strecke/Akku, Delete/Clear
 - [x] Statistiken-View — 4 Summary-Cards, Balkendiagramm (letzte 10), längste Session
 
-### C.4b Mähzonen (mehrere Zonen im Perimeter) 🔲 Konzept fehlt noch
+### C.4b Mähzonen (mehrere Zonen im Perimeter) ✅
 
-- [ ] MapEditor: Zone-Werkzeug — Polygon innerhalb des Perimeters zeichnen
-- [ ] MapData: `zones: { id, name, polygon: Pt[], settings: ZoneSettings }[]`
-- [ ] Zonen-Einstellungen pro Zone: Schnittbreite, Fahrgeschwindigkeit, Muster (Streifen/Spirale)
-- [ ] Reihenfolge der Zonen (Drag-Drop oder Nummerierung)
-- [ ] C++: Map.h zones[] → Robot priorisiert Zonen bei MowOp
+- [x] MapEditor: Zone-Werkzeug — Polygon innerhalb des Perimeters zeichnen
+- [x] MapData: `zones: { id, name, polygon: Pt[], settings: ZoneSettings }[]`
+- [x] Zonen-Einstellungen pro Zone: Schnittbreite, Fahrgeschwindigkeit, Muster (Streifen/Spirale)
+- [x] Reihenfolge der Zonen (Nummerierung + ▲/▼ Buttons)
+- [x] C++: Map.h/Map.cpp zones[] — Zone/ZoneSettings Structs, load/save JSON
 
-### C.4c Mähbahnen-Berechnung 🔲 Konzept fehlt noch
+### C.4c Mähbahnen-Berechnung ✅
 
-- [ ] Konzept: Bahnberechnungs-Algorithmus (Streifen-Rotation, Startpunkt, Überlappung)
-- [ ] Einstellungen: Bahnbreite, Winkel, Überlappung %, Startseite
-- [ ] Kantenmähen: erste Runde am Perimeter / No-Go-Rand, konfigurierbar (Ja/Nein, Anzahl Runden)
-- [ ] Vorschau der berechneten Bahnen im MapEditor (read-only overlay)
-- [ ] Pfad-Export an Robot (AT+W Batches)
+- [x] Konzept: Bahnberechnungs-Algorithmus (Streifen-Rotation, Startpunkt, Überlappung)
+- [x] Einstellungen: Bahnbreite, Winkel, Überlappung %, Startseite, Wendeart (K-Turn/Zero-Turn)
+- [x] Kantenmähen: erste Runde am Perimeter, konfigurierbar (Ja/Nein, Anzahl Runden 1–5)
+- [x] K-Turn: 3-Punkt-Wende (vorwärts → rückwärts → nächste Bahn), kodiert via rev/slow Flags
+- [x] useMowPath.ts: computeMowPath() — Streifen-Generator, Boustrophedon, inward-offset Randstreifen
+- [x] MapEditor: Einstellungs-Panel (Winkel, Überlappung, Bahnbreite, Wende, Randstreifen, Startseite)
+- [x] MapEditor: Cyan/Orange Vorschau-Overlay auf Canvas, "Als Mähpfad speichern"-Button
+- [x] C++: MowPoint.rev/slow Flags — Map.cpp parseMowPoints + encodeMowPoints rückwärtskompatibel
+- [x] webui/src/composables/useMowPath.test.ts — 6 Vitest-Tests (Rechteck, Exclusion, Clip, Tiny, clipPerimeterToZone)
+- [ ] Pfad-Export an Robot (AT+W Batches) — Phase 2
 
-### C.5 Später (Phase C)
+### C.5 MQTT-Client (Pi) ✅
+
+- [x] `core/MqttClient.h` — Interface (pimpl, mosquitto-free Header)
+- [x] `core/MqttClient.cpp` — Implementierung mit libmosquitto + No-Op-Stub wenn nicht vorhanden
+- [x] Publiziert 10 Hz: `{prefix}/state` (JSON), `{prefix}/op`, `{prefix}/gps/sol`, `{prefix}/gps/pos`
+- [x] Subscribed `{prefix}/cmd` → start / stop / dock / charge
+- [x] Automatischer Reconnect via mosquitto_loop_start() (Exponential Backoff 1–30 s)
+- [x] Config-Keys: `mqtt_enabled`, `mqtt_host`, `mqtt_port`, `mqtt_keepalive_s`, `mqtt_topic_prefix`, `mqtt_user`, `mqtt_pass`
+- [x] CMake: `pkg_check_modules(libmosquitto)` — baut ohne Library als No-Op
+- [x] Robot.cpp: `mqtt_->pushTelemetry(td)` parallel zu WebSocket
+- [x] main.cpp: MqttClient instanziiert + Command-Callback wie WebSocket
+- [x] 6 Tests in `tests/test_mqtt_client.cpp`
+- Pi-Setup: `sudo apt install libmosquitto-dev` + rebuild
+
+### C.6 Später (Phase C)
 
 - [ ] Energie-Budget + Rückkehr-Berechnung
 - [ ] Dynamisches Replanning bei Hindernissen

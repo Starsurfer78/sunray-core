@@ -161,6 +161,8 @@ Last updated: 2026-03-22 (full repo scan)
 | `test_robot.cpp` | Robot | 21 tests: null-ptr guards, init, run, state transitions, battery, loop exit |
 | `test_simulation_driver.cpp` | SimulationDriver | 22 tests: init, kinematics, odometry, sensors, battery, obstacles, gps, thread |
 | `test_websocket_server.cpp` | WebSocketServer | 8 tests: JSON format, all 15 keys, Op names, API surface |
+| `test_navigation.cpp` | StateEstimator + LineTracker + Map | 14 tests: zero-odo, fwd 1m, 90° rot, sanity guard, reset; on-line/left/right angular, onTargetReached; load errors, mow points, nextPoint order, isInsideAllowedArea |
+| `useMowPath.test.ts` (Vitest) | useMowPath.ts | 6 tests: simple rectangle bounds+y-order, exclusion clipping, perimeter clip x≤5, tiny zone empty, clipPerimeterToZone intersection |
 
 ---
 
