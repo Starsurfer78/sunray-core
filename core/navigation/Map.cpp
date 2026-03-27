@@ -11,6 +11,9 @@
 namespace sunray {
 namespace nav {
 
+static bool lineCircleIntersects(const Point& src, const Point& dst,
+                                 const Point& center, float radius);
+
 // ── Construction ───────────────────────────────────────────────────────────────
 
 Map::Map(std::shared_ptr<Config> config)
@@ -107,6 +110,9 @@ bool Map::load(const std::filesystem::path& path) {
             // Sort by order
             std::sort(zones_.begin(), zones_.end(), [](const Zone& a, const Zone& b){ return a.order < b.order; });
         }
+        if (j.contains("captureMeta") && j["captureMeta"].is_object()) {
+            captureMeta_ = j["captureMeta"];
+        }
         mapCRC_ = calcCRC();
         return true;
     } catch (...) {
@@ -138,6 +144,9 @@ bool Map::save(const std::filesystem::path& path) const {
             };
             j["zones"].push_back(jz);
         }
+        if (!captureMeta_.empty()) {
+            j["captureMeta"] = captureMeta_;
+        }
 
         std::ofstream f(path);
         if (!f.is_open()) return false;
@@ -157,6 +166,7 @@ void Map::clear() {
     exclusions_.clear();
     obstacles_.clear();
     zones_.clear();
+    captureMeta_ = nlohmann::json::object();
     mowPointsIdx  = 0;
     dockPointsIdx = 0;
     freePointsIdx = 0;
@@ -265,7 +275,9 @@ bool Map::startDocking(float robotX, float robotY) {
     wayMode       = WayType::FREE;
 
     setLastTargetPoint(robotX, robotY);
-    targetPoint = freePoints_.front();
+    trackReverse = false;
+    trackSlow    = false;
+    targetPoint  = freePoints_.front();
     return true;
 }
 
@@ -330,6 +342,7 @@ bool Map::nextDockPoint(bool sim) {
     if (dockPointsIdx >= static_cast<int>(dockPoints_.size())) return false;
     lastTargetPoint = targetPoint;
     targetPoint     = dockPoints_[dockPointsIdx];
+    trackReverse    = false;
     // Slow down near last dock point.
     trackSlow = (dockPointsIdx >= static_cast<int>(dockPoints_.size()) - 2);
     return true;
@@ -345,6 +358,8 @@ bool Map::nextFreePoint(bool sim) {
             dockPointsIdx   = 0;
             lastTargetPoint = targetPoint;
             targetPoint     = dockPoints_.front();
+            trackReverse    = false;
+            trackSlow       = (dockPoints_.size() <= 2);
             return true;
         } else if (shouldMow_) {
             wayMode         = WayType::MOW;

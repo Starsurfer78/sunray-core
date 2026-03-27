@@ -32,6 +32,9 @@ nlohmann::json Config::defaults() {
         {"gps_motion_detection",true},          // GPS_MOTION_DETECTION
         {"gps_motion_detection_timeout_s", 5},  // GPS_MOTION_DETECTION_TIMEOUT
         {"gps_no_motion_threshold_m", 0.05},
+        {"gps_no_signal_ms",    3000},          // ab hier: onGpsNoSignal()
+        {"gps_fix_timeout_ms",  120000},        // ab hier: onGpsFixTimeout()
+        {"gps_recover_hysteresis_ms", 1000},    // Signal muss stabil sein
 
         // ── NTRIP ────────────────────────────────────────────────────────────
         {"ntrip_enabled",       false},
@@ -83,6 +86,9 @@ nlohmann::json Config::defaults() {
         {"stanley_p_slow",      1.1},           // Alfred: STANLEY_CONTROL_P_SLOW
         {"motor_set_speed_ms",  0.3},
         {"dock_linear_speed_ms",0.1},
+        {"gps_float_speed_scale", 0.6},         // bei RTK Float langsamer fahren
+        {"gps_stale_age_ms",      2000},        // ab welchem Fix-Alter als "stale" gilt
+        {"gps_stale_speed_scale", 0.4},         // zusätzliche Drossel bei stale GPS
         {"target_reached_tolerance_m", 0.1},
 
         // ── Entfuehrungs-Erkennung ────────────────────────────────────────────
@@ -168,6 +174,13 @@ Config::Config(std::filesystem::path path)
     load();
 }
 
+std::string Config::canonicalKey(const std::string& key) {
+    if (key == "ticks_per_rev")       return "ticks_per_revolution";
+    if (key == "wheel_diameter")      return "wheel_diameter_m";
+    if (key == "motor_max_speed_ms")  return "motor_set_speed_ms";
+    return key;
+}
+
 void Config::load() {
     // Start from built-in defaults so every known key is always present.
     data_ = defaults();
@@ -187,7 +200,7 @@ void Config::load() {
         // Merge: file values override defaults key-by-key.
         // Unknown keys from the file are accepted (forward compatibility).
         for (auto& [key, val] : fromFile.items()) {
-            data_[key] = val;
+            data_[canonicalKey(key)] = val;
         }
     } catch (const nlohmann::json::exception&) {
         // Invalid JSON → keep defaults, silently ignore corrupt file

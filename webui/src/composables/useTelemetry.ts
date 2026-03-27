@@ -12,6 +12,7 @@ export interface Telemetry {
   charge_v:   number
   gps_sol:    number   // 0=none 4=RTK-Fix 5=RTK-Float
   gps_text:   string
+  gps_acc:    number   // horizontal accuracy estimate in metres
   gps_lat:    number
   gps_lon:    number
   bumper_l:   boolean
@@ -27,14 +28,19 @@ export interface Telemetry {
   imu_r?:      number   // IMU roll [deg]
   imu_p?:      number   // IMU pitch [deg]
   ekf_health?: string   // fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
+  state_phase?: string
+  resume_target?: string
+  event_reason?: string
+  error_code?: string
 }
 
 const defaultTelemetry: Telemetry = {
   type: '', op: 'Idle', x: 0, y: 0, heading: 0,
   battery_v: 0, charge_v: 0, gps_sol: 0, gps_text: '---',
-  gps_lat: 0, gps_lon: 0, bumper_l: false, bumper_r: false, lift: false,
+  gps_acc: 0, gps_lat: 0, gps_lon: 0, bumper_l: false, bumper_r: false, lift: false,
   motor_err: false, uptime_s: 0, diag_active: false, diag_ticks: 0,
-  mcu_v: '', pi_v: '', imu_h: 0, imu_r: 0, imu_p: 0
+  mcu_v: '', pi_v: '', imu_h: 0, imu_r: 0, imu_p: 0,
+  state_phase: 'idle', resume_target: '', event_reason: 'none', error_code: ''
 }
 
 // ── Singleton state ───────────────────────────────────────────────────────────

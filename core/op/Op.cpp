@@ -89,6 +89,9 @@ OpManager::OpManager()
     , mow_          (std::make_unique<MowOp>())
     , dock_         (std::make_unique<DockOp>())
     , charge_       (std::make_unique<ChargeOp>())
+    , undock_       (std::make_unique<UndockOp>())
+    , navToStart_   (std::make_unique<NavToStartOp>())
+    , waitRain_     (std::make_unique<WaitRainOp>())
     , escape_       (std::make_unique<EscapeReverseOp>())
     , escapeForward_(std::make_unique<EscapeForwardOp>())
     , gpsWait_      (std::make_unique<GpsWaitFixOp>())
@@ -101,7 +104,9 @@ void OpManager::setPending(Op& op, uint8_t priority, bool returnBackOnExit, Op& 
 
     uint8_t minPrio = Op::PRIO_LOW;
     if (&op == error_.get()  || &op == charge_.get()) minPrio = Op::PRIO_HIGH;
-    else if (&op == dock_.get() || &op == mow_.get() || &op == idle_.get()) minPrio = Op::PRIO_NORMAL;
+    else if (&op == dock_.get() || &op == mow_.get() || &op == idle_.get()
+          || &op == undock_.get() || &op == navToStart_.get()
+          || &op == waitRain_.get()) minPrio = Op::PRIO_NORMAL;
     const uint8_t eff = std::max(priority, minPrio);
 
     if (pendingOp_ != nullptr && pendingPriority_ > eff) return;
@@ -138,19 +143,33 @@ void OpManager::tick(OpContext& ctx) {
 void OpManager::changeOperationTypeByOperator(OpContext& ctx, const std::string& opType) {
     ctx.logger.info("OpManager", "operator cmd: " + opType);
     if (opType == "Idle" || opType == "stop") {
-        activeOp_->requestOp(ctx, *idle_, PRIO_CRITICAL, false);
+        activeOp_->requestOp(ctx, *idle_, Op::PRIO_CRITICAL, false);
         idle_->initiatedByOperator = true;
     } else if (opType == "Dock" || opType == "dock") {
-        activeOp_->requestOp(ctx, *dock_, PRIO_HIGH, false);
+        activeOp_->requestOp(ctx, *dock_, Op::PRIO_HIGH, false);
         dock_->initiatedByOperator = true;
     } else if (opType == "Mow" || opType == "start") {
-        activeOp_->requestOp(ctx, *mow_, PRIO_HIGH, false);
-        mow_->initiatedByOperator = true;
+        if (ctx.battery.chargerConnected) {
+            activeOp_->requestOp(ctx, *undock_, Op::PRIO_HIGH, false);
+            undock_->initiatedByOperator = true;
+        } else {
+            activeOp_->requestOp(ctx, *navToStart_, Op::PRIO_HIGH, false);
+            navToStart_->initiatedByOperator = true;
+        }
     } else if (opType == "Charge" || opType == "charge") {
-        activeOp_->requestOp(ctx, *charge_, PRIO_HIGH, false);
+        activeOp_->requestOp(ctx, *charge_, Op::PRIO_HIGH, false);
         charge_->initiatedByOperator = true;
+    } else if (opType == "Undock" || opType == "undock") {
+        activeOp_->requestOp(ctx, *undock_, Op::PRIO_HIGH, false);
+        undock_->initiatedByOperator = true;
+    } else if (opType == "NavToStart" || opType == "navtostart") {
+        activeOp_->requestOp(ctx, *navToStart_, Op::PRIO_HIGH, false);
+        navToStart_->initiatedByOperator = true;
+    } else if (opType == "WaitRain" || opType == "waitrain") {
+        activeOp_->requestOp(ctx, *waitRain_, Op::PRIO_HIGH, false);
+        waitRain_->initiatedByOperator = true;
     } else if (opType == "Error" || opType == "error") {
-        activeOp_->requestOp(ctx, *error_, PRIO_CRITICAL, false);
+        activeOp_->requestOp(ctx, *error_, Op::PRIO_CRITICAL, false);
         error_->initiatedByOperator = true;
     } else {
         ctx.logger.warn("OpManager", "unknown op type: " + opType);

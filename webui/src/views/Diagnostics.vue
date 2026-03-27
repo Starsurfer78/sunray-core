@@ -6,7 +6,7 @@ const { telemetry, connected } = useTelemetry()
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 
-const isIdle  = computed(() => telemetry.value.op === 'Idle')
+const isIdle  = computed(() => telemetry.value.state_phase === 'idle')
 const canTest = computed(() => connected.value && isIdle.value)
 
 // Heading in degrees (0–360) from IMU if available, else odometry
@@ -127,8 +127,8 @@ async function runDriveTest() {
   try {
     const r = await postDiag('drive', { distance_m: 3.0 })
     if (r.ok) {
-      driveResult.value = `Ticks: L=${r.left} R=${r.right}`
-      showToast(`Fahrt abgeschlossen: L=${r.left} R=${r.right}`)
+      driveResult.value = `Ticks: ${r.ticks} (Ziel: ${r.ticks_target})`
+      showToast(`Fahrt abgeschlossen: ${r.ticks} Ticks`)
     } else {
       showToast(`Fehler: ${r.error}`)
     }

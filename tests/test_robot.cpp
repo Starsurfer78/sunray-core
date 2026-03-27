@@ -20,7 +20,9 @@
 #include "core/Logger.h"
 
 #include <filesystem>
+#include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <thread>
@@ -35,6 +37,7 @@ struct MockHardware : public HardwareInterface {
     OdometryData odometry;
     SensorData   sensors;
     BatteryData  battery;
+    ImuData      imu;
     std::string  robotId      = "AA:BB:CC:DD:EE:FF";
     float        cpuTemp      = 45.0f;
     std::string  mcuFwName    = "alfred";
@@ -63,6 +66,8 @@ struct MockHardware : public HardwareInterface {
     OdometryData readOdometry()  override { return odometry; }
     SensorData   readSensors()   override { return sensors; }
     BatteryData  readBattery()   override { return battery; }
+    ImuData      readImu()       override { return imu; }
+    void         calibrateImu()  override {}
     void         setBuzzer(bool on) override { buzzerCalls.push_back({on}); }
     void         setLed(LedId id, LedState state) override { ledCalls.push_back({id,state}); }
     void         keepPowerOn(bool flag) override { keepPowerOnFlag = flag; ++keepPowerOnCalls; }
@@ -91,14 +96,60 @@ static std::shared_ptr<Logger> makeLogger() {
     return std::make_shared<NullLogger>();
 }
 
+struct CapturingLogger : public Logger {
+    struct Entry {
+        LogLevel level;
+        std::string module;
+        std::string msg;
+    };
+
+    std::vector<Entry> entries;
+
+    void log(LogLevel level, const std::string& module, const std::string& msg) override {
+        entries.push_back({level, module, msg});
+    }
+};
+
+static std::filesystem::path writeSimpleMap(const std::string& name) {
+    const auto path = std::filesystem::temp_directory_path() / name;
+    std::ofstream f(path);
+    f << R"({
+  "perimeter": [[-5,-5], [5,-5], [5,5], [-5,5]],
+  "mow": [[0,0], [1,0], [1,1]],
+  "dock": [[0,-1]],
+  "exclusions": []
+})";
+    return path;
+}
+
 /// Builds a Robot and returns a raw pointer to the mock for assertions.
 /// hw_raw is set to the mock; the unique_ptr is moved into Robot.
-static std::pair<Robot, MockHardware*> makeRobot(bool initResult = true) {
+struct RobotFixture {
+    std::unique_ptr<Robot> robot;
+    MockHardware*          hw = nullptr;
+};
+
+static RobotFixture makeRobot(bool initResult = true) {
     auto hw_owned = std::make_unique<MockHardware>();
     hw_owned->initResult = initResult;
     MockHardware* raw = hw_owned.get();
-    return { Robot(std::move(hw_owned), makeConfig(), makeLogger()), raw };
+    return { std::make_unique<Robot>(std::move(hw_owned), makeConfig(), makeLogger()), raw };
 }
+
+struct ThrowingHardware : public MockHardware {
+    bool throwOnRun = false;
+    bool throwOnReadSensors = false;
+
+    void run() override {
+        ++runCalls;
+        if (throwOnRun) throw std::runtime_error("hw run exploded");
+    }
+
+    SensorData readSensors() override {
+        if (throwOnReadSensors) throw std::runtime_error("sensor read exploded");
+        return sensors;
+    }
+};
 
 // ── [construction] ─────────────────────────────────────────────────────────────
 
@@ -129,24 +180,24 @@ TEST_CASE("Robot: null logger throws", "[construction]") {
 
 TEST_CASE("Robot: init() calls hw->init() once", "[init]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
     REQUIRE(hw->initCalls == 1);
 }
 
 TEST_CASE("Robot: init() returns true when hw succeeds", "[init]") {
     auto [robot, hw] = makeRobot(true);
-    REQUIRE(robot.init() == true);
+    REQUIRE(robot->init() == true);
 }
 
 TEST_CASE("Robot: init() returns false when hw fails", "[init]") {
     auto [robot, hw] = makeRobot(false);
-    REQUIRE(robot.init() == false);
+    REQUIRE(robot->init() == false);
 }
 
 TEST_CASE("Robot: init() resets all three LEDs to OFF", "[init]") {
     auto [robot, hw] = makeRobot();
     hw->ledCalls.clear();
-    robot.init();
+    robot->init();
 
     // Expect at least one OFF call per LED
     bool led1Off = false, led2Off = false, led3Off = false;
@@ -162,80 +213,120 @@ TEST_CASE("Robot: init() resets all three LEDs to OFF", "[init]") {
 
 TEST_CASE("Robot: isRunning() is false before loop()", "[init]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    REQUIRE(robot.isRunning() == false);
+    robot->init();
+    REQUIRE(robot->isRunning() == false);
 }
 
 // ── [run] ─────────────────────────────────────────────────────────────────────
 
 TEST_CASE("Robot: run() calls hw->run()", "[run]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
     hw->runCalls = 0;
-    robot.run();
+    robot->run();
     REQUIRE(hw->runCalls == 1);
 }
 
 TEST_CASE("Robot: run() increments controlLoops", "[run]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    REQUIRE(robot.controlLoops() == 0);
-    robot.run();
-    REQUIRE(robot.controlLoops() == 1);
-    robot.run();
-    REQUIRE(robot.controlLoops() == 2);
+    robot->init();
+    REQUIRE(robot->controlLoops() == 0);
+    robot->run();
+    REQUIRE(robot->controlLoops() == 1);
+    robot->run();
+    REQUIRE(robot->controlLoops() == 2);
+}
+
+TEST_CASE("Robot: run() catches hardware exceptions and stops safely", "[run][a3]") {
+    auto hw_owned = std::make_unique<ThrowingHardware>();
+    ThrowingHardware* hw = hw_owned.get();
+    auto logger = std::make_shared<CapturingLogger>();
+    Robot robot(std::move(hw_owned), makeConfig(), logger);
+
+    REQUIRE(robot.init());
+    hw->throwOnRun = true;
+
+    REQUIRE_NOTHROW(robot.run());
+    REQUIRE_FALSE(robot.isRunning());
+    REQUIRE(hw->hadMotorStop());
+
+    bool sawError = false;
+    for (const auto& e : logger->entries) {
+        if (e.level == LogLevel::ERROR &&
+            e.msg.find("Unhandled exception in run()") != std::string::npos) {
+            sawError = true;
+            break;
+        }
+    }
+    REQUIRE(sawError);
+}
+
+TEST_CASE("Robot: run() catches sensor read exceptions and stops safely", "[run][a3]") {
+    auto hw_owned = std::make_unique<ThrowingHardware>();
+    ThrowingHardware* hw = hw_owned.get();
+    auto logger = std::make_shared<CapturingLogger>();
+    Robot robot(std::move(hw_owned), makeConfig(), logger);
+
+    REQUIRE(robot.init());
+    hw->throwOnReadSensors = true;
+
+    REQUIRE_NOTHROW(robot.run());
+    REQUIRE_FALSE(robot.isRunning());
+    REQUIRE(hw->hadMotorStop());
 }
 
 TEST_CASE("Robot: run() exposes sensor snapshot", "[run]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
 
     hw->odometry.leftTicks  = 42;
     hw->odometry.rightTicks = 7;
     hw->sensors.bumperLeft  = false;
     hw->battery.voltage     = 24.5f;
 
-    robot.run();
+    robot->run();
 
-    REQUIRE(robot.lastOdometry().leftTicks  == 42);
-    REQUIRE(robot.lastOdometry().rightTicks == 7);
-    REQUIRE(robot.lastSensors().bumperLeft  == false);
-    REQUIRE(robot.lastBattery().voltage == Catch::Approx(24.5f));
+    REQUIRE(robot->lastOdometry().leftTicks  == 42);
+    REQUIRE(robot->lastOdometry().rightTicks == 7);
+    REQUIRE(robot->lastSensors().bumperLeft  == false);
+    REQUIRE(robot->lastBattery().voltage == Catch::Approx(24.5f));
 }
 
 TEST_CASE("Robot: bumper triggers safety motor stop", "[run]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
+    robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_bumper_map.json")));
+    robot->startMowing();
 
     hw->sensors.bumperLeft = true;
     hw->motorCalls.clear();
-    robot.run();
+    robot->run();
+    robot->run();
 
     REQUIRE(hw->hadMotorStop());
-    REQUIRE(robot.getState() == RobotState::IDLE);
+    REQUIRE(robot->activeOpName() == "EscapeReverse");
 }
 
 TEST_CASE("Robot: lift sensor triggers safety motor stop", "[run]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
+    robot->init();
+    robot->startMowing();
 
     hw->sensors.lift = true;
     hw->motorCalls.clear();
-    robot.run();
+    robot->run();
 
     REQUIRE(hw->hadMotorStop());
 }
 
 TEST_CASE("Robot: motor fault triggers safety stop", "[run]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
+    robot->init();
+    robot->startMowing();
 
     hw->sensors.motorFault = true;
     hw->motorCalls.clear();
-    robot.run();
+    robot->run();
 
     REQUIRE(hw->hadMotorStop());
 }
@@ -244,42 +335,48 @@ TEST_CASE("Robot: motor fault triggers safety stop", "[run]") {
 
 TEST_CASE("Robot: initial state is IDLE", "[state]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    REQUIRE(robot.getState() == RobotState::IDLE);
+    robot->init();
+    REQUIRE(robot->activeOpName() == "Idle");
 }
 
-TEST_CASE("Robot: startMowing() transitions IDLE->MOWING", "[state]") {
+TEST_CASE("Robot: startMowing() transitions IDLE->NAV_TO_START->MOWING", "[state]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
-    robot.run();
-    REQUIRE(robot.getState() == RobotState::MOWING);
+    robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_start_map.json")));
+    robot->startMowing();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "NavToStart");
+    robot->run();
+    REQUIRE(robot->activeOpName() == "Mow");
 }
 
 TEST_CASE("Robot: startDocking() transitions MOWING->DOCKING", "[state]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
-    robot.run();  // -> MOWING
-    robot.startDocking();
-    robot.run();  // -> DOCKING
-    REQUIRE(robot.getState() == RobotState::DOCKING);
+    robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_dock_map.json")));
+    robot->startMowing();
+    robot->run();  // -> MOWING
+    robot->startDocking();
+    robot->run();  // -> DOCKING
+    REQUIRE(robot->activeOpName() == "Dock");
 }
 
 TEST_CASE("Robot: emergencyStop() resets to IDLE", "[state]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
-    robot.run();  // -> MOWING
-    robot.emergencyStop();
-    REQUIRE(robot.getState() == RobotState::IDLE);
+    robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_estop_map.json")));
+    robot->startMowing();
+    robot->run();  // -> MOWING
+    robot->emergencyStop();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "Idle");
 }
 
 TEST_CASE("Robot: emergencyStop() sends motor stop", "[state]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
     hw->motorCalls.clear();
-    robot.emergencyStop();
+    robot->emergencyStop();
     REQUIRE(hw->hadMotorStop());
 }
 
@@ -287,54 +384,87 @@ TEST_CASE("Robot: emergencyStop() sends motor stop", "[state]") {
 
 TEST_CASE("Robot: low battery triggers dock request", "[battery]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
-    robot.startMowing();
-    robot.run();  // -> MOWING
+    robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_lowbat_map.json")));
+    robot->startMowing();
+    robot->run();  // -> MOWING
 
-    // Set battery below battery_low_v default (21.0V), above critical (20.0V)
+    // Set battery below battery_low_v default (25.5V), above critical (18.9V)
     hw->battery.voltage          = 20.5f;
     hw->battery.chargerConnected = false;
-    robot.run();  // triggers dock
-    robot.run();  // applies dock transition
+    robot->run();  // triggers dock
+    robot->run();  // applies dock transition
 
-    REQUIRE(robot.getState() == RobotState::DOCKING);
+    REQUIRE(robot->activeOpName() == "Dock");
 }
 
 TEST_CASE("Robot: critical battery stops loop and calls keepPowerOn(false)", "[battery]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
 
-    hw->battery.voltage          = 19.5f;  // below critical (20.0V)
+    hw->battery.voltage          = 18.5f;  // below critical (18.9V)
     hw->battery.chargerConnected = false;
-    robot.run();
+    robot->run();
 
     REQUIRE(hw->keepPowerOnFlag == false);
-    REQUIRE(robot.isRunning() == false);
-    REQUIRE(robot.getState() == RobotState::ERROR);
+    REQUIRE(robot->isRunning() == false);
+    REQUIRE(robot->activeOpName() == "Idle");
 }
 
 TEST_CASE("Robot: battery voltage==0 (no MCU) does not trigger shutdown", "[battery]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
 
     hw->battery.voltage = 0.0f;  // no MCU — guard: voltage > 0.1f
-    robot.run();
+    robot->run();
 
     REQUIRE(hw->keepPowerOnCalls == 0);
-    REQUIRE(robot.getState() == RobotState::IDLE);
+    REQUIRE(robot->activeOpName() == "Idle");
+}
+
+TEST_CASE("Robot: loadMap() with invalid JSON returns false without throwing", "[a3]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    const auto path = std::filesystem::temp_directory_path() / "sunray_test_invalid_map.json";
+    std::ofstream f(path);
+    f << R"({"perimeter":[[0,0]],"mow":[{"p":[1]}]})";
+    f.close();
+
+    bool ok = true;
+    REQUIRE_NOTHROW(ok = robot->loadMap(path));
+    REQUIRE_FALSE(ok);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("Robot: loadSchedule() with invalid JSON returns false without throwing", "[a3]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    const auto path = std::filesystem::temp_directory_path() / "sunray_test_invalid_schedule.json";
+    std::ofstream f(path);
+    f << R"({"not":"an array"})";
+    f.close();
+
+    bool ok = true;
+    REQUIRE_NOTHROW(ok = robot->loadSchedule(path));
+    REQUIRE_FALSE(ok);
+
+    std::filesystem::remove(path);
 }
 
 TEST_CASE("Robot: charger connected suppresses low battery dock", "[battery]") {
     auto [robot, hw] = makeRobot();
-    robot.init();
+    robot->init();
 
     hw->battery.voltage          = 20.5f;
     hw->battery.chargerConnected = true;
-    robot.run();
-    robot.run();
+    robot->run();
+    robot->run();
 
     // Should NOT have docked
-    REQUIRE(robot.getState() == RobotState::IDLE);
+    REQUIRE(robot->activeOpName() == "Idle");
 }
 
 // ── [loop] ────────────────────────────────────────────────────────────────────

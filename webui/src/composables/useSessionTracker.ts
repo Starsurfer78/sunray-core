@@ -55,7 +55,7 @@ let lastY      = 0
 // ── Core watch (module-level, lives for the lifetime of the app) ──────────────
 
 watch(_telemetry, (t) => {
-  const mowing = (t.op === 'Mow')
+  const mowing = (t.state_phase === 'mowing')
 
   // ── Session start ───────────────────────────────────────────────────────────
   if (mowing && !recording.value) {

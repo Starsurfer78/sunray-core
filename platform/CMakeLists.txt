@@ -8,5 +8,6 @@ add_library(sunray_platform STATIC
 )
 
 target_include_directories(sunray_platform PUBLIC
+    ${CMAKE_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )

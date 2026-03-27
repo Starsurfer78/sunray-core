@@ -71,6 +71,9 @@ private:
     std::filesystem::path path_;
     nlohmann::json        data_;   ///< in-memory document (defaults merged + file)
 
+    /// Map legacy alias keys to canonical keys used internally.
+    static std::string canonicalKey(const std::string& key);
+
     /// Built-in default values for all known configuration keys.
     /// Any key absent from the JSON file falls back to these.
     static nlohmann::json defaults();
@@ -83,9 +86,10 @@ private:
 
 template<typename T>
 T Config::get(const std::string& key, const T& fallback) const {
-    if (data_.contains(key)) {
+    const std::string k = canonicalKey(key);
+    if (data_.contains(k)) {
         try {
-            return data_.at(key).get<T>();
+            return data_.at(k).get<T>();
         } catch (...) {
             // Type mismatch — fall through to caller's fallback
         }
@@ -95,7 +99,7 @@ T Config::get(const std::string& key, const T& fallback) const {
 
 template<typename T>
 void Config::set(const std::string& key, const T& value) {
-    data_[key] = value;
+    data_[canonicalKey(key)] = value;
 }
 
 } // namespace sunray

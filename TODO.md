@@ -62,6 +62,46 @@ Stand: März 2026
 - [ ] C.8-b: Energie-Budget + Rückkehr-Berechnung
   <!-- ctx: module:robot, module:navigation | files:core/Robot.h, core/navigation/Map.h | model:sonnet -->
 
+### C.14 RTK-gestützte Punktaufnahme / Kartenaufnahme
+
+- [x] C.14-a: Neuer Kartenaufnahme-Flow in der WebUI: "Neue Karte starten" + Punktaufnahme-Modus
+  <!-- ctx: module:webui, module:websocket_server | files:webui/src/views/Dashboard.vue, webui/src/views/MapEditor.vue, core/WebSocketServer.cpp | model:sonnet -->
+- [x] C.14-b: Dashboard-Button "Aktuellen GPS-Punkt speichern" für manuelle Grenzaufnahme
+  <!-- ctx: module:webui, module:websocket_server | files:webui/src/views/Dashboard.vue, webui/src/composables/useTelemetry.ts, core/WebSocketServer.cpp | model:sonnet -->
+- [x] C.14-c: Punktaufnahme mit RTK-abhängiger UI-Entscheidung: FIX direkt speichern, FLOAT nur nach Bestätigung, INVALID klar blockieren
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, core/WebSocketServer.cpp, core/Robot.cpp | model:haiku -->
+- [x] C.14-d: 3s-Sampling mit Mittelwertbildung vor Punkt-Commit, statt Sofort-Speichern
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, core/WebSocketServer.cpp, core/Robot.h, core/Robot.cpp | model:sonnet -->
+- [x] C.14-e: Sampling-Fortschritt 0–100% im UI anzeigen; erfolgreicher Punkt erscheint sofort als Marker
+  <!-- ctx: module:webui | files:webui/src/views/Dashboard.vue, webui/src/views/MapEditor.vue | model:haiku -->
+- [x] C.14-f: Aufgenommene Punkte als `perimeter`-Punkte in die aktuelle Karte übernehmen und via `/api/map` persistieren
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui/src/views/Dashboard.vue, core/WebSocketServer.cpp, core/navigation/Map.h | model:sonnet -->
+- [x] C.14-g: Kartenaufnahme-Metadaten vorsehen: `fix_duration_ms`, `sample_variance`, `mean_accuracy`
+  <!-- ctx: module:websocket_server, module:robot | files:core/WebSocketServer.h, core/WebSocketServer.cpp, core/Robot.h | model:sonnet -->
+- [x] C.14-h: Karten-Editor für Nachbearbeitung der aufgenommenen Punkte vervollständigen: Punkt löschen + Punkt auf Kante einfügen
+  <!-- ctx: module:webui | files:webui/src/views/MapEditor.vue | model:sonnet -->
+
+### C.15 Zustandsmodell / WebUI / Recovery nachziehen
+
+- [x] C.15-a: Expliziten Startpfad modellieren: `Idle -> Undock -> NavToStart -> Mow`
+  <!-- ctx: module:robot, module:op_statemachine, module:navigation | files:core/Robot.cpp, core/op/Op.h, core/op/Op.cpp | model:sonnet -->
+- [x] C.15-b: `UndockOp` als eigene Operation implementieren
+  <!-- ctx: module:op_statemachine, module:navigation | files:core/op/Op.h, core/op/Op.cpp, core/navigation/Map.h | model:sonnet -->
+- [x] C.15-c: `NavToStartOp` als eigene Operation implementieren
+  <!-- ctx: module:op_statemachine, module:navigation | files:core/op/Op.h, core/op/Op.cpp, core/navigation/LineTracker.cpp | model:sonnet -->
+- [x] C.15-d: GPS-Recovery schärfen: `GpsWait` fachlich von hartem Fehler trennen, mit klarem Resume-Pfad
+  <!-- ctx: module:robot, module:op_statemachine | files:core/Robot.cpp, core/op/GpsWaitFixOp.cpp, core/op/Op.h | model:sonnet -->
+- [x] C.15-e: `WaitRainOp` als eigener Zustand statt reinem Dock-Shortcut vorbereiten
+  <!-- ctx: module:op_statemachine, module:robot | files:core/op/Op.h, core/op/MowOp.cpp, core/Robot.cpp | model:sonnet -->
+- [x] C.15-f: Kidnap-/Cross-Track-Recovery als expliziteren Verhaltensbaustein modellieren
+  <!-- ctx: module:navigation, module:op_statemachine | files:core/navigation/LineTracker.cpp, core/op/Op.h, core/op/MowOp.cpp | model:sonnet -->
+- [x] C.15-g: WebUI und Core-Zustandsmodell angleichen: UI soll fachliche Phasen nicht aus Telemetrie erraten müssen
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/components/RobotSidebar.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+- [x] C.15-h: Telemetrie weiter fachlich stabilisieren: Übergangsgründe, Fehlercodes und Zustandsphasen als bewusstes Modell
+  <!-- ctx: module:websocket_server, module:robot | files:core/WebSocketServer.h, core/WebSocketServer.cpp, core/Robot.cpp | model:sonnet -->
+- [x] C.15-i: Warm-Start-/Resume-Grundlagen prüfen: Kartenänderung erkennen und unsicheres Resume blockieren
+  <!-- ctx: module:robot, module:navigation | files:core/Robot.h, core/Robot.cpp, core/navigation/Map.h | model:sonnet -->
+
 ---
 
 ## E — Priorisierte Erweiterungen
@@ -81,8 +121,17 @@ Stand: März 2026
 
 - [x] E.2-a: `core/navigation/GridMap.h + .cpp` — 40×40 lokales Belegungs-Gitter (0.25 m/Zelle)
 - [x] E.2-b: A*-Algorithmus — 8-direktional, Euklidische Heuristik, ≤1600 Zellen
-- [x] E.2-c: Integration — EscapeReverseOp nutzt GridMap A* → Map::injectFreePath(); Fallback: Map::findPath()
+- [x] E.2-c: Integration — EscapeReverseOp nutzt GridMap A* → Map::injectFreePath(); Fallback: reguläres Replanen via `startDocking()`/`startMowing()`
 - [x] E.2-d: Smooth Path — String-Pull-Visibility via GridMap::smoothPath()
+
+### E.2x Docking- und Missionsverhalten fachlich schließen
+
+- [x] E.2x-a: Docking entlang definiertem Docking-Pfad verlässlich ausführen, statt impliziter Restlogik
+  <!-- ctx: module:navigation, module:op_statemachine | files:core/navigation/Map.h, core/navigation/Map.cpp, core/op/DockOp.cpp | model:sonnet -->
+- [x] E.2x-b: `DockOp` TODOs für Waypoint-Fortschritt und Retry entfernen
+  <!-- ctx: module:op_statemachine, module:navigation | files:core/op/DockOp.cpp, core/navigation/Map.cpp | model:haiku -->
+- [x] E.2x-c: Lade-Kontakt-Retry und Dock-Fehlergründe klarer modellieren
+  <!-- ctx: module:op_statemachine, module:robot | files:core/op/ChargeOp.cpp, core/op/DockOp.cpp, core/Robot.cpp | model:sonnet -->
 
 ### E.3 Vision-basierte Navigation (V-SLAM) 🚀 Prio 3
 
@@ -154,15 +203,19 @@ Stand: März 2026
 
 ---
 
-## D — Offene Fragen
+## D — Geklaerte / Externe Punkte
 
-- [ ] Q1: StateEstimator Fehler-Propagation bei dauerhaft ungültigem GPS (globale Flag?)
-  <!-- ctx: module:navigation | files:core/navigation/StateEstimator.h | model:haiku -->
+- [x] Q1: StateEstimator Fehler-Propagation bei dauerhaft ungültigem GPS geklärt
+  Entscheidung: aktueller Core fällt bereits kontrolliert auf Odometrie zurück (`gpsHasFix`/`gpsHasFloat` + `ekf_health`). Falls gewünscht, später als explizites Telemetrie-/Policy-Flag (`odometry_only` / `localisation_degraded`) ausbauen.
+  <!-- ctx: module:navigation | files:core/navigation/StateEstimator.h, core/navigation/StateEstimator.cpp, core/Robot.cpp | model:haiku -->
 - [ ] Q3: GPS no-motion Schwellenwert 0.05m — ausreichend für RTK-Float?
-  <!-- ctx: module:navigation, module:gps_driver | files:core/navigation/StateEstimator.h | model:haiku -->
-- [ ] Q5: missionAPI.run() Unix-Socket wirklich non-blocking?
-  <!-- ctx: module:websocket_server | files:docs/ARCHITECTURE.md | model:haiku -->
+  Offener Feldtest: nur mit echten RTK-Float-Logs bzw. Hardwarefahrt belastbar entscheidbar.
+  <!-- ctx: module:navigation, module:gps_driver | files:core/navigation/StateEstimator.h, core/Config.cpp | model:haiku -->
+- [x] Q5: missionAPI.run() Unix-Socket wirklich non-blocking?
+  Obsolet im aktuellen Core: die frühere MissionAPI/Unix-Socket-Architektur ist im aktuellen Codepfad nicht mehr vorhanden; Altfrage aus Legacy-Dokumentation.
+  <!-- ctx: module:websocket_server | files:OLD_DOCS/cassandra_mission_service_analysis.md | model:haiku -->
 - [ ] Q7: Pi-Watchdog (15s) und STM32-Watchdog (6s) koordiniert?
+  Offener Integrationstest: Codepfad ist bekannt (`keepPowerOn(false)` mit 5 s Grace), echte Timing-Absicherung braucht Hardware.
   <!-- ctx: module:serial_robot_driver, module:robot | files:hal/SerialRobotDriver/SerialRobotDriver.cpp | model:haiku -->
 
 ---

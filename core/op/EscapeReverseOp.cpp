@@ -67,9 +67,14 @@ void EscapeReverseOp::run(OpContext& ctx) {
                         "A* path found (" + std::to_string(path.size()) + " waypoints)");
                 } else {
                     // Fallback: legacy iterative detour routing (C.7)
-                    if (ctx.map->findPath(robotPos, target)) {
-                        ctx.map->previousWayMode = ctx.map->wayMode;
-                        ctx.map->wayMode = nav::WayType::FREE;
+                    bool replanned = false;
+                    if (ctx.map->wayMode == nav::WayType::DOCK) {
+                        replanned = ctx.map->startDocking(ctx.x, ctx.y);
+                    } else if (ctx.map->wayMode == nav::WayType::MOW) {
+                        replanned = ctx.map->startMowing(ctx.x, ctx.y);
+                    }
+
+                    if (replanned) {
                         ctx.logger.info("EscapeReverse", "A* failed — fallback to legacy routing");
                     }
                 }

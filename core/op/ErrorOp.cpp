@@ -8,7 +8,6 @@ static constexpr unsigned long BUZZ_INTERVAL_MS = 5000;
 void ErrorOp::begin(OpContext& ctx) {
     ctx.logger.error("Error", "OP_ERROR — robot stopped");
     ctx.stopMotors();
-    ctx.hw.setMowMotor(0, 0, 0);
     ctx.hw.setLed(LedId::LED_2, LedState::RED);
     nextBuzzTime_ms = ctx.now_ms + 1000;
 }

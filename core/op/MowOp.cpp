@@ -9,7 +9,8 @@ void MowOp::begin(OpContext& ctx) {
     ctx.logger.info("Mow", "OP_MOW");
     ctx.hw.setMotorPwm(0, 0, 200);  // start mow blade
 
-    if (ctx.map && !ctx.map->startMowing(ctx.x, ctx.y)) {
+    const bool alreadyTrackingMow = ctx.map && ctx.map->wayMode == nav::WayType::MOW;
+    if (ctx.map && !alreadyTrackingMow && !ctx.map->startMowing(ctx.x, ctx.y)) {
         ctx.logger.error("Mow", "cannot start mowing route => IDLE");
         changeOp(ctx, ctx.opMgr.idle());
         return;
@@ -55,8 +56,8 @@ void MowOp::onMotorError(OpContext& ctx) {
 
 void MowOp::onRainTriggered(OpContext& ctx) {
     const int rainDelay = ctx.config.get<int>("rain_delay_min", 60);
-    ctx.logger.info("Mow", "rain => DOCK (delay " + std::to_string(rainDelay) + "min)");
-    changeOp(ctx, ctx.opMgr.dock());
+    ctx.logger.info("Mow", "rain => WAIT_RAIN (delay " + std::to_string(rainDelay) + "min)");
+    changeOp(ctx, ctx.opMgr.waitRain());
 }
 
 void MowOp::onBatteryLowShouldDock(OpContext& ctx) {

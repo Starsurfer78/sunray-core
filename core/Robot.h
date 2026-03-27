@@ -182,6 +182,12 @@ private:
 
     /// Check battery voltage; fires onBatteryLow/Undervoltage events on active Op.
     void checkBattery(OpContext& ctx);
+    /// Monitor GPS quality/fix age and fire resilience events with hysteresis.
+    void monitorGpsResilience(OpContext& ctx);
+    void armMissionResumeGuard();
+    std::string currentStatePhase() const;
+    std::string currentResumeTarget() const;
+    static std::string computeMapFingerprint(const std::filesystem::path& path);
 
     // ── Dependencies ──────────────────────────────────────────────────────────
 
@@ -202,14 +208,21 @@ private:
     std::unique_ptr<GpsDriver> gps_;  ///< optional GPS driver (owned)
 
     GpsData       lastGps_;             ///< last GPS snapshot from gps_->getData()
+    ImuData       lastImu_;             ///< last IMU snapshot from hw_->readImu()
     std::string   lastNmeaGGA_;         ///< last NMEA GGA line forwarded to WebSocket
     unsigned long gpsLastFixTime_ms_      = 0;  ///< now_ms_ when last valid GPS fix arrived (BUG-006)
+    bool          gpsNoSignalLatched_     = false;
+    bool          gpsFixTimeoutLatched_   = false;
+    unsigned long gpsRecoveryStart_ms_    = 0;  ///< set when signal first comes back
     unsigned long lastObstacleCleanup_ms_ = 0;  ///< last cleanupExpiredObstacles() call (C.7)
     unsigned long lastScheduleCheck_ms_   = 0;  ///< last timetable check timestamp (C.11)
     bool          scheduleWasActive_      = false;  ///< previous timetable state (C.11)
 
     Schedule      schedule_;              ///< weekly mowing timetable (C.11)
     std::filesystem::path schedulePath_; ///< path for schedule persistence
+    std::string currentMapFingerprint_;
+    std::string activeMissionMapFingerprint_;
+    bool        resumeBlockedByMapChange_ = false;
 
     std::atomic<bool>     running_{false};
     unsigned long         controlLoops_ = 0;

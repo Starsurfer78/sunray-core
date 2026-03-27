@@ -117,9 +117,9 @@ TEST_CASE("PortExpander: getPin read — extracts correct bit", "[portexpander]"
 
 // ── Type checks ───────────────────────────────────────────────────────────────
 
-TEST_CASE("PortExpander: type is copyable (holds reference + address only)", "[portexpander]") {
+TEST_CASE("PortExpander: type is copy-constructible but not copy-assignable", "[portexpander]") {
     CHECK(std::is_copy_constructible_v<PortExpander>);
-    CHECK(std::is_copy_assignable_v<PortExpander>);
+    CHECK_FALSE(std::is_copy_assignable_v<PortExpander>);
 }
 
 // ── Hardware tests ────────────────────────────────────────────────────────────

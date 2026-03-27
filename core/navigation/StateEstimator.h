@@ -120,8 +120,9 @@ private:
 
     // ── GPS failover tracking ─────────────────────────────────────────────────
 
-    unsigned long totalTime_ms_      = 0;  ///< accumulated from update() dt_ms
-    unsigned long lastGpsFixTime_ms_ = 0;  ///< updated on each RTK fix received
+    unsigned long totalTime_ms_        = 0;  ///< accumulated from update() dt_ms
+    unsigned long lastGpsFixTime_ms_   = 0;  ///< updated on each RTK fix received
+    unsigned long lastGpsSignalTime_ms_ = 0; ///< updated on each RTK float/fix received
 };
 
 } // namespace nav

@@ -90,6 +90,8 @@ float LineTracker::distanceLine(float px, float py,
 // ── Main tracking ─────────────────────────────────────────────────────────────
 
 void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimator) {
+    Op* activeOp = ctx.opMgr.activeOp();
+
     const float stateX     = estimator.x();
     const float stateY     = estimator.y();
     const float stateDelta = estimator.heading();
@@ -185,6 +187,27 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         if (map.trackReverse) linear *= -1.0f;
     }
 
+    // ── GPS degradation mode ─────────────────────────────────────────────────
+    // Keep navigating, but reduce commanded speed when GPS quality is degraded.
+    if (!ctx.gpsHasFix) {
+        const float floatScale = config_
+            ? config_->get<float>("gps_float_speed_scale", 0.6f)
+            : 0.6f;
+        const unsigned long staleAgeMs = static_cast<unsigned long>(config_
+            ? config_->get<int>("gps_stale_age_ms", 2000)
+            : 2000);
+        const float staleScale = config_
+            ? config_->get<float>("gps_stale_speed_scale", 0.4f)
+            : 0.4f;
+
+        if (ctx.gpsHasFloat) {
+            linear *= std::clamp(floatScale, 0.1f, 1.0f);
+        }
+        if (ctx.gpsFixAge_ms >= staleAgeMs) {
+            linear *= std::clamp(staleScale, 0.1f, 1.0f);
+        }
+    }
+
     // ── Kidnap detection ──────────────────────────────────────────────────────
     //   If the robot is more than KIDNAP_TOLERANCE off the planned line,
     //   fire onKidnapped(true). Clear when back on path.
@@ -192,12 +215,12 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
     if (std::fabs(distToPath) > KIDNAP_TOLERANCE) {
         if (!stateKidnapped_) {
             stateKidnapped_ = true;
-            ctx.opMgr.activeOp()->onKidnapped(ctx, true);
+            if (activeOp) activeOp->onKidnapped(ctx, true);
         }
     } else {
         if (stateKidnapped_) {
             stateKidnapped_ = false;
-            ctx.opMgr.activeOp()->onKidnapped(ctx, false);
+            if (activeOp) activeOp->onKidnapped(ctx, false);
         }
     }
 
@@ -208,9 +231,9 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
     if (targetReached) {
         rotateLeft_  = false;
         rotateRight_ = false;
-        ctx.opMgr.activeOp()->onTargetReached(ctx);
-        if (!map.nextPoint(false, stateX, stateY)) {
-            ctx.opMgr.activeOp()->onNoFurtherWaypoints(ctx);
+        if (activeOp) activeOp->onTargetReached(ctx);
+        if (!map.nextPoint(false, stateX, stateY) && activeOp) {
+            activeOp->onNoFurtherWaypoints(ctx);
         }
     }
 }

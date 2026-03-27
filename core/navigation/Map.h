@@ -215,6 +215,7 @@ public:
     const std::vector<PolygonPoints>&      exclusions()      const { return exclusions_; }
     const std::vector<Zone>&               zones()           const { return zones_; }
     const std::vector<OnTheFlyObstacle>&   obstacles()       const { return obstacles_; }  ///< C.7
+    const nlohmann::json&                  captureMeta()     const { return captureMeta_; }
 
     int mowPointsIdx  = 0;
     int dockPointsIdx = 0;
@@ -257,6 +258,7 @@ private:
     std::vector<PolygonPoints> exclusions_;
     std::vector<OnTheFlyObstacle> obstacles_;  ///< virtual obstacles from addObstacle() (C.7)
     std::vector<Zone>          zones_;       ///< mow zones (C.4b — ordered by zone.order)
+    nlohmann::json             captureMeta_ = nlohmann::json::object();  ///< optional map capture metadata (C.14-g)
 
     bool isDocked_   = false;
     bool shouldDock_ = false;
