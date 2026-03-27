@@ -9,6 +9,9 @@ add_library(sunray_core STATIC
     op/Op.cpp
     op/IdleOp.cpp
     op/ChargeOp.cpp
+    op/UndockOp.cpp
+    op/NavToStartOp.cpp
+    op/WaitRainOp.cpp
     op/MowOp.cpp
     op/DockOp.cpp
     op/EscapeReverseOp.cpp
@@ -22,6 +25,7 @@ add_library(sunray_core STATIC
 )
 
 target_include_directories(sunray_core PUBLIC
+    ${CMAKE_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

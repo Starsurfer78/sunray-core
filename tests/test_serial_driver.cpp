@@ -122,8 +122,8 @@ std::string makeSummaryResponse(float batV, float chargeV, float chargeA,
 // ── CRC tests ────────────────────────────────────────────────────────────────
 
 TEST_CASE("CRC: known AT+V string produces correct checksum", "[driver][crc]") {
-    // "AT+V" → 0x41+0x54+0x2B+0x56 = 0x10E → mod 256 = 0x0E
-    CHECK(calcCrc("AT+V") == 0x0E);
+    // "AT+V" → 0x41+0x54+0x2B+0x56 = 0x116 → mod 256 = 0x16
+    CHECK(calcCrc("AT+V") == 0x16);
 }
 
 TEST_CASE("CRC: AT+M with zero PWM produces stable checksum", "[driver][crc]") {

@@ -11,6 +11,7 @@ void DockOp::begin(OpContext& ctx) {
     ctx.logger.info("Dock", "OP_DOCK");
     lastMapRoutingFailed    = false;
     mapRoutingFailedCounter = 0;
+    ctx.stopMotors();
 
     if (ctx.map && !ctx.map->startDocking(ctx.x, ctx.y)) {
         ctx.logger.error("Dock", "cannot build dock route => ERROR");
@@ -49,20 +50,36 @@ void DockOp::onMotorError(OpContext& ctx) {
 }
 
 void DockOp::onTargetReached(OpContext& ctx) {
-    // Intermediate dock-path waypoint reached — continue.
-    (void)ctx;
-    // TODO (A.5): maps.nextDockPoint()
+    ctx.logger.info("Dock", "dock waypoint reached");
+    lastMapRoutingFailed = false;
 }
 
 void DockOp::onNoFurtherWaypoints(OpContext& ctx) {
-    ++mapRoutingFailedCounter;
-    if (mapRoutingFailedCounter >= MAX_ROUTING_FAILURES) {
-        ctx.logger.error("Dock", "dock routing failed repeatedly => ERROR");
+    const int maxRetries = std::clamp(
+        ctx.config.get<int>("dock_retry_max_attempts", MAX_ROUTING_FAILURES),
+        1,
+        MAX_ROUTING_FAILURES);
+
+    if (mapRoutingFailedCounter >= maxRetries) {
+        ctx.logger.error("Dock", "dock contact failed after retries => ERROR");
         changeOp(ctx, ctx.opMgr.error());
-    } else {
-        ctx.logger.warn("Dock", "no dock waypoints — retry");
-        // TODO (A.5): maps.restartDocking()
+        return;
     }
+
+    if (!ctx.map || !ctx.map->retryDocking(ctx.x, ctx.y)) {
+        ctx.logger.error("Dock", "dock retry routing failed => ERROR");
+        changeOp(ctx, ctx.opMgr.error());
+        return;
+    }
+
+    ++mapRoutingFailedCounter;
+    lastMapRoutingFailed = false;
+    ctx.stopMotors();
+    if (ctx.lineTracker) ctx.lineTracker->reset();
+    ctx.logger.warn("Dock",
+        "dock path exhausted without charger contact => retry "
+        + std::to_string(mapRoutingFailedCounter) + "/"
+        + std::to_string(maxRetries));
 }
 
 void DockOp::onGpsFixTimeout(OpContext& ctx) {

@@ -6,7 +6,6 @@ namespace sunray {
 void IdleOp::begin(OpContext& ctx) {
     ctx.logger.info("Idle", "OP_IDLE");
     ctx.stopMotors();
-    ctx.hw.setMowMotor(0, 0, 0);
 }
 
 void IdleOp::end(OpContext&) {}

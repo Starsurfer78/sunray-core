@@ -188,11 +188,17 @@ void StateEstimator::imuUpdate(float yaw, const EkfNoise& n) {
 void StateEstimator::update(const OdometryData& odo, unsigned long dt_ms) {
     totalTime_ms_ += dt_ms;
 
-    // GPS failover: clear fix flag if no RTK fix received for too long
+    // GPS failover: clear stale quality flags if no recent GPS signal arrived.
     if (gpsHasFix_) {
         const EkfNoise n = loadNoise();
         if (totalTime_ms_ - lastGpsFixTime_ms_ > n.failover_ms) {
             gpsHasFix_ = false;
+        }
+    }
+    if (gpsHasFloat_) {
+        const EkfNoise n = loadNoise();
+        if (totalTime_ms_ - lastGpsSignalTime_ms_ > n.failover_ms) {
+            gpsHasFloat_ = false;
         }
     }
 
@@ -247,6 +253,7 @@ void StateEstimator::update(const OdometryData& odo, unsigned long dt_ms) {
 
 void StateEstimator::updateGps(float posE, float posN, bool isFix, bool isFloat) {
     gpsHasFloat_ = isFloat || isFix;
+    if (gpsHasFloat_) lastGpsSignalTime_ms_ = totalTime_ms_;
 
     if (isFix) {
         gpsHasFix_         = true;
@@ -304,6 +311,7 @@ void StateEstimator::reset() {
     groundSpeed_ = 0.0f;
     gpsHasFix_   = false;
     gpsHasFloat_ = false;
+    lastGpsSignalTime_ms_ = 0;
     imuActive_   = false;
     firstUpdate_ = true;
     totalTime_ms_      = 0;

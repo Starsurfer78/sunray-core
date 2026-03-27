@@ -45,6 +45,9 @@ namespace nav {
 // Robot populates this from its last sensor reads before calling OpManager::tick().
 
 struct OpContext {
+    OpContext(HardwareInterface& hwRef, Config& configRef, Logger& loggerRef, OpManager& opMgrRef)
+        : hw(hwRef), config(configRef), logger(loggerRef), opMgr(opMgrRef) {}
+
     // ── Dependencies (stable, set once at Robot construction) ─────────────────
     HardwareInterface& hw;
     Config&            config;
@@ -65,6 +68,7 @@ struct OpContext {
     bool  gpsHasFix         = false;  ///< RTK fixed
     bool  gpsHasFloat       = false;  ///< at least RTK float
     unsigned long gpsFixAge_ms = 9999999; ///< ms since last valid GPS
+    bool  resumeBlockedByMapChange = false; ///< true when route changed and resume is unsafe
 
     // ── Navigation objects (A.5 — null until loaded) ──────────────────────────
     nav::StateEstimator* stateEst    = nullptr;  ///< pose estimator (owned by Robot)
@@ -105,7 +109,7 @@ public:
     virtual ~Op() = default;
 
     /// Human-readable name used in telemetry (must match Mission Service op strings).
-    virtual std::string name() { return "Op"; }
+    virtual std::string name() const { return "Op"; }
 
     // ── Priority levels ────────────────────────────────────────────────────────
 
@@ -187,6 +191,9 @@ class IdleOp;
 class MowOp;
 class DockOp;
 class ChargeOp;
+class UndockOp;
+class NavToStartOp;
+class WaitRainOp;
 class EscapeReverseOp;
 class EscapeForwardOp;
 class GpsWaitFixOp;
@@ -214,6 +221,9 @@ public:
     MowOp&           mow()     { return *mow_; }
     DockOp&          dock()    { return *dock_; }
     ChargeOp&        charge()  { return *charge_; }
+    UndockOp&        undock()  { return *undock_; }
+    NavToStartOp&    navToStart() { return *navToStart_; }
+    WaitRainOp&      waitRain() { return *waitRain_; }
     EscapeReverseOp& escape()  { return *escape_; }
     GpsWaitFixOp&    gpsWait() { return *gpsWait_; }
     ErrorOp&         error()   { return *error_; }
@@ -224,6 +234,9 @@ private:
     std::unique_ptr<MowOp>           mow_;
     std::unique_ptr<DockOp>          dock_;
     std::unique_ptr<ChargeOp>        charge_;
+    std::unique_ptr<UndockOp>        undock_;
+    std::unique_ptr<NavToStartOp>    navToStart_;
+    std::unique_ptr<WaitRainOp>      waitRain_;
     std::unique_ptr<EscapeReverseOp> escape_;
     std::unique_ptr<EscapeForwardOp> escapeForward_;
     std::unique_ptr<GpsWaitFixOp>    gpsWait_;
@@ -238,7 +251,7 @@ private:
 
 class IdleOp : public Op {
 public:
-    std::string name() override { return "Idle"; }
+    std::string name() const override { return "Idle"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
@@ -246,13 +259,14 @@ public:
 
 class MowOp : public Op {
 public:
-    std::string name() override { return "Mow"; }
+    std::string name() const override { return "Mow"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
     void onGpsNoSignal(OpContext& ctx)         override;
     void onGpsFixTimeout(OpContext& ctx)       override;
     void onObstacle(OpContext& ctx)            override;
+    void onLiftTriggered(OpContext& ctx)       override;
     void onMotorError(OpContext& ctx)          override;
     void onRainTriggered(OpContext& ctx)       override;
     void onBatteryLowShouldDock(OpContext& ctx)override;
@@ -268,11 +282,13 @@ public:
     bool lastMapRoutingFailed   = false;
     int  mapRoutingFailedCounter = 0;
 
-    std::string name() override { return "Dock"; }
+    std::string name() const override { return "Dock"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
     void onObstacle(OpContext& ctx)          override;
+    void onLiftTriggered(OpContext& ctx)     override;
+    void onMotorError(OpContext& ctx)        override;
     void onTargetReached(OpContext& ctx)     override;
     void onNoFurtherWaypoints(OpContext& ctx)override;
     void onGpsFixTimeout(OpContext& ctx)     override;
@@ -286,8 +302,9 @@ public:
     unsigned long retryTime_ms          = 0;
     unsigned long nextConsoleDetails_ms = 0;
     bool          retryTouchDock        = false;
+    int           contactRetryCount     = 0;
 
-    std::string name() override { return "Charge"; }
+    std::string name() const override { return "Charge"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
@@ -296,8 +313,55 @@ public:
     void onBatteryUndervoltage(OpContext& ctx)  override;
     void onRainTriggered(OpContext& ctx)        override;
     void onChargerConnected(OpContext& ctx)     override;
+    void onChargingCompleted(OpContext& ctx)    override;
     void onTimetableStartMowing(OpContext& ctx) override;
     void onTimetableStopMowing(OpContext& ctx)  override;
+};
+
+class UndockOp : public Op {
+public:
+    float startX = 0.0f;
+    float startY = 0.0f;
+    bool  chargerDropped = false;
+
+    std::string name() const override { return "Undock"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onObstacle(OpContext& ctx)      override;
+    void onLiftTriggered(OpContext& ctx) override;
+    void onMotorError(OpContext& ctx)    override;
+};
+
+class NavToStartOp : public Op {
+public:
+    std::string name() const override { return "NavToStart"; }
+    void begin(OpContext& ctx) override;
+    void end(OpContext& ctx)   override;
+    void run(OpContext& ctx)   override;
+    void onTargetReached(OpContext& ctx) override;
+    void onNoFurtherWaypoints(OpContext& ctx) override;
+    void onGpsNoSignal(OpContext& ctx) override;
+    void onGpsFixTimeout(OpContext& ctx) override;
+    void onObstacle(OpContext& ctx) override;
+    void onLiftTriggered(OpContext& ctx) override;
+    void onMotorError(OpContext& ctx) override;
+    void onKidnapped(OpContext& ctx, bool state) override;
+    void onImuTilt(OpContext& ctx) override;
+    void onImuError(OpContext& ctx) override;
+};
+
+class WaitRainOp : public Op {
+public:
+    std::string name() const override { return "WaitRain"; }
+    void begin(OpContext& ctx) override;
+    void run(OpContext& ctx) override;
+    void end(OpContext& ctx) override;
+    void onRainTriggered(OpContext& ctx) override;
+    void onBatteryLowShouldDock(OpContext& ctx) override;
+
+private:
+    bool dockingRequested = false;
 };
 
 class EscapeReverseOp : public Op {
@@ -306,7 +370,7 @@ public:
     bool          hitLeft  = false;
     bool          hitRight = false;
 
-    std::string name() override { return "EscapeReverse"; }
+    std::string name() const override { return "EscapeReverse"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
@@ -319,7 +383,7 @@ class EscapeForwardOp : public Op {
 public:
     unsigned long driveForwardStopTime_ms = 0;
 
-    std::string name() override { return "EscapeForward"; }
+    std::string name() const override { return "EscapeForward"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
@@ -332,7 +396,7 @@ class GpsWaitFixOp : public Op {
 public:
     unsigned long waitStartTime_ms = 0;
 
-    std::string name() override { return "GpsWait"; }
+    std::string name() const override { return "GpsWait"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
@@ -342,7 +406,7 @@ class ErrorOp : public Op {
 public:
     unsigned long nextBuzzTime_ms = 0;
 
-    std::string name() override { return "Error"; }
+    std::string name() const override { return "Error"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;

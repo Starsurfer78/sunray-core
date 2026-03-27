@@ -14,10 +14,25 @@
 #include <unordered_set>
 #include <vector>
 #include <chrono>
+#include <cstdio>
 #include <sstream>
 #include <iomanip>
 
 namespace sunray {
+
+bool WebSocketServer::isHttpAuthorizedForToken(const std::string& apiToken,
+                                               const std::string& xApiToken,
+                                               const std::string& authorizationHeader) {
+    if (apiToken.empty()) return true;
+    if (!xApiToken.empty() && xApiToken == apiToken) return true;
+    return authorizationHeader == ("Bearer " + apiToken);
+}
+
+bool WebSocketServer::isWsCommandAuthorizedForToken(const std::string& apiToken,
+                                                    const nlohmann::json& payload) {
+    if (apiToken.empty()) return true;
+    return payload.value("token", std::string()) == apiToken;
+}
 
 // ── Pimpl ─────────────────────────────────────────────────────────────────────
 
@@ -139,12 +154,9 @@ void WebSocketServer::setupHttpRoutes() {
     auto& app = impl_->app;
     const std::string apiToken = config_ ? config_->get<std::string>("api_token", "") : "";
     auto isAuthorized = [&](const crow::request& req) -> bool {
-        if (apiToken.empty()) return true;
-        const std::string xApiToken = req.get_header_value("X-Api-Token");
-        if (!xApiToken.empty() && xApiToken == apiToken) return true;
-        const std::string auth = req.get_header_value("Authorization");
-        const std::string bearer = "Bearer " + apiToken;
-        return auth == bearer;
+        return isHttpAuthorizedForToken(apiToken,
+                                        req.get_header_value("X-Api-Token"),
+                                        req.get_header_value("Authorization"));
     };
 
     // ── Static file serving ────────────────────────────────────────────────────
@@ -635,7 +647,7 @@ void WebSocketServer::start() {
                 if (!cmd.empty()) {
                     if (config_) {
                         const std::string token = config_->get<std::string>("api_token", "");
-                        if (!token.empty() && j.value("token", std::string()) != token) {
+                        if (!isWsCommandAuthorizedForToken(token, j)) {
                             logger_->warn(TAG, "WS command rejected: unauthorized");
                             return;
                         }
@@ -739,6 +751,30 @@ void WebSocketServer::broadcastNmea(const std::string& line) {
 // index.html parse them directly.
 
 std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
+    auto esc = [](const std::string& in) -> std::string {
+        std::string out;
+        out.reserve(in.size() + 8);
+        for (unsigned char c : in) {
+            switch (c) {
+                case '\"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\b': out += "\\b";  break;
+                case '\f': out += "\\f";  break;
+                case '\n': out += "\\n";  break;
+                case '\r': out += "\\r";  break;
+                case '\t': out += "\\t";  break;
+                default:
+                    if (c < 0x20) {
+                        char buf[7];
+                        std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+                        out += buf;
+                    } else {
+                        out += static_cast<char>(c);
+                    }
+            }
+        }
+        return out;
+    };
     auto flt = [](float v, int prec = 4) -> std::string {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(prec) << v;
@@ -754,14 +790,15 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     std::string s;
     s.reserve(384);
     s += "{\"type\":\"state\"";
-    s += ",\"op\":\"";        s += d.op;        s += "\"";
+    s += ",\"op\":\"";        s += esc(d.op);        s += "\"";
     s += ",\"x\":";           s += flt(d.x);
     s += ",\"y\":";           s += flt(d.y);
     s += ",\"heading\":";     s += flt(d.heading);
     s += ",\"battery_v\":";   s += flt(d.battery_v, 2);
     s += ",\"charge_v\":";    s += flt(d.charge_v,  2);
     s += ",\"gps_sol\":";     s += std::to_string(d.gps_sol);
-    s += ",\"gps_text\":\"";  s += d.gps_text;  s += "\"";
+    s += ",\"gps_text\":\"";  s += esc(d.gps_text);  s += "\"";
+    s += ",\"gps_acc\":";     s += flt(d.gps_acc, 3);
     s += ",\"gps_lat\":";     s += dbl(d.gps_lat);
     s += ",\"gps_lon\":";     s += dbl(d.gps_lon);
     s += ",\"bumper_l\":";    s += bl(d.bumper_l);
@@ -769,14 +806,20 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"lift\":";        s += bl(d.lift);
     s += ",\"motor_err\":";    s += bl(d.motor_err);
     s += ",\"uptime_s\":";    s += std::to_string(d.uptime_s);
-    s += ",\"mcu_v\":\"";     s += d.mcu_version; s += "\"";
+    s += ",\"mcu_v\":\"";     s += esc(d.mcu_version); s += "\"";
     s += ",\"pi_v\":\"";      s += SUNRAY_VERSION; s += "\"";
     s += ",\"imu_h\":";       s += flt(d.imu_heading, 1);
     s += ",\"imu_r\":";       s += flt(d.imu_roll, 1);
     s += ",\"imu_p\":";       s += flt(d.imu_pitch, 1);
     s += ",\"diag_active\":"; s += bl(d.diag_active);
     s += ",\"diag_ticks\":";  s += std::to_string(d.diag_ticks);
-    s += ",\"ekf_health\":\""; s += d.ekf_health; s += "\"";
+    s += ",\"ekf_health\":\""; s += esc(d.ekf_health); s += "\"";
+    s += ",\"ts_ms\":";       s += std::to_string(d.ts_ms);
+    s += ",\"state_since_ms\":"; s += std::to_string(d.state_since_ms);
+    s += ",\"state_phase\":\""; s += esc(d.state_phase); s += "\"";
+    s += ",\"resume_target\":\""; s += esc(d.resume_target); s += "\"";
+    s += ",\"event_reason\":\""; s += esc(d.event_reason); s += "\"";
+    s += ",\"error_code\":\"";   s += esc(d.error_code); s += "\"";
     s += "}";
     return s;
 }

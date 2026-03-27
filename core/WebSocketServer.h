@@ -57,6 +57,7 @@ public:
         float        charge_v  = 0.0f;   ///< charger output voltage (V)
         int          gps_sol   = 0;      ///< NMEA quality (0=none, 4=RTK, 5=float)
         std::string  gps_text  = "---";  ///< human-readable GPS quality
+        float        gps_acc   = 0.0f;   ///< horizontal GPS accuracy estimate (m)
         double       gps_lat   = 0.0;    ///< WGS-84 latitude  (Phase 2)
         double       gps_lon   = 0.0;    ///< WGS-84 longitude (Phase 2)
         bool         bumper_l  = false;
@@ -71,6 +72,12 @@ public:
         float        imu_roll    = 0.0f; ///< roll [deg]
         float        imu_pitch   = 0.0f; ///< pitch [deg]
         std::string  ekf_health = "Odo"; ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
+        unsigned long ts_ms = 0;         ///< telemetry timestamp since robot start [ms]
+        unsigned long state_since_ms = 0;///< active op begin timestamp since robot start [ms]
+        std::string  state_phase = "idle"; ///< stable business phase for UI/diagnostics
+        std::string  resume_target = "";   ///< explicit resume op when state is recoverable
+        std::string  event_reason = "none"; ///< human/machine-readable dominant event reason
+        std::string  error_code = "";       ///< stable error code when a fault state is active
     };
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -163,6 +170,13 @@ public:
     /// Serialize to the frozen telemetry JSON format (no trailing newline).
     /// Pure function — no side effects. Used by both the push loop and tests.
     static std::string buildTelemetryJson(const TelemetryData& data);
+
+    /// Testable auth helpers for REST and WebSocket command paths.
+    static bool isHttpAuthorizedForToken(const std::string& apiToken,
+                                         const std::string& xApiToken,
+                                         const std::string& authorizationHeader);
+    static bool isWsCommandAuthorizedForToken(const std::string& apiToken,
+                                              const nlohmann::json& payload);
 
 private:
     std::shared_ptr<Config> config_;

@@ -53,6 +53,7 @@ public:
     float lateralError()      const { return lateralError_; }
     float targetDist()        const { return targetDist_; }
     bool  angleToTargetFits() const { return angleToTargetFits_; }
+    bool  kidnapped()         const { return stateKidnapped_; }
 
 private:
     // ── Geometry helpers ──────────────────────────────────────────────────────

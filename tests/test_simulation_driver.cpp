@@ -79,8 +79,8 @@ TEST_CASE("SimulationDriver: init() clears injected faults", "[init]") {
 
 // ── [kinematics] ──────────────────────────────────────────────────────────────
 
-TEST_CASE("SimulationDriver: straight forward moves y+", "[kinematics]") {
-    // Heading 0 = north (+y direction in our model)
+TEST_CASE("SimulationDriver: straight forward moves x+", "[kinematics]") {
+    // Heading 0 = east (+x direction in the current model)
     SimulationDriver sim;
     sim.init();
     sim.setMotorPwm(255, 255, 0);
@@ -88,29 +88,29 @@ TEST_CASE("SimulationDriver: straight forward moves y+", "[kinematics]") {
 
     auto pose = sim.getPose();
     // With maxSpeed 0.5 m/s and 200ms we expect ~0.1m forward
-    REQUIRE(pose.y > 0.05);
-    REQUIRE(std::abs(pose.x) < 0.01);  // no lateral drift
+    REQUIRE(pose.x > 0.05);
+    REQUIRE(std::abs(pose.y) < 0.01);  // no lateral drift
 }
 
-TEST_CASE("SimulationDriver: reverse moves y-", "[kinematics]") {
+TEST_CASE("SimulationDriver: reverse moves x-", "[kinematics]") {
     SimulationDriver sim;
     sim.init();
     sim.setMotorPwm(-255, -255, 0);
     runFor(sim, 200);
 
     auto pose = sim.getPose();
-    REQUIRE(pose.y < -0.05);
+    REQUIRE(pose.x < -0.05);
 }
 
 TEST_CASE("SimulationDriver: spin right (right slower) turns clockwise", "[kinematics]") {
-    // Right wheel slower → turn right (clockwise, positive heading in our model)
+    // Right wheel slower → turn right (clockwise, negative heading in the current model)
     SimulationDriver sim;
     sim.init();
     sim.setMotorPwm(200, 100, 0);
     runFor(sim, 200);
 
     auto pose = sim.getPose();
-    REQUIRE(pose.heading > 0.0);  // clockwise = positive omega
+    REQUIRE(pose.heading < 0.0);
 }
 
 TEST_CASE("SimulationDriver: spin left turns counter-clockwise", "[kinematics]") {
@@ -120,7 +120,7 @@ TEST_CASE("SimulationDriver: spin left turns counter-clockwise", "[kinematics]")
     runFor(sim, 200);
 
     auto pose = sim.getPose();
-    REQUIRE(pose.heading < 0.0);
+    REQUIRE(pose.heading > 0.0);
 }
 
 TEST_CASE("SimulationDriver: stopped motors — pose unchanged after run()", "[kinematics]") {

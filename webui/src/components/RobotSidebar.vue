@@ -11,11 +11,18 @@ const joystickOn  = ref(false)
 // ── Computed ──────────────────────────────────────────────────────────────────
 const opLabel = computed(() => {
   const labels: Record<string, string> = {
-    Mow: 'Mähend', Dock: 'Dockend', Charge: 'Laden',
-    Error: 'Fehler', EscapeReverse: 'Ausweichen',
-    GpsWait: 'GPS-Warten', Idle: 'Bereit',
+    idle: 'Bereit',
+    undocking: 'Ausparken',
+    navigating_to_start: 'Zum Startpunkt',
+    mowing: 'Mähend',
+    docking: 'Dockend',
+    charging: 'Laden',
+    waiting_for_rain: 'Regenpause',
+    gps_recovery: 'GPS-Warten',
+    obstacle_recovery: 'Ausweichen',
+    fault: 'Fehler',
   }
-  return labels[telemetry.value.op] ?? telemetry.value.op
+  return labels[telemetry.value.state_phase ?? 'idle'] ?? telemetry.value.op
 })
 
 const gpsFixLabel = computed(() => {
@@ -38,9 +45,9 @@ const headingDeg = computed(() =>
   String(Math.round(telemetry.value.heading * 180 / Math.PI)).padStart(3, '0')
 )
 
-const canStart = computed(() => connected.value && ['Idle', 'Charge'].includes(telemetry.value.op))
-const canDock  = computed(() => connected.value && telemetry.value.op === 'Mow')
-const canStop  = computed(() => connected.value && !['Idle', 'Charge', 'Error'].includes(telemetry.value.op))
+const canStart = computed(() => connected.value && ['idle', 'charging'].includes(telemetry.value.state_phase ?? 'idle'))
+const canDock  = computed(() => connected.value && ['mowing', 'navigating_to_start', 'gps_recovery', 'obstacle_recovery', 'waiting_for_rain'].includes(telemetry.value.state_phase ?? 'idle'))
+const canStop  = computed(() => connected.value && !['idle', 'charging', 'fault'].includes(telemetry.value.state_phase ?? 'idle'))
 </script>
 
 <template>
@@ -56,7 +63,7 @@ const canStop  = computed(() => connected.value && !['Idle', 'Charge', 'Error'].
       <div class="sr-sec">
         <div class="sr-lbl">Status</div>
         <div class="sr-stbig">{{ opLabel }}</div>
-        <div class="sr-stsub">{{ telemetry.op === 'Mow' ? 'Zone 1 — Hauptfläche' : '—' }}</div>
+        <div class="sr-stsub">{{ telemetry.state_phase === 'mowing' ? 'Zone 1 — Hauptfläche' : '—' }}</div>
         <div class="sr-pos">
           X {{ telemetry.x.toFixed(2) }} m &nbsp;
           Y {{ telemetry.y.toFixed(2) }} m &nbsp;

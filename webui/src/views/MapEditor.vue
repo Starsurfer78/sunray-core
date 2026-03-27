@@ -22,6 +22,16 @@ interface Zone {
   settings: ZoneSettings
 }
 
+interface CapturePointMeta {
+  fix_duration_ms: number
+  sample_variance: number
+  mean_accuracy: number
+}
+
+interface CaptureMeta {
+  perimeter: CapturePointMeta[]
+}
+
 // MowPt is imported from useMowPath composable
 
 interface MapData {
@@ -33,9 +43,10 @@ interface MapData {
   obstacles:  Pt[]
   zones:      Zone[]
   origin?:    Origin
+  captureMeta?: CaptureMeta
 }
 
-type Tool = 'select' | 'perimeter' | 'exclusion' | 'dockPath' | 'obstacle' | 'delete' | 'zone'
+type Tool = 'select' | 'perimeter' | 'exclusion' | 'dockPath' | 'obstacle' | 'delete' | 'insert' | 'zone'
 
 // exIdx sentinel values for vertex identity
 const EX_PERIMETER = -1
@@ -47,11 +58,15 @@ type VertexRef = { kind: Tool; exIdx: number; idx: number }
 
 const OBSTACLE_RADIUS_M = 0.5
 
+function emptyCapturePointMeta(): CapturePointMeta {
+  return { fix_duration_ms: 0, sample_variance: 0, mean_accuracy: 0 }
+}
+
 // ── State ──────────────────────────────────────────────────────────────────────
 const canvas    = ref<HTMLCanvasElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-const mapData    = reactive<MapData>({ perimeter: [], mow: [] as MowPt[], dock: [], dockPath: [], exclusions: [], obstacles: [], zones: [] })
+const mapData    = reactive<MapData>({ perimeter: [], mow: [] as MowPt[], dock: [], dockPath: [], exclusions: [], obstacles: [], zones: [], captureMeta: { perimeter: [] } })
 const origin     = reactive<{ lat: string; lon: string }>({ lat: '', lon: '' })
 const activeTool = ref<Tool>('select')
 const drawingPts = ref<Pt[]>([])
@@ -314,6 +329,15 @@ function getVertexList(ref: VertexRef): Pt[] {
   return mapData.perimeter
 }
 
+function syncPerimeterCaptureMeta() {
+  if (!mapData.captureMeta) mapData.captureMeta = { perimeter: [] }
+  const targetLen = mapData.perimeter.length
+  const meta = [...(mapData.captureMeta.perimeter ?? [])]
+  if (meta.length > targetLen) meta.length = targetLen
+  while (meta.length < targetLen) meta.push(emptyCapturePointMeta())
+  mapData.captureMeta.perimeter = meta
+}
+
 function findNearestVertex(cx: number, cy: number, thresh: number): VertexRef | null {
   let best: VertexRef | null = null
   let bestDist = thresh + 1
@@ -352,6 +376,9 @@ async function loadMap() {
     mapData.dockPath   = j.dockPath   ?? []
     mapData.exclusions = j.exclusions ?? []
     mapData.obstacles  = j.obstacles  ?? []
+    mapData.captureMeta = {
+      perimeter: j.captureMeta?.perimeter ?? [],
+    }
     mapData.zones      = (j.zones ?? []).map((z: Zone, i: number) => ({
       id:       z.id ?? String(i),
       polygon:  z.polygon ?? [],
@@ -365,6 +392,7 @@ async function loadMap() {
     }))
     selectedZoneId.value = null; editingZoneId.value = null
     if (j.origin) { origin.lat = String(j.origin.lat); origin.lon = String(j.origin.lon) }
+    syncPerimeterCaptureMeta()
     dirty.value  = false
     status.value = 'Karte geladen.'
     fitView()
@@ -395,6 +423,7 @@ async function saveMap() {
         exclusions: mapData.exclusions,
         obstacles:  mapData.obstacles,
         zones:      mapData.zones,
+        captureMeta: mapData.captureMeta,
         ...(origin.lat && origin.lon
           ? { origin: { lat: parseFloat(origin.lat), lon: parseFloat(origin.lon) } }
           : {}),
@@ -492,7 +521,13 @@ function undoLastPoint() {
   draw()
 }
 
-function clearPerimeter()  { mapData.perimeter = []; dirty.value = true; draw() }
+function clearPerimeter()  {
+  mapData.perimeter = []
+  if (!mapData.captureMeta) mapData.captureMeta = { perimeter: [] }
+  mapData.captureMeta.perimeter = []
+  dirty.value = true
+  draw()
+}
 function clearExclusions() { mapData.exclusions = []; dirty.value = true; draw() }
 function clearDockPath()   { mapData.dockPath = []; mapData.dock = []; dirty.value = true; draw(); status.value = 'Dock-Pfad gelöscht.' }
 
@@ -507,6 +542,7 @@ function closePolygon() {
   if (drawingPts.value.length < 3) { status.value = 'Mindestens 3 Punkte erforderlich.'; return }
   if (activeTool.value === 'perimeter') {
     mapData.perimeter = [...drawingPts.value]
+    syncPerimeterCaptureMeta()
     status.value = 'Perimeter gesetzt.'
   } else if (activeTool.value === 'exclusion') {
     mapData.exclusions = [...mapData.exclusions, [...drawingPts.value]]
@@ -622,8 +658,83 @@ function deleteNearestVertex(cx: number, cy: number) {
     if (mapData.exclusions[ref.exIdx].length < 3) mapData.exclusions.splice(ref.exIdx, 1)
   } else {
     mapData.perimeter.splice(ref.idx, 1)
+    if (mapData.captureMeta?.perimeter?.length) {
+      mapData.captureMeta.perimeter.splice(ref.idx, 1)
+    }
   }
   dirty.value = true; draw()
+}
+
+function pointSegmentDistance(cx: number, cy: number, ax: number, ay: number, bx: number, by: number) {
+  const abx = bx - ax
+  const aby = by - ay
+  const abLen2 = abx * abx + aby * aby
+  if (abLen2 === 0) {
+    const dx = cx - ax
+    const dy = cy - ay
+    return { dist: Math.sqrt(dx * dx + dy * dy), t: 0 }
+  }
+  const t = Math.max(0, Math.min(1, ((cx - ax) * abx + (cy - ay) * aby) / abLen2))
+  const px = ax + t * abx
+  const py = ay + t * aby
+  const dx = cx - px
+  const dy = cy - py
+  return { dist: Math.sqrt(dx * dx + dy * dy), t }
+}
+
+function insertIntoPolyline(list: Pt[], insertIdx: number, point: Pt) {
+  list.splice(insertIdx, 0, point)
+}
+
+function insertOnNearestEdge(cx: number, cy: number) {
+  type EdgeRef = { kind: 'perimeter' | 'exclusion' | 'zone' | 'dockPath'; exIdx: number; insertIdx: number; dist: number }
+  let best: EdgeRef | null = null
+
+  const checkEdges = (pts: Pt[], kind: EdgeRef['kind'], exIdx: number, closed: boolean) => {
+    const segCount = closed ? pts.length : pts.length - 1
+    if (segCount < 1) return
+    for (let i = 0; i < segCount; i++) {
+      const a = pts[i]
+      const b = pts[(i + 1) % pts.length]
+      const [ax, ay] = toCanvas(a[0], a[1])
+      const [bx, by] = toCanvas(b[0], b[1])
+      const { dist } = pointSegmentDistance(cx, cy, ax, ay, bx, by)
+      if (dist <= SNAP_PX && (!best || dist < best.dist)) {
+        best = { kind, exIdx, insertIdx: i + 1, dist }
+      }
+    }
+  }
+
+  checkEdges(mapData.perimeter, 'perimeter', EX_PERIMETER, true)
+  checkEdges(mapData.dockPath, 'dockPath', EX_DOCKPATH, false)
+  mapData.exclusions.forEach((ex, i) => checkEdges(ex, 'exclusion', i, true))
+  mapData.zones.forEach((z, i) => checkEdges(z.polygon, 'zone', i, true))
+
+  if (!best) {
+    status.value = 'Keine passende Kante in der Nähe.'
+    return
+  }
+
+  const edge: EdgeRef = best
+  const point = fromCanvas(cx, cy) as Pt
+  if (edge.kind === 'perimeter') {
+    insertIntoPolyline(mapData.perimeter, edge.insertIdx, point)
+    if (!mapData.captureMeta) mapData.captureMeta = { perimeter: [] }
+    mapData.captureMeta.perimeter.splice(edge.insertIdx, 0, emptyCapturePointMeta())
+    status.value = 'Perimeter-Punkt auf Kante eingefügt.'
+  } else if (edge.kind === 'dockPath') {
+    insertIntoPolyline(mapData.dockPath, edge.insertIdx, point)
+    status.value = 'Dock-Pfad-Punkt auf Kante eingefügt.'
+  } else if (edge.kind === 'zone') {
+    insertIntoPolyline(mapData.zones[edge.exIdx].polygon, edge.insertIdx, point)
+    status.value = 'Zonen-Punkt auf Kante eingefügt.'
+  } else {
+    insertIntoPolyline(mapData.exclusions[edge.exIdx], edge.insertIdx, point)
+    status.value = 'No-Go-Punkt auf Kante eingefügt.'
+  }
+
+  dirty.value = true
+  draw()
 }
 
 // ── Canvas event handlers ──────────────────────────────────────────────────────
@@ -653,6 +764,7 @@ function canvasClick(e: MouseEvent) {
   }
 
   if (activeTool.value === 'delete') { deleteNearestVertex(cx, cy); return }
+  if (activeTool.value === 'insert') { insertOnNearestEdge(cx, cy); return }
 
   if (activeTool.value === 'dockPath') {
     drawingPts.value = [...drawingPts.value, [mx, my]]; draw(); return
@@ -826,6 +938,7 @@ watch(pathZoneId, (id) => {
           ['zone',      'Mähzone',    'Mähzone zeichnen — Polygon innerhalb des Perimeters'],
           ['dockPath',  'Dock-Pfad',  'Anfahrtsweg zur Dock-Station zeichnen — letzter Punkt = Station · Doppelklick zum Abschließen'],
           ['obstacle',  'Hindernis',  'Simulations-Hindernis setzen (Kreis r=0.5 m)'],
+          ['insert',    'Einfügen',   'Neuen Punkt auf die nächste Kante einfügen'],
           ['delete',    'Löschen',    'Nächsten gesetzten Punkt löschen'],
         ] as [Tool, string, string][])"
         :key="tool"
@@ -842,6 +955,7 @@ watch(pathZoneId, (id) => {
               : tool === 'zone'      ? 'bg-purple-700 text-purple-100'
               : tool === 'dockPath'  ? 'bg-sky-700 text-sky-100'
               : tool === 'obstacle'  ? 'bg-amber-700 text-amber-100'
+              : tool === 'insert'    ? 'bg-cyan-700 text-cyan-100'
               : tool === 'delete'    ? 'bg-orange-700 text-orange-100'
               :                        'bg-gray-600 text-gray-100'
               : 'bg-gray-800 text-gray-300 hover:bg-gray-700'

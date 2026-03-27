@@ -1,5 +1,6 @@
 // ChargeOp.cpp — charging station management.
 #include "core/op/Op.h"
+#include "core/navigation/Map.h"
 
 namespace sunray {
 
@@ -11,6 +12,7 @@ void ChargeOp::begin(OpContext& ctx) {
     ctx.stopMotors();  // stops drive + mow motors via setMotorPwm(0,0,0)
     retryTouchDock        = false;
     retryTime_ms          = 0;
+    contactRetryCount     = 0;
     nextConsoleDetails_ms = ctx.now_ms + 30000;
     startTime_ms          = ctx.now_ms;
     // C.7: clear auto-detected obstacles — robot has returned to dock safely
@@ -20,8 +22,38 @@ void ChargeOp::begin(OpContext& ctx) {
 void ChargeOp::end(OpContext&) {}
 
 void ChargeOp::run(OpContext& ctx) {
-    // If charger unexpectedly disconnected, handle via event.
-    if (!ctx.battery.chargerConnected && ctx.now_ms - startTime_ms > 3000) {
+    const unsigned long contactTimeoutMs = static_cast<unsigned long>(
+        ctx.config.get<int>("dock_retry_contact_timeout_ms", 3000));
+    if (retryTouchDock) {
+        if (ctx.battery.chargerConnected) {
+            onChargerConnected(ctx);
+            return;
+        }
+        if (ctx.now_ms < retryTime_ms) {
+            const float creepSpeed = std::min(
+                ctx.config.get<float>("dock_linear_speed_ms", 0.1f),
+                0.05f);
+            ctx.setLinearAngularSpeed(creepSpeed, 0.0f);
+            return;
+        }
+
+        retryTouchDock = false;
+        ctx.stopMotors();
+        if (ctx.battery.chargerConnected) {
+            onChargerConnected(ctx);
+            return;
+        }
+        ctx.logger.warn("Charge", "touch retry did not restore contact => DOCK");
+        onChargerDisconnected(ctx);
+        return;
+    }
+
+    // If charger unexpectedly disconnected, first try to recover a weak contact.
+    if (!ctx.battery.chargerConnected) {
+        if (ctx.now_ms - startTime_ms <= contactTimeoutMs) {
+            onBadChargingContact(ctx);
+            return;
+        }
         onChargerDisconnected(ctx);
         return;
     }
@@ -43,15 +75,31 @@ void ChargeOp::run(OpContext& ctx) {
 }
 
 void ChargeOp::onChargerDisconnected(OpContext& ctx) {
-    ctx.logger.info("Charge", "charger disconnected => IDLE");
-    changeOp(ctx, ctx.opMgr.idle());
+    ctx.logger.warn("Charge", "charger disconnected unexpectedly => DOCK");
+    ctx.stopMotors();
+    changeOp(ctx, ctx.opMgr.dock());
 }
 
 void ChargeOp::onBadChargingContact(OpContext& ctx) {
-    // Brief retry: creep forward slightly, then stop.
-    ctx.logger.warn("Charge", "bad charging contact — retry touch");
+    if (retryTouchDock) return;
+
+    const int maxRetries = std::max(1, ctx.config.get<int>("dock_retry_max_attempts", 3));
+    if (contactRetryCount >= maxRetries) {
+        ctx.logger.error("Charge", "charging contact failed after retries => ERROR");
+        changeOp(ctx, ctx.opMgr.error());
+        return;
+    }
+
+    const unsigned long touchApproachMs = static_cast<unsigned long>(
+        ctx.config.get<int>("dock_retry_approach_ms", 2000));
+
+    ++contactRetryCount;
+    ctx.logger.warn("Charge",
+        "bad charging contact — retry touch "
+        + std::to_string(contactRetryCount) + "/"
+        + std::to_string(maxRetries));
     retryTouchDock = true;
-    retryTime_ms   = ctx.now_ms + 500;
+    retryTime_ms   = ctx.now_ms + touchApproachMs;
     ctx.setLinearAngularSpeed(0.02f, 0.0f);  // very slow creep
 }
 
@@ -68,7 +116,10 @@ void ChargeOp::onRainTriggered(OpContext& ctx) {
 
 void ChargeOp::onChargerConnected(OpContext& ctx) {
     ctx.logger.info("Charge", "charger reconnected");
-    (void)ctx;
+    retryTouchDock = false;
+    retryTime_ms   = 0;
+    startTime_ms   = ctx.now_ms;
+    ctx.stopMotors();
 }
 
 void ChargeOp::onTimetableStartMowing(OpContext& ctx) {
@@ -78,8 +129,8 @@ void ChargeOp::onTimetableStartMowing(OpContext& ctx) {
         ctx.logger.warn("Charge", "timetable start — battery too low, staying");
         return;
     }
-    ctx.logger.info("Charge", "timetable start => MOW");
-    changeOp(ctx, ctx.opMgr.mow());
+    ctx.logger.info("Charge", "timetable start => UNDOCK");
+    changeOp(ctx, ctx.opMgr.undock());
 }
 
 void ChargeOp::onTimetableStopMowing(OpContext& ctx) {

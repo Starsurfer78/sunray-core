@@ -44,8 +44,8 @@ TEST_CASE("Config: missing file yields built-in defaults", "[config]") {
     CHECK(cfg.get<std::string>("driver_port", "")    == "/dev/ttyS0");
     CHECK(cfg.get<int>        ("driver_baud", 0)     == 115200);
     CHECK(cfg.get<double>     ("stanley_k",   0.0)   == Approx(0.5));
-    CHECK(cfg.get<double>     ("battery_low_v",  0.0) == Approx(22.0));
-    CHECK(cfg.get<double>     ("battery_full_v", 0.0) == Approx(29.4));
+    CHECK(cfg.get<double>     ("battery_low_v",  0.0) == Approx(25.5));
+    CHECK(cfg.get<double>     ("battery_full_v", 0.0) == Approx(30.0));
     CHECK(cfg.get<bool>       ("buzzer_enabled", false) == true);
     CHECK(cfg.get<std::string>("port_expander_addr", "") == "0x20");
 }

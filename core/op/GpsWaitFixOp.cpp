@@ -3,9 +3,6 @@
 
 namespace sunray {
 
-// After this timeout without GPS fix, go to ErrorOp.
-static constexpr unsigned long GPS_FIX_TIMEOUT_MS = 120000;  // 2 minutes
-
 void GpsWaitFixOp::begin(OpContext& ctx) {
     ctx.logger.info("GpsWait", "waiting for GPS fix...");
     ctx.stopMotors();  // stops all motors including mow (setMotorPwm 0,0,0)
@@ -15,9 +12,17 @@ void GpsWaitFixOp::begin(OpContext& ctx) {
 void GpsWaitFixOp::end(OpContext&) {}
 
 void GpsWaitFixOp::run(OpContext& ctx) {
+    const unsigned long gpsFixTimeoutMs = static_cast<unsigned long>(
+        ctx.config.get<int>("gps_fix_timeout_ms", 120000));
+
     // GPS Float is sufficient to continue.
     if (ctx.gpsHasFloat || ctx.gpsHasFix) {
         ctx.logger.info("GpsWait", "GPS acquired => continue");
+        if (ctx.resumeBlockedByMapChange) {
+            ctx.logger.warn("GpsWait", "resume blocked by map change => IDLE");
+            changeOp(ctx, ctx.opMgr.idle());
+            return;
+        }
         if (nextOp != nullptr) {
             changeOp(ctx, *nextOp, false);
         } else {
@@ -27,9 +32,9 @@ void GpsWaitFixOp::run(OpContext& ctx) {
     }
 
     // Timeout: GPS did not recover in time.
-    if (ctx.now_ms - waitStartTime_ms > GPS_FIX_TIMEOUT_MS) {
-        ctx.logger.error("GpsWait", "GPS fix timeout => ERROR");
-        changeOp(ctx, ctx.opMgr.error());
+    if (ctx.now_ms - waitStartTime_ms > gpsFixTimeoutMs) {
+        ctx.logger.error("GpsWait", "GPS fix timeout => DOCK");
+        changeOp(ctx, ctx.opMgr.dock());
     }
 }
 

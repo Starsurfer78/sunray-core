@@ -27,6 +27,8 @@
     "mqtt_topic_prefix":    "sunray",
     "mqtt_user":            "",
     "mqtt_pass":            "",
+    "_c_api_auth":          "Pflicht fuer Release: Token fuer schreibende REST-Endpunkte und WebSocket-Commands. In der WebUI unter localStorage key 'sunray_api_token' hinterlegen.",
+    "api_token":            "change-me-before-release",
 
     "_c_ntrip":             "NTRIP-Client fuer RTK-Korrekturen. ntrip_enabled=false deaktiviert (Standard). Anbieter z.B. SAPOS, RTK2go",
     "ntrip_enabled":        false,

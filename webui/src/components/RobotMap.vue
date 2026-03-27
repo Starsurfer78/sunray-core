@@ -6,6 +6,8 @@ const props = defineProps<{
   y:       number   // metres north
   heading: number   // radians, 0 = east
   op:      string
+  perimeter?: [number, number][]
+  captureArmed?: boolean
 }>()
 
 const canvas  = ref<HTMLCanvasElement | null>(null)
@@ -55,8 +57,38 @@ function draw() {
   ctx.fillRect(0, 0, c.width, c.height)
 
   drawGrid(ctx, c.width, c.height)
+  drawPerimeter(ctx)
   drawDock(ctx)
   drawRobot(ctx, props.x, props.y, props.heading)
+}
+
+function drawPerimeter(ctx: CanvasRenderingContext2D) {
+  const pts = props.perimeter ?? []
+  if (pts.length === 0) return
+
+  if (pts.length >= 2) {
+    ctx.beginPath()
+    const [x0, y0] = toCanvas(pts[0][0], pts[0][1])
+    ctx.moveTo(x0, y0)
+    for (let i = 1; i < pts.length; i++) {
+      const [cx, cy] = toCanvas(pts[i][0], pts[i][1])
+      ctx.lineTo(cx, cy)
+    }
+    if (pts.length >= 3) ctx.closePath()
+    ctx.fillStyle = 'rgba(34,197,94,0.10)'
+    ctx.strokeStyle = props.captureArmed ? '#86efac' : '#22c55e'
+    ctx.lineWidth = 2
+    if (pts.length >= 3) ctx.fill()
+    ctx.stroke()
+  }
+
+  ctx.fillStyle = props.captureArmed ? '#bbf7d0' : '#22c55e'
+  for (const [mx, my] of pts) {
+    const [cx, cy] = toCanvas(mx, my)
+    ctx.beginPath()
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2)
+    ctx.fill()
+  }
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number) {
@@ -221,7 +253,7 @@ onMounted(() => {
 })
 onUnmounted(() => ro.disconnect())
 
-watch([() => props.x, () => props.y, () => props.heading, () => props.op], draw)
+watch([() => props.x, () => props.y, () => props.heading, () => props.op, () => props.perimeter, () => props.captureArmed], draw)
 </script>
 
 <template>
