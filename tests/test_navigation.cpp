@@ -362,3 +362,143 @@ TEST_CASE("Map: isInsideAllowedArea returns false for point outside perimeter", 
 
     std::filesystem::remove(tmpPath);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// On-The-Fly Obstacle Tests (C.7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("Map: addObstacle stores obstacle with metadata", "[obstacle]") {
+    Map map;
+    REQUIRE(map.addObstacle(3.0f, 4.0f, 1000u));
+    const auto& obs = map.obstacles();
+    REQUIRE(obs.size() == 1);
+    REQUIRE(obs[0].center.x == Approx(3.0f));
+    REQUIRE(obs[0].center.y == Approx(4.0f));
+    REQUIRE(obs[0].detectedAt_ms == 1000u);
+    REQUIRE(obs[0].hitCount == 1);
+    REQUIRE_FALSE(obs[0].persistent);
+}
+
+TEST_CASE("Map: addObstacle merges nearby hits into same obstacle", "[obstacle]") {
+    Map map;
+    map.addObstacle(3.0f, 4.0f, 1000u);
+    map.addObstacle(3.2f, 4.1f, 2000u);  // within 0.5 m merge radius
+    REQUIRE(map.obstacles().size() == 1);
+    REQUIRE(map.obstacles()[0].hitCount == 2);
+    REQUIRE(map.obstacles()[0].detectedAt_ms == 2000u);  // refreshed
+}
+
+TEST_CASE("Map: addObstacle adds separate obstacle when far enough", "[obstacle]") {
+    Map map;
+    map.addObstacle(3.0f, 4.0f, 1000u);
+    map.addObstacle(8.0f, 8.0f, 2000u);  // >0.5 m away
+    REQUIRE(map.obstacles().size() == 2);
+}
+
+TEST_CASE("Map: clearAutoObstacles removes non-persistent, keeps persistent", "[obstacle]") {
+    Map map;
+    map.addObstacle(1.0f, 1.0f, 1000u, false);   // auto
+    map.addObstacle(2.0f, 2.0f, 1000u, true);    // persistent
+    REQUIRE(map.obstacles().size() == 2);
+    map.clearAutoObstacles();
+    REQUIRE(map.obstacles().size() == 1);
+    REQUIRE(map.obstacles()[0].persistent);
+}
+
+TEST_CASE("Map: cleanupExpiredObstacles removes old auto obstacles", "[obstacle]") {
+    Map map;
+    map.addObstacle(1.0f, 1.0f, 0u,       false);   // auto, age = 4000 s
+    map.addObstacle(2.0f, 2.0f, 3000000u, false);   // auto, age = 1000 s
+    map.addObstacle(3.0f, 3.0f, 0u,       true);    // persistent (never removed)
+    // expire after 3600 s (3 600 000 ms)
+    map.cleanupExpiredObstacles(4000000u, 3600000u);
+    // obstacle at t=0 is 4000 s old → removed; t=3000000 is 1000 s → kept; persistent → kept
+    REQUIRE(map.obstacles().size() == 2);
+}
+
+TEST_CASE("Map: clearObstacles removes everything", "[obstacle]") {
+    Map map;
+    map.addObstacle(1.0f, 1.0f, 1000u, false);
+    map.addObstacle(2.0f, 2.0f, 1000u, true);
+    map.clearObstacles();
+    REQUIRE(map.obstacles().empty());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EKF Tests (E.1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("EKF: predict step accumulates position uncertainty over time", "[ekf]") {
+    // After odometry-only operation, position uncertainty must grow because
+    // the process noise Q adds to the covariance every step.
+    StateEstimator est;   // nullptr config → built-in defaults
+
+    const float unc0 = est.posUncertainty();  // initial ~0.141 m (sqrt(0.01+0.01))
+
+    OdometryData prime;
+    prime.mcuConnected = true;
+    est.update(prime, 20);  // prime — consumes first frame
+
+    OdometryData fwd;
+    fwd.mcuConnected = true;
+    fwd.leftTicks    = 194;  // ~1 m forward per step
+    fwd.rightTicks   = 194;
+
+    for (int i = 0; i < 50; ++i) est.update(fwd, 20);
+
+    // Position must have grown (50 × ~1 m)
+    REQUIRE(est.x() == Approx(50.0f).margin(3.0f));
+    // Uncertainty must be larger than initial (Q accumulates each step)
+    REQUIRE(est.posUncertainty() > unc0);
+    // Fusion mode: no GPS or IMU → "Odo"
+    REQUIRE(est.fusionMode() == "Odo");
+}
+
+TEST_CASE("EKF: GPS update pulls position toward measurement", "[ekf]") {
+    // Start at origin, drive ~1 m east, then inject GPS saying (2, 0).
+    // The EKF must move x toward 2 but not jump there immediately.
+    StateEstimator est;
+
+    OdometryData prime;
+    prime.mcuConnected = true;
+    est.update(prime, 20);  // prime
+
+    OdometryData fwd;
+    fwd.mcuConnected = true;
+    fwd.leftTicks    = 194;
+    fwd.rightTicks   = 194;
+    est.update(fwd, 20);  // odometry says x ≈ 1
+
+    REQUIRE(est.x() == Approx(1.0f).margin(0.05f));
+
+    const float x_before = est.x();
+    est.updateGps(2.0f, 0.0f, /*isFix=*/true, /*isFloat=*/false);
+
+    // State must move toward GPS measurement
+    REQUIRE(est.x() > x_before);
+    REQUIRE(est.x() < 2.0f + 1e-3f);  // Kalman gain < 1 → never overshoots
+    REQUIRE(est.gpsHasFix());
+    REQUIRE(est.fusionMode() == "EKF+GPS");
+}
+
+TEST_CASE("EKF: GPS failover clears fix after timeout", "[ekf]") {
+    // After a GPS fix is established, stop delivering fixes and run the
+    // predict loop for > 5000 ms (default ekf_gps_failover_ms).
+    // gpsHasFix() must become false and fusionMode() must leave EKF+GPS.
+    StateEstimator est;
+
+    OdometryData odo;
+    odo.mcuConnected = true;
+    est.update(odo, 20);  // prime
+
+    // Establish a GPS fix
+    est.updateGps(0.0f, 0.0f, true, false);
+    REQUIRE(est.gpsHasFix());
+
+    // Run 6000 ms of odometry with no further GPS updates (>5000 ms default)
+    for (int i = 0; i < 300; ++i) est.update(odo, 20);
+
+    // Fix must be cleared by failover logic in update()
+    REQUIRE_FALSE(est.gpsHasFix());
+    REQUIRE(est.fusionMode() != "EKF+GPS");
+}

@@ -295,6 +295,19 @@ sunray_gps_driver/fast:
 .PHONY : sunray_gps_driver/fast
 
 #=============================================================================
+# Target rules for targets named sunray_imu
+
+# Build rule for target.
+sunray_imu: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 sunray_imu
+.PHONY : sunray_imu
+
+# fast build rule for target.
+sunray_imu/fast:
+	$(MAKE) $(MAKESILENT) -f hal\Imu\CMakeFiles\sunray_imu.dir\build.make hal/Imu/CMakeFiles/sunray_imu.dir/build
+.PHONY : sunray_imu/fast
+
+#=============================================================================
 # Target rules for targets named sunray_core
 
 # Build rule for target.
@@ -365,6 +378,7 @@ help:
 	@echo ... sunray-core
 	@echo ... sunray_core
 	@echo ... sunray_gps_driver
+	@echo ... sunray_imu
 	@echo ... sunray_platform
 	@echo ... sunray_serial_driver
 	@echo ... sunray_simulation_driver

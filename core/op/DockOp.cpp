@@ -12,7 +12,11 @@ void DockOp::begin(OpContext& ctx) {
     lastMapRoutingFailed    = false;
     mapRoutingFailedCounter = 0;
 
-    if (ctx.map)         ctx.map->startDocking(ctx.x, ctx.y);
+    if (ctx.map && !ctx.map->startDocking(ctx.x, ctx.y)) {
+        ctx.logger.error("Dock", "cannot build dock route => ERROR");
+        changeOp(ctx, ctx.opMgr.error());
+        return;
+    }
     if (ctx.lineTracker) ctx.lineTracker->reset();
 }
 
@@ -32,6 +36,16 @@ void DockOp::run(OpContext& ctx) {
 void DockOp::onObstacle(OpContext& ctx) {
     ctx.logger.warn("Dock", "obstacle during dock => EscapeReverse");
     changeOp(ctx, ctx.opMgr.escape(), true);
+}
+
+void DockOp::onLiftTriggered(OpContext& ctx) {
+    ctx.logger.error("Dock", "lift sensor => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void DockOp::onMotorError(OpContext& ctx) {
+    ctx.logger.error("Dock", "motor error => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
 }
 
 void DockOp::onTargetReached(OpContext& ctx) {

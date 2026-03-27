@@ -25,6 +25,7 @@
 #include "hal/GpsDriver/GpsDriver.h"
 #include "core/Config.h"
 #include "core/Logger.h"
+#include "core/Schedule.h"
 #include "core/WebSocketServer.h"
 #include "core/op/Op.h"
 #include "core/navigation/StateEstimator.h"
@@ -35,10 +36,16 @@
 #include <memory>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <string>
+#include <vector>
 #include <cstdint>
+#include <nlohmann/json.hpp>
 
 namespace sunray {
+
+class MqttClient;  // forward declaration — full header included only in Robot.cpp
 
 // ── Robot ─────────────────────────────────────────────────────────────────────
 
@@ -102,12 +109,20 @@ public:
     void startDocking();
     void emergencyStop();
 
+    /// Start mowing only the specified zones (C.12).
+    /// zoneIds: list of zone IDs from the map JSON. Empty = all zones (same as startMowing()).
+    void startMowingZones(const std::vector<std::string>& zoneIds);
+
     /// Access OpManager for direct command dispatch (e.g. from WebSocket server).
     OpManager& opManager() { return opMgr_; }
 
     /// Optional: attach a WebSocket server to receive telemetry pushes.
     /// Call before loop(). Does NOT transfer ownership.
     void setWebSocketServer(WebSocketServer* ws) { ws_ = ws; }
+
+    /// Optional: attach an MQTT client to receive telemetry pushes.
+    /// Call before loop(). Does NOT transfer ownership.
+    void setMqttClient(MqttClient* mqtt) { mqtt_ = mqtt; }
 
     /// Optional: attach a GPS driver. Ownership transferred.
     /// Call before loop(). GPS data is polled each run() cycle.
@@ -117,6 +132,15 @@ public:
     /// Call before startMowing() / startDocking().
     bool loadMap(const std::filesystem::path& path);
 
+    /// Load schedule from JSON file (C.11). Returns true on success.
+    bool loadSchedule(const std::filesystem::path& path);
+
+    /// Replace schedule entries from JSON (C.11). Returns true on success.
+    bool setSchedule(const nlohmann::json& arr);
+
+    /// Return current schedule as JSON array (C.11).
+    nlohmann::json getSchedule() const;
+
     /// Direct pose override (e.g. from AT+P command / Mission Service setpos).
     void setPose(float x, float y, float heading);
 
@@ -124,6 +148,26 @@ public:
     /// linear: [-1..1] forward/backward, angular: [-1..1] left/right.
     /// Only applied in Idle state. Auto-stops if no command within 500 ms.
     void manualDrive(float linear, float angular);
+
+    // ── Diagnostic commands (C.10b) ───────────────────────────────────────────
+
+    /// Spin one motor at pwm until the given number of revolutions are completed,
+    /// or for duration_ms if revolutions == 0 (time-based fallback).
+    /// motor = "left" | "right". Blocks until done or 15 s safety timeout.
+    /// Returns JSON: {"ok":true,"ticks":N,"ticks_target":T,"ticks_per_rev_config":C}.
+    /// Only allowed in Idle state; returns error otherwise.
+    nlohmann::json diagRunMotor(const std::string& motor, float pwm,
+                                unsigned duration_ms, int revolutions = 0);
+
+    /// Switch the mow motor on/off without leaving Idle state (C.10b).
+    /// Returns JSON: {"ok":true} or {"ok":false,"error":"..."}.
+    nlohmann::json diagMowMotor(bool on);
+
+    /// Drive straight for distance_m at low speed, return tick totals (C.10b).
+    nlohmann::json diagDriveStraight(float distance_m);
+
+    /// Start IMU calibration (gyro bias estimation). Blocks for ~5 seconds.
+    nlohmann::json diagImuCalib();
 
     /// Current estimated pose (from StateEstimator).
     float poseX()       const { return stateEst_.x(); }
@@ -153,11 +197,19 @@ private:
 
     // ── Runtime state ─────────────────────────────────────────────────────────
 
-    WebSocketServer*  ws_  = nullptr;  ///< optional, not owned
+    WebSocketServer*  ws_   = nullptr;  ///< optional, not owned
+    MqttClient*       mqtt_ = nullptr;  ///< optional, not owned
     std::unique_ptr<GpsDriver> gps_;  ///< optional GPS driver (owned)
 
-    GpsData     lastGps_;             ///< last GPS snapshot from gps_->getData()
-    std::string lastNmeaGGA_;         ///< last NMEA GGA line forwarded to WebSocket
+    GpsData       lastGps_;             ///< last GPS snapshot from gps_->getData()
+    std::string   lastNmeaGGA_;         ///< last NMEA GGA line forwarded to WebSocket
+    unsigned long gpsLastFixTime_ms_      = 0;  ///< now_ms_ when last valid GPS fix arrived (BUG-006)
+    unsigned long lastObstacleCleanup_ms_ = 0;  ///< last cleanupExpiredObstacles() call (C.7)
+    unsigned long lastScheduleCheck_ms_   = 0;  ///< last timetable check timestamp (C.11)
+    bool          scheduleWasActive_      = false;  ///< previous timetable state (C.11)
+
+    Schedule      schedule_;              ///< weekly mowing timetable (C.11)
+    std::filesystem::path schedulePath_; ///< path for schedule persistence
 
     std::atomic<bool>     running_{false};
     unsigned long         controlLoops_ = 0;
@@ -170,10 +222,29 @@ private:
 
     OdometryData odometry_;
     SensorData   sensors_;
+    SensorData   previousSensors_;  ///< for edge-detection of safety events
     BatteryData  battery_;
 
     unsigned long                          now_ms_    = 0;
     std::chrono::steady_clock::time_point  startTime_;
+
+    // ── Diagnostic motor test state (C.10b) ───────────────────────────────────
+    // Scheduled from HTTP handler thread; executed in run(); result signalled back.
+
+    struct DiagReq {
+        std::string  motor;           ///< "left" | "right" | "mow" | "both"
+        float        pwm       = 0.1f;
+        unsigned     duration_ms = 3000;
+        int          ticksTarget = 0; ///< 0 = time-based; >0 = stop after this many ticks
+        bool         active    = false;
+        unsigned long startMs  = 0;
+        long         accTicks  = 0;   ///< accumulated encoder ticks during test
+        bool         done      = false;
+        std::string  resultJson;
+    };
+    mutable std::mutex      diagMutex_;
+    std::condition_variable diagCv_;
+    DiagReq                 diagReq_;
 
     // ── Constants ─────────────────────────────────────────────────────────────
 

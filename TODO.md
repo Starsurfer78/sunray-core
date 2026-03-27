@@ -2,245 +2,175 @@
 
 Stand: März 2026
 
+> **Konvention:** Jeder offene Task `[ ]` hat ein `<!-- ctx: -->` Profil direkt darunter.
+> Claude Code liest dieses Profil und lädt **nur** die dort genannten Module + Files.
+> Format: `<!-- ctx: module:X, module:Y | files:path/to/A.h, path/to/B.cpp | model:haiku -->
+
+---
+
+## ✅ Erledigte Meilensteine
+
+- [x] A.1–A.8, A.10 — C++ Fundament, SerialRobotDriver, Robot+DI, SimulationDriver, Op-State-Machine, Navigation, WebSocket-Server, Konfiguration, GPS-Treiber, Pi-Version
+- [x] C.1–C.5, C.7, C.9–C.12 — WebUI, MQTT-Client, On-The-Fly Obstacles, Dashboard, Diagnose, Zeitplan, Zonen-Auswahl
+- [x] P0 Blocker (A.9) — STM32 Flashen via Pi, CRC-Verifikation, Motor-API
+
 ---
 
 ## A — sunray-core (C++ Rewrite)
 
-✅ **A.1–A.8 abgeschlossen** (Fundament, SerialRobotDriver, Robot+DI, SimulationDriver, Op-State-Machine, Navigation, WebSocket-Server, Konfiguration, GPS-Treiber)
-
 ### A.9 Alfred Build-Test ⏸ wartet auf Pi-Zugang
 
-- [ ] Kompilieren auf Raspberry Pi 4B
-- [ ] Alfred fährt mit neuem Core identisch wie vorher
-- [ ] Alle Unit Tests grün auf Pi
-
-**Vor A.9 zwingend (P0 Blocker):**
-- [ ] **STM32 Flashen über Pi:** UART-Bootloader oder SWD/JTAG von Pi aus. Dokumentieren Sie die Hardware-Verkabelung + Flashen-Prozess in `docs/ALFRED_FLASHING.md`. Ohne dies ist A.9 unmöglich!
-- [ ] BUG-004 (CRC XOR vs. Summe) + `setMowMotor→setMotorPwm` in GpsWaitFixOp — siehe `docs/STATUS.md`
+- [ ] A.9-a: Kompilieren auf Raspberry Pi 4B
+  <!-- ctx: module:serial_robot_driver, module:hardware_interface | files:CMakeLists.txt | model:haiku -->
+- [ ] A.9-b: Alfred fährt mit neuem Core identisch wie vorher
+  <!-- ctx: module:serial_robot_driver, module:robot | files:hal/SerialRobotDriver/SerialRobotDriver.cpp | model:sonnet -->
+- [ ] A.9-c: Alle Unit Tests grün auf Pi
+  <!-- ctx: module:robot, module:simulation_driver | files:tests/ | model:haiku -->
 
 ---
 
 ## B — Pico-Driver ⏸ startet erst nach A.9
 
-- [ ] `hal/PicoRobotDriver/PicoRobotDriver.h + .cpp`
-- [ ] PWM-Ausgabe (1–20 kHz) für BLDC-Controller
-- [ ] Hall-Sensor Odometrie (GPIO-Interrupt)
-- [ ] `platform/INA226.h + .cpp` — Strommessung I2C
-- [ ] Pico-Firmware (separates Projekt, Pico SDK C++)
+- [ ] B.1: `hal/PicoRobotDriver/PicoRobotDriver.h` — Interface + Stub
+  <!-- ctx: module:hardware_interface | files:hal/HardwareInterface.h | model:haiku -->
+- [ ] B.2: `hal/PicoRobotDriver/PicoRobotDriver.cpp` — PWM-Ausgabe (1–20 kHz) für BLDC-Controller
+  <!-- ctx: module:hardware_interface, module:serial_robot_driver | files:hal/PicoRobotDriver/PicoRobotDriver.h | model:sonnet -->
+- [ ] B.3: Hall-Sensor Odometrie (GPIO-Interrupt) in PicoRobotDriver
+  <!-- ctx: module:hardware_interface | files:hal/PicoRobotDriver/PicoRobotDriver.h, hal/PicoRobotDriver/PicoRobotDriver.cpp | model:sonnet -->
+- [ ] B.4: `platform/INA226.h + .cpp` — Strommessung I2C
+  <!-- ctx: module:i2c | files:platform/I2C.h | model:haiku -->
+- [ ] B.5: Pico-Firmware (separates Projekt, Pico SDK C++)
+  <!-- ctx: module:hardware_interface | files:hal/PicoRobotDriver/PicoRobotDriver.h | model:sonnet -->
 
 ---
 
-## C — WebUI
+## C — Erweiterte Funktionen
 
-✅ **C.1–C.5 abgeschlossen** (Einstellungen, GeoJSON, WebUI Grundstruktur, Verlauf/Statistiken, Mähzonen, Mähbahnen-Berechnung, MQTT-Client)
+### C.13 IMU-Integration ✅ Abgeschlossen (2026-03-24)
 
-### C.2b Mission Service (Phase 2)
+- [x] `hal/Imu/Mpu6050Driver.h + .cpp`
+- [x] `Robot::run()` IMU-Tick
+- [x] `TelemetryData` imu_heading/pitch/roll
+- [x] StateEstimator Kalmanfilter GPS + Odo + IMU
+- [x] `POST /api/diag/imu_calib`
+- [x] Diagnostics.vue Kompassrose
 
-- [ ] MissionRunner — Waypoint-Sending (AT+W Batches à 30 Punkte)
-- [ ] Dynamisches Nachladen wenn Buffer leer
+### C.8 Später
 
-### C.6 Später (Phase C)
-
-- [ ] Energie-Budget + Rückkehr-Berechnung
-- [ ] Dynamisches Replanning bei Hindernissen
-
-### C.7 On-The-Fly Obstacle Detection & Cleanup (Phase 2)
-
-- [ ] **Map-Struktur erweitern:** `OnTheFlyObstacle { center, radius_m, detectedAt_ms, hitCount, persistent }`
-- [ ] **EscapeReverseOp:** Bei Bumper-Hit `map->addObstacle(ctx.x, ctx.y)` mit Config-Radius `obstacle_diameter_m`
-- [ ] **Obstacle-Metadaten:** Auto-detected-Flag + Timestamp für späteres Cleanup
-- [ ] **A*-Pathfinding:** Beachtet On-The-Fly-Obstacles im nächsten Mow-Pass
-- [ ] **Cleanup-Logic:** Nach 1h oder beim Übergang zu ChargeOp alle auto-detected Obstacles löschen (persistent bleiben)
-- [ ] **Tests:** `tests/test_navigation.cpp` — addObstacle + A*-Umfahrung + Cleanup-Timer
-
-### C.8 Später (Phase C)
-
-- [ ] WebUI auf C++ WebSocket-Server umstellen
+- [x] C.8-a: WebUI auf C++ WebSocket-Server umstellen
+  <!-- ctx: module:websocket_server, module:webui | files:core/WebSocketServer.h | model:sonnet -->
+- [ ] C.8-b: Energie-Budget + Rückkehr-Berechnung
+  <!-- ctx: module:robot, module:navigation | files:core/Robot.h, core/navigation/Map.h | model:sonnet -->
 
 ---
 
-## Phase 3 — Differentiators (Community + Premium Features)
+## E — Priorisierte Erweiterungen
 
-### P3.1 OTA Updates (Over-The-Air Firmware Updates)
+### E.1 Sensorfusion (EKF) ✅ Abgeschlossen (2026-03-25)
 
-**Vision:** Sicherheitsupdates + Features ohne physischen Zugriff; Mammotion/Segway parity
+- [x] E.1-a: `StateEstimator.h` — EkfState + EkfCovariance structs + private Methoden-Signaturen
+- [x] E.1-b: `StateEstimator::predictStep()` — Odometrie-Delta → EkfState + Kovarianz-Propagation
+- [x] E.1-c: `StateEstimator::updateGps()` — GPS-Messupdate, Messrauschen R aus Config
+- [x] E.1-d: `StateEstimator::updateImu()` — IMU-Heading-Update
+- [x] E.1-e: Tests — 3 Catch2-Tests (predictStep, updateGps, GPS-Failover)
+- [x] E.1-f: Covariance Matrix — konfigurierbares Q/R via Config (`ekf_q_xy`, `ekf_q_theta`, `ekf_r_gps`, `ekf_r_imu`)
+- [x] E.1-g: GPS-Failover — nahtloser Übergang zu Odometrie bei GPS-Verlust (`ekf_gps_failover_ms`)
+- [x] E.1-h: Sensor Diagnostics — `ekf_health` Telemetry-Feld + Fusion-Badge in Diagnostics.vue
 
-- [ ] **Staging Server:** `core/ota/OtaManager.h + .cpp` — Download + Verify Binary
-- [ ] **Binary Signing:** Ed25519 für Sicherheit (gegen Man-in-Middle)
-- [ ] **Rollback:** Bootloader mit dual-slot (Active/Backup) — bei Fehler zurück
-- [ ] **Download Resume:** Bei Netzwerk-Dropout weitermachen (Ranges)
-- [ ] **Update Check:** Periodic (config `ota_check_interval_hours`, default 24)
-- [ ] **WebUI:** Settings → "Check for Updates" + Progress-Bar
-- [ ] **Bootloader Update:** RP2040 Pico + STM32 Bootloader versionieren
-- [ ] **Tests:** Simulate Corruption, Network Loss, Rollback Scenarios
+### E.2 Dynamisches Re-Routing (A*) ✅ Abgeschlossen (2026-03-25)
 
-**Dependencies:** A.9 (Hardware-Test), MQTT Optional (Notification)
-**Aufwand:** 3 Wochen | **Phase:** Nach P2 Complete
+- [x] E.2-a: `core/navigation/GridMap.h + .cpp` — 40×40 lokales Belegungs-Gitter (0.25 m/Zelle)
+- [x] E.2-b: A*-Algorithmus — 8-direktional, Euklidische Heuristik, ≤1600 Zellen
+- [x] E.2-c: Integration — EscapeReverseOp nutzt GridMap A* → Map::injectFreePath(); Fallback: Map::findPath()
+- [x] E.2-d: Smooth Path — String-Pull-Visibility via GridMap::smoothPath()
 
-**Tech Stack:**
-- `mbedtls` für Ed25519 (FetchContent)
-- Custom Bootloader mit dual-slot (STM32 + Pico)
-- WebSocket Endpoint: `POST /api/ota/check`, `GET /api/ota/download`
+### E.3 Vision-basierte Navigation (V-SLAM) 🚀 Prio 3
 
----
+- [ ] E.3-a: Kamera-Integration — Pi-Cam via V4L2, `hal/CameraDriver/CameraDriver.h`
+  <!-- ctx: module:hardware_interface | files:hal/HardwareInterface.h | model:sonnet -->
+- [ ] E.3-b: Visual Odometry — Bewegungsschätzung aus aufeinanderfolgenden Frames
+  <!-- ctx: module:navigation | files:hal/CameraDriver/CameraDriver.h | model:opus -->
+- [ ] E.3-c: Loop Closure — Erkennung bereits besuchter Orte
+  <!-- ctx: module:navigation | files:core/navigation/StateEstimator.h | model:opus -->
 
-### P3.2 Sensor Fusion (GPS + Odometry + Gyro + Barometer)
+### E.4 Flottenmanagement & Mesh 🚀 Prio 4
 
-**Vision:** mm-Level Präzision, auch bei GPS-Loss; besser als Mammotion (nur Lidar)
+- [ ] E.4-a: Mesh-Networking — MQTT-basierte Roboter-zu-Roboter Kommunikation
+  <!-- ctx: module:mqtt_client | files:core/MqttClient.h | model:sonnet -->
+- [ ] E.4-b: Task Splitting — Flächenaufteilung auf mehrere Roboter
+  <!-- ctx: module:navigation, module:mqtt_client | files:core/navigation/Map.h | model:opus -->
+- [ ] E.4-c: Status Monitoring — zentrales Dashboard für alle Roboter
+  <!-- ctx: module:webui, module:websocket_server | files:webui/src/ | model:sonnet -->
 
-- [ ] **StateEstimator Rewrite:** Kalman-Filter (anstatt einfach Dead-Reckoning)
-  - [ ] Odometry (encoder) — Hauptquell
-  - [ ] GPS (RTK-Fix, Float) — Korrektur
-  - [ ] IMU Gyro — Heading-Stabilität (falls vorhanden)
-  - [ ] Optional: Barometer → Elevation (für Hanglagen)
+### E.5 Berührungslose Sensorik 🚀 Prio 5
 
-- [ ] **Covariance Matrix:** Q (process noise) + R (measurement noise) konfigurierbar
-- [ ] **GPS-Failover:** Nahtlos zu Odometry-Only wenn GPS dropout
-- [ ] **Kidnap Detection:** Wenn GPS + Odo massiv divergieren → GpsWaitFixOp
-- [ ] **Sensor Diagnostics:** WebUI zeigt Fusion-Health (Innovation Gate, DOP)
-- [ ] **Tests:** Synthetic GPS-Glitches, Encoder-Noise, Slow Drift
-
-**Dependencies:** A.5 (Navigation exists), IMU Optional für Phase 3.5
-**Aufwand:** 4 Wochen | **Phase:** P2.5 (nach On-The-Fly Obstacles)
-
-**Tech Stack:**
-- Eigen3 für Matrix-Math (FetchContent)
-- UKF (Unscented Kalman Filter) oder EKF (Extended KF)
-- New Config Keys: `kf_process_noise`, `kf_measurement_noise`, `gps_outlier_threshold_m`
+- [ ] E.5-a: `hal/SonarDriver/SonarDriver.h + .cpp` — HC-SR04 GPIO-Trigger/Echo
+  <!-- ctx: module:hardware_interface | files:hal/HardwareInterface.h | model:haiku -->
+- [ ] E.5-b: Safe-Stop — automatisches Abbremsen via nearObstacle
+  <!-- ctx: module:hardware_interface, module:op_statemachine | files:hal/HardwareInterface.h, core/op/MowOp.cpp | model:haiku -->
+- [ ] E.5-c: 3D-Sensing — Abgrunderkennung via Neigungssensor oder ToF
+  <!-- ctx: module:hardware_interface, module:navigation | files:hal/HardwareInterface.h | model:sonnet -->
 
 ---
 
-### P3.3 Adaptive Learning (ML-basierte Mähoptimization)
+## Phase 3 — Differentiators
 
-**Vision:** Robot lernt seine Effizienz mit jedem Mähgang; nach 10 Sessions +25% faster
+### P3.1 OTA Updates
 
-- [ ] **Session-Metrics Sampling:** Nach jeder Mäh-Session speichern:
-  - Zones mit: Zeit, Strecke, Hindernis-Count, Battery-Drain-Rate
-  - Bodenfeuchte (via Config-Sensor oder WebUI-Input)
-  - Mähbahn-Pattern (welche Zone, welcher Winkel)
+- [ ] P3.1-a: `core/ota/OtaManager.h` — Interface: checkUpdate(), downloadUpdate(), applyUpdate()
+  <!-- ctx: module:config | files:core/Config.h | model:haiku -->
+- [ ] P3.1-b: `core/ota/OtaManager.cpp` — HTTP Download + SHA256-Verifikation
+  <!-- ctx: module:config | files:core/ota/OtaManager.h | model:sonnet -->
+- [ ] P3.1-c: Ed25519 Binary Signing via mbedtls (FetchContent)
+  <!-- ctx: module:config | files:core/ota/OtaManager.h | model:opus -->
+- [ ] P3.1-d: Rollback — dual-slot Bootloader (Active/Backup)
+  <!-- ctx: module:config | files:core/ota/OtaManager.h | model:opus -->
+- [ ] P3.1-e: Download Resume bei Netzwerk-Dropout (HTTP Range)
+  <!-- ctx: module:config | files:core/ota/OtaManager.h | model:sonnet -->
+- [ ] P3.1-f: Periodic Update Check via Config `ota_check_interval_hours`
+  <!-- ctx: module:config, module:robot | files:core/ota/OtaManager.h, core/Robot.h | model:haiku -->
+- [ ] P3.1-g: WebUI Settings → "Check for Updates" + Progress-Bar
+  <!-- ctx: module:webui | files:webui/src/views/Settings.vue | model:haiku -->
+- [ ] P3.1-h: Tests — Corruption, Network Loss, Rollback-Szenarien
+  <!-- ctx: module:config | files:core/ota/OtaManager.h, tests/ | model:haiku -->
 
-- [ ] **Mini-ML-Model:** TensorFlow Lite Model (100KB max)
-  - Input: [zone_size, soil_moisture, previous_speed, obstacle_density]
-  - Output: optimal_speed_factor (0.8–1.2)
-  - Inference: 5ms auf Pi (kein Bottleneck)
+### P3.3 Adaptive Learning
 
-- [ ] **Online Training:** Nach Session 5, 15, 25: Model neu trainieren (offline, Pi-local)
-- [ ] **A/B Testing:** Zwei Zonen: Alt-Pattern vs. ML-optimiert, vergleichen
-- [ ] **Persistenz:** Trainiertes Model in `config.json` serialisiert (base64)
-- [ ] **WebUI Dashboard:** "Mowing Efficiency" Chart über Sessions
+- [ ] P3.3-a: Session-Metrics Sampling — nach Mäh-Session in SQLite speichern
+  <!-- ctx: module:robot, module:navigation | files:core/Robot.h | model:sonnet -->
+- [ ] P3.3-b: TensorFlow Lite Integration (FetchContent, 100KB Model)
+  <!-- ctx: module:config | files:core/Robot.h | model:opus -->
+- [ ] P3.3-c: Online Training nach Session 5/15/25
+  <!-- ctx: module:config | files:core/Robot.h | model:opus -->
+- [ ] P3.3-d: WebUI Efficiency-Chart
+  <!-- ctx: module:webui | files:webui/src/views/ | model:haiku -->
 
-**Dependencies:** P3.2 (Sensor Fusion für bessere Metriken)
-**Aufwand:** 6 Wochen (TensorFlow Setup + Model Training Infrastructure) | **Phase:** P3
+### P3.4 Mobile App
 
-**Tech Stack:**
-- TensorFlow Lite C++ (FetchContent)
-- NumPy für Preprocessing (Python Helper Script)
-- Config Storage: Base64-encoded ONNX Model
-
----
-
-### P3.4 Mobile Native App (iOS + Android)
-
-**Vision:** Nicht nur WebUI (PWA), sondern echte Native App; Offline-Fähigkeit, Push-Notifications
-
-**Architektur:** Native UI + Shared Networking (via WebSocket zu Core)
-
-#### **iOS (Swift)**
-
-- [ ] **SwiftUI App:** Dashboard, Map, Zone-Editor, Settings
-- [ ] **Background Modes:** Location (für Session-Tracking) + Network
-- [ ] **HealthKit Integration:** Mowing-Sessions als Bewegungs-Log (gamification?)
-- [ ] **Push Notifications:** Via MQTT/FCM wenn Robot dockt/Error
-
-#### **Android (Kotlin)**
-
-- [ ] **Jetpack Compose:** Modern UI
-- [ ] **Location Services:** Background location tracking
-- [ ] **WorkManager:** Periodic task checks (battery status)
-- [ ] **Firebase Cloud Messaging:** Push Notifications
-
-#### **Shared Components**
-
-- [ ] **Map Rendering:** Mapbox GL Native (iOS/Android)
-- [ ] **WebSocket Client:** Swift/Kotlin Async + Reconnect Logic
-- [ ] **Local Database:** SQLite für Cache + History (offline browsing)
-- [ ] **Geofencing:** OS-native Geofence + App-Alerting
-
-**Dependencies:** C# Core API stabil, WebSocket API frozen
-**Aufwand:** 8 Wochen (2 Monate Vollzeit Mobile-Team) | **Phase:** P3, parallel zu anderen
-
-**Differentiator:**
-- Offline-Fähigkeit (PWA ist nicht offline)
-- Native Performance
-- Hardware-Integration (Camera, Bluetooth für future Sensors)
-- App Store Visibility (vs. Website nur)
-
----
-
-## Phase 3 Prioritization & Dependencies
-
-```
-Timeline:
-┌─────────────────────────────────────────────────────────┐
-│ Phase 2 (nach A.9): A*, On-The-Fly, Energy Budget (8 Wo)│
-└──────────────┬──────────────────────────────────────────┘
-               │
-         ┌─────▼─────┬──────────────┬─────────────┐
-         │            │              │             │
-    P3.2 Sensor    P3.1 OTA      P3.3 Learning   │
-    Fusion         Updates       (6 Wo, ab Wo8)  │
-    (4 Wo)         (3 Wo)                        │
-    (ab Wo8)       (ab Wo7)                      │
-         │            │              │            │
-         └────────┬───┴──────────────┴────────────┘
-                  │
-         P3.4 Mobile Native (8 Wo)
-         (parallel ab Wo6)
-```
-
-**Start Phase 3:** Nach A.9 erfolgreich + P2-Core-Features
-**Parallel:** Mobile-App-Team kann ab Wo6 starten (while P2 still in progress)
-**First Release:** Nach P3.2 + P3.1 (Wo 20 = Wo 6 + 14)
-
----
-
-## Technische Synergien
-
-| Feature | Nutzt | Gibt an |
-|---------|-------|---------|
-| **OTA Updates** | ← API-Stabilität | → Kann P3.2/3.3 remote testen |
-| **Sensor Fusion** | ← Session-Metrics (P3.3) | → Effizientere A* Replanning |
-| **Adaptive Learning** | ← Sensor-Fusion-Metriken | → Mobile-App zeigt Insights |
-| **Mobile App** | ← Alle APIs | → User-Feedback für Learning-Training |
-
----
-
-## Success Metrics
-
-| Feature | Benchmark | Ziel | Messung |
-|---------|-----------|------|---------|
-| **OTA** | Mammotion (1 Update/Monat) | ≥1 Update/Woche möglich | Update-Success-Rate >99.5% |
-| **Fusion** | GPS Σ-Error 5cm | <2cm Position-RMSE | Simulated GPS-Glitch Recovery |
-| **Learning** | Fixed Pattern (Mammotion) | +25% Efficiency nach 10 Sessions | Time-to-Completion Trending |
-| **Mobile** | PWA (JavaScript) | Native Performance | Frame-Rate 60fps, <100ms Latency |
-
----
-
-## Legende
-
-- [x] Erledigt | [ ] Offen | ⏸ Blockiert
+- [ ] P3.4-a: iOS SwiftUI App — Dashboard + Map (separates Xcode-Projekt)
+  <!-- ctx: module:websocket_server | files:docs/ARCHITECTURE.md | model:opus -->
+- [ ] P3.4-b: Android Jetpack Compose App (separates Android-Studio-Projekt)
+  <!-- ctx: module:websocket_server | files:docs/ARCHITECTURE.md | model:opus -->
 
 ---
 
 ## D — Offene Fragen
 
 - [ ] Q1: StateEstimator Fehler-Propagation bei dauerhaft ungültigem GPS (globale Flag?)
+  <!-- ctx: module:navigation | files:core/navigation/StateEstimator.h | model:haiku -->
 - [ ] Q3: GPS no-motion Schwellenwert 0.05m — ausreichend für RTK-Float?
+  <!-- ctx: module:navigation, module:gps_driver | files:core/navigation/StateEstimator.h | model:haiku -->
 - [ ] Q5: missionAPI.run() Unix-Socket wirklich non-blocking?
-- [ ] Q7: Pi-Watchdog (15s) und STM32-Watchdog (6s) koordiniert? (Risiko: STM32 geht in Failsafe wenn Pi-Shutdown >6s)
+  <!-- ctx: module:websocket_server | files:docs/ARCHITECTURE.md | model:haiku -->
+- [ ] Q7: Pi-Watchdog (15s) und STM32-Watchdog (6s) koordiniert?
+  <!-- ctx: module:serial_robot_driver, module:robot | files:hal/SerialRobotDriver/SerialRobotDriver.cpp | model:haiku -->
 
 ---
 
 ## Legende
 
 - [x] Erledigt | [ ] Offen | ⏸ Blockiert
+- `<!-- ctx: -->` — Kontext-Profil für Claude Code (module: + files: + model:)
+- **module:** Kürzel → Datei in `.memory/modules/<kürzel>.md`
+- **files:** konkrete Files die gelesen werden sollen
+- **model:** haiku / sonnet / opus

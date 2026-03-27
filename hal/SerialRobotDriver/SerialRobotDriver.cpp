@@ -60,6 +60,13 @@ bool SerialRobotDriver::init() {
     ex1_->setPin(1, 6, true);   // IMU ON
     setFanPower(true);           // Fan ON
 
+    // ── MPU-6050 IMU ──────────────────────────────────────────────────────────
+    imu_ = std::make_unique<Mpu6050Driver>(*i2c_);
+    if (!imu_->init()) {
+        std::cerr << "[SRD] IMU init failed (maybe not connected to /dev/i2c-1?)\n";
+        // Do not return false — robot can drive without IMU (GPS+Odo only)
+    }
+
     // ── Panel LEDs — startup green ────────────────────────────────────────────
     bool ledOk = writeLed(LedId::LED_1, LedState::GREEN);
     writeLed(LedId::LED_2, LedState::GREEN);
@@ -84,6 +91,14 @@ void SerialRobotDriver::run() {
     pollRx();
 
     const uint64_t now = nowMs();
+
+    // 50 Hz — IMU update
+    if (imu_ && now >= nextImuMs_) {
+        const float dt = (lastImuMs_ == 0) ? 0.02f : (now - lastImuMs_) / 1000.0f;
+        imu_->update(dt);
+        lastImuMs_ = now;
+        nextImuMs_ = now + 20;
+    }
 
     // 50 Hz — AT+M motor command
     if (now >= nextMotorMs_) {
@@ -207,6 +222,15 @@ BatteryData SerialRobotDriver::readBattery() {
     return battery_;
 }
 
+ImuData SerialRobotDriver::readImu() {
+    if (imu_) return imu_->getData();
+    return {};
+}
+
+void SerialRobotDriver::calibrateImu() {
+    if (imu_) imu_->startCalibration();
+}
+
 // ── HardwareInterface: actuators ──────────────────────────────────────────────
 
 void SerialRobotDriver::setBuzzer(bool on) {
@@ -317,8 +341,9 @@ static std::vector<std::string> csvSplit(const std::string& s) {
     return out;
 }
 
-int   SerialRobotDriver::fieldInt  (const std::string& s) { return std::stoi(s);  }
-float SerialRobotDriver::fieldFloat(const std::string& s) { return std::stof(s);  }
+int          SerialRobotDriver::fieldInt  (const std::string& s) { return std::stoi(s);          }
+unsigned long SerialRobotDriver::fieldULong(const std::string& s) { return std::stoul(s);  }  // BUG-003 fix
+float        SerialRobotDriver::fieldFloat(const std::string& s) { return std::stof(s);          }
 
 void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
     // M,f1,f2,f3,f4,f5,f6,f7,f8[,f9,f10]
@@ -326,9 +351,9 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
     //         Pi maps f1→rawTicksRight_, f2→rawTicksLeft_ (cross-wiring compensation)
     const auto f = csvSplit(frame);
     try {
-        if (f.size() > 1) rawTicksRight_ = static_cast<unsigned long>(fieldInt(f[1]));
-        if (f.size() > 2) rawTicksLeft_  = static_cast<unsigned long>(fieldInt(f[2]));
-        if (f.size() > 3) rawTicksMow_   = static_cast<unsigned long>(fieldInt(f[3]));
+        if (f.size() > 1) rawTicksRight_ = fieldULong(f[1]);  // BUG-003 fix
+        if (f.size() > 2) rawTicksLeft_  = fieldULong(f[2]);  // BUG-003 fix
+        if (f.size() > 3) rawTicksMow_   = fieldULong(f[3]);  // BUG-003 fix
         if (f.size() > 4) battery_.chargeVoltage  = fieldFloat(f[4]);
         if (f.size() > 5) {
             // Legacy combined bumper field — overridden by f[9]/f[10] if present

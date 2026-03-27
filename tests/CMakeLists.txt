@@ -14,7 +14,7 @@ add_executable(sunray_tests
     test_gps_driver.cpp
     test_mqtt_client.cpp
     test_navigation.cpp
-    # test_state_machine.cpp
+    test_op_machine.cpp
 )
 
 target_link_libraries(sunray_tests PRIVATE

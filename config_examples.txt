@@ -1,0 +1,317 @@
+#define MPU6050
+#define MPU_ADDR 0x69  // I2C address (0x68 if AD0=LOW, 0x69 if AD0=HIGH)
+
+// imu fifo rate (Hz)
+#define IMU_FIFO_RATE 5
+
+// should the mower turn off if IMU is tilt over? (yes: uncomment line, no: comment line)
+#define ENABLE_TILT_DETECTION  1
+
+// --------- lift sensor (only Alfred mower) ---------------------------------------------
+// should the lift sensor be enabled? (yes: uncomment line, no: comment line)
+#define ENABLE_LIFT_DETECTION  1
+// should the lift sensor be used for obstacle avoidance (if not, mower will simply turn off cutter motor if lifted)
+#define LIFT_OBSTACLE_AVOIDANCE 1  
+#define LIFT_INVERT  false       // invert lift sensor state? 
+
+#define FREEWHEEL_IS_AT_BACKSIDE   false   // default Ardumower: true   (change to false, if your freewheel is at frontside) - this is used for obstacle avoidance
+#define WHEEL_BASE_CM         39         // wheel-to-wheel distance (cm)        
+#define WHEEL_DIAMETER        205        // wheel diameter (mm)                 
+#define MOWER_SIZE            60         // mower / chassis size / length in cm
+
+// TASK-STUCK-01: odometry error detection enabled by default — detects wheel blockage (PWM>100, RPM<threshold)
+#define ENABLE_ODOMETRY_ERROR_DETECTION  true
+//#define ENABLE_ODOMETRY_ERROR_DETECTION  false
+#define TICKS_PER_REVOLUTION  320     // odometry ticks per wheel revolution (RM24)
+
+#define MOTOR_FAULT_CURRENT 3.0    // gear motors fault current (amps)
+#define MOTOR_TOO_LOW_CURRENT 0.005   // gear motor too low current (amps), set to zero (0) to disable
+#define MOTOR_OVERLOAD_CURRENT 1.2    // gear motors overload current (amps)
+
+#define MOTOR_OVERLOAD_SPEED  0.1    // speed (m/s) to use at motor overload
+
+//#define USE_LINEAR_SPEED_RAMP  true      // use a speed ramp for the linear speed
+#define USE_LINEAR_SPEED_RAMP  false      // do not use a speed ramp 
+
+// motor speed control (PID coefficients) - these values are tuned for Ardumower motors
+// general information about PID controllers: https://wiki.ardumower.de/index.php?title=PID_control
+#define MOTOR_PID_LP     0.0    // encoder low-pass filter (use for low encoder tickcount - use zero to disable)
+#define MOTOR_PID_KP     0.5    // 0.5 do not change 2.0 (for non-Ardumower motors or if the motor speed control is too fast you may try: KP=1.0, KI=0, KD=0)
+#define MOTOR_PID_KI     0.01   // 0.01 do not change 0.03
+#define MOTOR_PID_KD     0.01   // 0.01 do not change 0.03
+#define MOTOR_PID_LIMIT  255    // output limit - do not change 255
+#define MOTOR_PID_RAMP   0      // output derivative limit - do not change 0
+
+#define MOTOR_LEFT_SWAP_DIRECTION 1  // uncomment to swap left motor direction
+#define MOTOR_RIGHT_SWAP_DIRECTION 1  // uncomment to swap right motor direction
+
+#define MOW_FAULT_CURRENT 8.0       // mowing motor fault current (amps)
+#define MOW_TOO_LOW_CURRENT 0.005   // mowing motor too low current (amps) , set to zero (0) to disable
+#define MOW_OVERLOAD_CURRENT 2.0    // mowing motor overload current (amps)
+
+// should the direction of mowing motor toggle each start? (yes: true, no: false)
+#define MOW_TOGGLE_DIR       true
+//#define MOW_TOGGLE_DIR       false
+
+// should the error on motor overload detection be enabled?
+//#define ENABLE_OVERLOAD_DETECTION  true    // robot will stop on overload
+#define ENABLE_OVERLOAD_DETECTION  false    // robot will slow down on overload
+
+// should the motor fault (error) detection be enabled? 
+#define ENABLE_FAULT_DETECTION  true
+//#define ENABLE_FAULT_DETECTION  false       // use this if you keep getting 'motor error'
+
+//#define ENABLE_RPM_FAULT_DETECTION  true     // use mow rpm signal to detect a motor fault (requires mowing motor with rpm output!)
+#define ENABLE_RPM_FAULT_DETECTION  false     // do not use mow rpm signal to detect a motor fault
+
+// should the robot trigger obstacle avoidance on motor errors if motor recovery failed?
+#define ENABLE_FAULT_OBSTACLE_AVOIDANCE true  
+
+#define FAULT_MAX_SUCCESSIVE_ALLOWED_COUNT 5   // max. successive allowed motor errors
+
+// shall the mow motor be activated for normal operation? Deactivate this option for GPS tests and path tracking running tests
+#define ENABLE_MOW_MOTOR true // Default is true, set false for testing purpose to switch off mow motor permanently
+
+
+// --------- NTRIP client (linux only, highly experimental) ---------------------------------
+// you can activate an NTRIP client to receive RTK RTCM data from an NTRIP caster/server and to send this data to the ublox receiver (via USB)
+// (Sunray will properly configure the ublox receiver for this, if 'GPS_CONFIG true')
+//#define ENABLE_NTRIP 1            // must be activated to use Linux NTRIP
+#define NTRIP_HOST "www.sapos-nw-ntrip.de"   // sapos nrw
+#define NTRIP_PORT 2101
+#define NTRIP_MOUNT "VRS_3_4G_NW"
+#define NTRIP_USER "user"
+#define NTRIP_PASS "pass"
+#define NTRIP_CLIENT_AGENT_NAME "NTRIPClient for Arduino v1.0"
+// choose ONE option only how to generate the GGA message for the NTRIP login (disable ALL to disable GGA sending):
+// 1) the GGA message will be generated based on the base coordinate in the Sunray App (you can either use relative or absolute position mode) 
+#define NTRIP_APP_GGA_MESSAGE 1
+// 2) the GGA message from the GPS receiver is used (you can only use absolute position mode)
+// #define NTRIP_GPS_GGA_MESSAGE 1
+// 3) the GGA message is a fixed text (you will need to generate the GGA message yourself) 
+// #define NTRIP_SIM_GGA_MESSAGE "$GNGGA,082947.40,5408.81295,N,01239.42452,E,1,12,0.67,34.2,M,41.1,M,,*77"
+
+
+// ------ MQTT (for ESP8266 only, highly experimental - ENABLE_SERVER must be set to false for this to work :-/ ) -----------------------------
+// you can access your robot using a MQTT broker - choose a topic prefix for your robot below - available MQTT topics:
+// robot1/cmd           (cmd can be: start, stop, dock)
+// robot1/op            (current robot operation as text)
+// robot1/gps/sol       (current gps solution as text)
+// robot1/gps/pos       (current gps position as text)
+//#define ENABLE_MQTT  true                           // start MQTT client?  (true for yes, false for no)
+#define ENABLE_MQTT  false
+#define MQTT_TOPIC_PREFIX  "robot1"                 // the MQTT topic prefix for your robot 
+#define MQTT_SERVER  "your.mqtt.broker"             // your MQTT broker IP or hostname (e.g. "192.168.1.10" or "broker.mqtt-dashboard.com")
+#define MQTT_PORT  1883
+#define MQTT_USER "user"
+#define MQTT_PASS "pass"
+
+//#define SONAR_INSTALLED 1              // uncomment if ultrasonic sensors are installed
+//#define SONAR_ENABLE true              // should ultrasonic sensor be used?
+#define SONAR_ENABLE false
+#define SONAR_TRIGGER_OBSTACLES true     // should sonar be used to trigger obstacles? if not, mower will only slow down
+#define SONAR_LEFT_OBSTACLE_CM   10      // stop mowing operation below this distance (cm) 
+#define SONAR_CENTER_OBSTACLE_CM 10      // stop mowing operation below this distance (cm) 
+#define SONAR_RIGHT_OBSTACLE_CM  10      // stop mowing operation below this distance (cm) 
+
+#define BUMPER_ENABLE true
+//#define BUMPER_ENABLE false
+#define BUMPER_INVERT false       // invert bumper sensor state? 
+#define BUMPER_DEADTIME 1000  		// linear motion dead-time (ms) after bumper is allowed to trigger
+#define BUMPER_TRIGGER_DELAY  0		// bumper must be active for (ms) to trigger
+#define BUMPER_MAX_TRIGGER_TIME 30	// if bumpersensor stays permanent triggered mower will stop with bumper error (time in seconds; 0 = 
+
+#define CURRENT_FACTOR 0.5     // PCB1.3 (non-bridged INA169, max. 2.5A)
+//#define CURRENT_FACTOR 1.0   // PCB1.3 (bridged INA169, max. 5A)
+//#define CURRENT_FACTOR 1.98   // PCB1.4 (non-bridged INA169, max. 2.5A)
+//#define CURRENT_FACTOR 2.941  // PCB1.4 (bridged INA169, max. 5A)
+
+#define GO_HOME_VOLTAGE   25.5  // start going to dock below this voltage
+// The battery will charge if both battery voltage is below that value and charging current is above that value.
+#define BAT_FULL_VOLTAGE  30.0  // start mowing again at this voltage
+#define BAT_UNDERVOLTAGE  18.9  // battery switch off voltage
+#define BAT_FULL_CURRENT  -0.1   // start mowing again below this charging current (amps)
+#define BAT_FULL_SLOPE    0.002  // start mowing again below this voltage slope (V/min - choose 0.0 if you have charging issues)
+
+// https://wiki.ardumower.de/index.php?title=Ardumower_Sunray#Automatic_battery_switch_off
+#define BAT_SWITCH_OFF_IDLE  false         // switch off if idle (JP8 must be set to autom.)
+#define BAT_SWITCH_OFF_UNDERVOLTAGE  true  // switch off if undervoltage (JP8 must be set to autom.)
+
+// ------ GPS ------------------------------------------
+// ------- RTK GPS module -----------------------------------
+// see Wiki on how to install the GPS module and configure the jumpers:
+// https://wiki.ardumower.de/index.php?title=Ardumower_Sunray#Bluetooth_BLE_UART_module
+//
+// NOTE: if you experience GPS checksum errors, try to increase UART FIFO size:
+// 1. Arduino IDE->File->Preferences->Click on 'preferences.txt' at the bottom
+// 2. Locate file 'packages/arduino/hardware/sam/xxxxx/cores/arduino/RingBuffer.h'
+//    (for Adafruit Grand Central M4: 'packages\adafruit\hardware\samd\xxxxx\cores\arduino\RingBuffer.h')
+// change:     #define SERIAL_BUFFER_SIZE 128     into into:     #define SERIAL_BUFFER_SIZE 1024
+
+//#define GPS_USE_TCP 1                    // comment out for serial gps, activate for TCP client-based GPS
+//#define GPS_SKYTRAQ  1               // comment out for ublox gps, uncomment for skytraq gps/NMEA
+// #define GPS_LIDAR 1                    // decomment for LiDAR
+
+#define REQUIRE_VALID_GPS  true       // mower will pause if no float and no fix GPS solution during mowing (recommended)
+//#define REQUIRE_VALID_GPS  false    // mower will continue to mow if no float or no fix solution (not recommended)
+// TASK-ERR-01: GPS wait timeout — after this many ms without signal, return to dock/idle (0 = wait forever)
+#define GPS_WAIT_TIMEOUT_MS  600000   // 10 minutes; 0 = disabled (original behaviour)
+
+#define GPS_SPEED_DETECTION true  // will detect obstacles via GPS feedback (no speed)
+//#define GPS_SPEED_DETECTION false
+
+// detect if robot is actually moving (obstacle detection via GPS feedback)
+#define GPS_MOTION_DETECTION          true    // if robot is not moving trigger obstacle avoidance
+//#define GPS_MOTION_DETECTION        false   // ignore if robot is not moving
+#define GPS_MOTION_DETECTION_TIMEOUT  5      // timeout for motion (secs)
+
+// configure ublox f9p with optimal settings (will be stored in f9p RAM only)
+// NOTE: due to a PCB1.3 bug GPS_RX pin is not working and you have to fix this by a wire:
+// https://wiki.ardumower.de/index.php?title=Ardumower_Sunray#PCB1.3_GPS_pin_fix_and_wire_fix   (see 'GPS wire fix')
+#define GPS_REBOOT_RECOVERY  true // allow GPS receiver rebooting (recommended - requires GPS wire fix above! otherwise firmware will stuck at boot!)
+//#define GPS_REBOOT_RECOVERY   false  // do not allow rebooting GPS receiver (no GPS wire fix required)
+
+#define GPS_CONFIG   true     // configure GPS receiver (recommended - requires GPS wire fix above! otherwise firmware will stuck at boot!)
+//#define GPS_CONFIG   false  // do not configure GPS receiver (no GPS wire fix required)
+
+#define GPS_CONFIG_FILTER   true     // use signal strength filter? (recommended to get rid of 'FIX jumps') - adjust filter settings below
+//#define GPS_CONFIG_FILTER   false     // use this if you have difficulties to get a FIX solution (uses ublox default filter settings)
+#define CPG_CONFIG_FILTER_MINELEV  10   // Min SV elevation degree: 14 (high elevation, less robust), 10 (low elevation, robust) 
+#define CPG_CONFIG_FILTER_NCNOTHRS 0   // C/N0 Threshold #SVs: 10 (robust), 6 (less robust)
+#define CPG_CONFIG_FILTER_CNOTHRS  0   // 30 dbHz (robust), 13 dbHz (less robust)
+#define GPS_CONFIG_DGNSS_TIMEOUT 60    // 60 sec DGNSS timeout
+
+// ------ obstacle detection and avoidance  -------------------------
+
+#define ENABLE_PATH_FINDER  true     // path finder calculates routes around exclusions and obstacles 
+//#define ENABLE_PATH_FINDER  false
+#define ALLOW_ROUTE_OUTSIDE_PERI_METER 1.0   // max. distance (m) to allow routing from outside perimeter
+// (increase if you get 'no map route' errors near perimeter)
+// TASK-BOUNDARY-04: separate tolerance for exclusion zones — 0 = no routing through/around exclusions
+#define ALLOW_ROUTE_INSIDE_EXCLUSION   0.0   // max. distance (m) allowed when exiting an exclusion zone during pathfinding
+
+//#define OBSTACLE_DETECTION_ROTATION true // detect robot rotation stuck (requires IMU)
+#define OBSTACLE_DETECTION_ROTATION false   // NOTE: recommended to turn this off for slope environment   
+
+#define OBSTACLE_AVOIDANCE true   // try to find a way around obstacle
+//#define OBSTACLE_AVOIDANCE false  // stop robot on obstacle
+#define OBSTACLE_DIAMETER 1.2   // choose diameter of obstacles placed in front of robot (m) for obstacle avoidance
+#define DISABLE_MOW_MOTOR_AT_OBSTACLE true // switch off mow motor while escape at detected obstacle; set false if mow motor shall not be stopped at detected obstacles
+// FIND-01: obstacle loop detection — after N consecutive obstacles within window → StuckRecoveryOp
+#define OBSTACLE_LOOP_MAX_COUNT  5      // consecutive obstacle events before loop is detected
+#define OBSTACLE_LOOP_RESET_MS   30000  // ms window; counter resets if no obstacle in this time
+// TASK-SM-01: physical stuck detection — motor commanded but GPS speed too low for too long
+#define STUCK_DETECT_MIN_SPEED   0.01f  // m/s; below this = "not moving"
+#define STUCK_DETECT_TIMEOUT_MS  5000   // ms of continuous low speed before StuckRecoveryOp
+
+// detect robot being kidnapped? robot will try GPS recovery if distance to tracked path is greater than a certain value
+// (false GPS fix recovery), and if that fails go into error 
+#define KIDNAP_DETECT true  // recommended
+//#define KIDNAP_DETECT false   
+#define KIDNAP_DETECT_ALLOWED_PATH_TOLERANCE 1.0  // allowed path tolerance (m) 
+#define KIDNAP_DETECT_ALLOWED_PATH_TOLERANCE_DOCK_UNDOCK 20.2  // allowed path tolerance (m)
+#define KIDNAP_DETECT_DISTANCE_DOCK_UNDOCK 5  // distance from dock in (m) to use KIDNAP_DETECT_ALLOWED_PATH_TOLERANCE_DOCK_UNDOCK
+
+// ------ docking --------------------------------------
+// is a docking station available?
+#define DOCKING_STATION true   // use this if docking station available and mower should dock automatically
+//#define DOCKING_STATION false    // mower will just stop after mowing instead of docking automatically 
+
+#define DOCK_IGNORE_GPS false     // use GPS fix in docking station and IMU for GPS float/invalid
+//#define DOCK_IGNORE_GPS true     // ignore GPS fix in docking station and use IMU-only (use this if robot gets false GPS fixes in your docking station)
+
+#define DOCK_AUTO_START true     // robot will automatically continue mowing after docked automatically
+//#define DOCK_AUTO_START false      // robot will not automatically continue mowing after docked automatically
+
+#define DOCK_RETRY_TOUCH true   // robot will retry touching docking contacts (max. 1cm) if loosing docking contacts during charging
+//#define DOCK_RETRY_TOUCH false   // robot will not retry touching docking contacts (max. 1cm) if loosing docking contacts during charging
+
+#define DOCK_UNDOCK_TRACKSLOW_DISTANCE 5 // set distance (m) from dock for trackslow (speed limit)
+
+#define UNDOCK_IGNORE_GPS_DISTANCE 2 // set distance (m) from dock to ignore gps while undocking
+
+#define DOCK_FRONT_SIDE true    // dock with mower front side (true) or back side (false)? 
+
+//#define DOCK_RELEASE_BRAKES true   // robot will release electrical brakes in dock
+#define DOCK_RELEASE_BRAKES false   // robot will not release electrical brakes in dock
+
+//#define DOCK_APRIL_TAG 1         // use visual (april-tag) docking?
+#define DOCK_LINEAR_SPEED 0.1   // linear speed for docking
+
+#define DOCK_DETECT_OBSTACLE_IN_DOCK true   // enable obstacle detection in dock?
+
+// ---- UndockOp ---
+#define UNDOCK_CHARGER_OFF_TIMEOUT  5000    // ms wait for charger voltage to drop
+#define UNDOCK_SPEED                0.08    // m/s reverse speed
+#define UNDOCK_DURATION             4000    // ms total reverse duration
+#define UNDOCK_MIN_DISTANCE         0.25    // m minimum distance from dock to pass verify
+#define UNDOCK_RETRY_COUNT          3       // max VERIFY_POSITION retries before → chargeOp
+// PHASE-2: IMU heading check + encoder cross-check
+#define UNDOCK_HEADING_TOLERANCE    0.175   // rad (~10°) max allowed heading deviation at dock
+#define UNDOCK_ENCODER_CHECK_MS     1000    // ms after REVERSE_OUT start to check encoder ticks
+#define UNDOCK_ENCODER_MIN_TICKS    5       // min ticks expected on at least one wheel in that time
+
+// ---- StuckRecoveryOp ---
+#define STUCK_RECOVERY_MAX_ATTEMPTS   3
+#define STUCK_RECOVERY_REVERSE_MS  2000
+#define STUCK_RECOVERY_PAUSE_MS    1000
+#define STUCK_RECOVERY_FORWARD_MS  1500
+
+// ---- DockRetryOp ---
+#define DOCK_RETRY_MAX_ATTEMPTS        3
+#define DOCK_RETRY_APPROACH_MS      2000
+#define DOCK_RETRY_CONTACT_TIMEOUT_MS 3000
+
+// ---- PreflightOp ---
+#define PREFLIGHT_GPS_TIMEOUT_MS  60000
+// TASK-ENERGY-01: min battery voltage before undocking; must exceed GO_HOME_VOLTAGE to avoid undock→immediate-redock loop
+#define PREFLIGHT_MIN_VOLTAGE      26.5   // V; was 21.0 (below GO_HOME_VOLTAGE=25.5 → could undock with too little charge)
+
+// ---- MissionAPI (Unix socket for Python Mission Service) ---
+#define MISSION_SOCKET_PATH "/run/sunray/mission.sock"
+
+
+// ---- path tracking -----------------------------------
+
+// below this robot-to-target distance (m) a target is considered as reached
+#define TARGET_REACHED_TOLERANCE 0.1
+
+// stanley control for path tracking - determines gain how fast to correct for lateral path errors
+#define STANLEY_CONTROL_P_NORMAL  1.1   // 3.0 for path tracking control (angular gain) when mowing
+#define STANLEY_CONTROL_K_NORMAL  0.1   // 1.0 for path tracking control (lateral gain) when mowing
+
+#define STANLEY_CONTROL_P_SLOW    1.1   // 1.0 for path tracking control (angular gain) when docking tracking
+#define STANLEY_CONTROL_K_SLOW    0.1   // 0.2 for path tracking control (lateral gain) when docking tracking
+
+
+// ----- other options --------------------------------------------
+
+// button control (turns on additional features via the POWER-ON button)
+#define BUTTON_STOP    true      // use the stop/emergency button? (also required for additional button features)
+#define BUTTON_CONTROL true      // additional features activated (press-and-hold button for specific beep count: 
+                                 //  1 beep=stop, 6 beeps=start, 5 beeps=dock, 3 beeps=R/C mode ON/OFF)
+//#define BUTTON_CONTROL false   // additional features deactivated
+#define BUTTON_INVERT false    // invert button sensor?
+
+#define USE_TEMP_SENSOR true  // only activate if temp sensor (htu21d) connected
+//#define USE_TEMP_SENSOR false  
+
+#define DOCK_OVERHEAT_TEMP 85    // if temperature above this degreeC, mower will dock 
+#define DOCK_TOO_COLD_TEMP 5    // if temperature below this degreeC, mower will dock 
+
+
+// activate support for model R/C control?
+// use PCB pin 'mow' for R/C model control speed and PCB pin 'steering' for R/C model control steering, 
+// also connect 5v and GND and activate model R/C control via PCB P20 start button for 3 sec.
+// more details: https://wiki.ardumower.de/index.php?title=Ardumower_Sunray#R.2FC_model
+//#define RCMODEL_ENABLE 1  // uncomment line to turn on R/C control
+
+#define BUZZER_ENABLE 1 // comment to disable
+
+//#define TTS_PATH "../../tts/de/"    // path for speakable events (.mp3 files) 
+
+// ------ experimental options  -------------------------
+
+// drive curves smoothly?
+//#define SMOOTH_CURVES  true
+#define SMOOTH_CURVES  false

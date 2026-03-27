@@ -26,6 +26,7 @@
 #include "../../platform/Serial.h"
 #include "../../platform/I2C.h"
 #include "../../platform/PortExpander.h"
+#include "../Imu/Mpu6050Driver.h"
 
 namespace sunray {
 
@@ -69,6 +70,12 @@ public:
     /// If MCU disconnected: voltage falls back to 28 V (safe default for Pi standalone).
     BatteryData readBattery() override;
 
+    /// Returns the most recent IMU (gyro/accel/heading) snapshot.
+    ImuData readImu() override;
+
+    /// Start IMU calibration (gyro bias estimation).
+    void calibrateImu() override;
+
     /// Drive buzzer via EX2 PortExpander (PCA9555 at 0x20, IO1.1).
     void setBuzzer(bool on) override;
 
@@ -101,6 +108,7 @@ private:
     std::unique_ptr<platform::PortExpander> ex1_;  // 0x21: IMU power, Fan, ADC mux
     std::unique_ptr<platform::PortExpander> ex2_;  // 0x20: Buzzer
     std::unique_ptr<platform::PortExpander> ex3_;  // 0x22: Panel LEDs
+    std::unique_ptr<Mpu6050Driver>          imu_;
 
     // MCU identity
     std::string robotId_;
@@ -146,6 +154,8 @@ private:
     uint64_t nextTempMs_    = 0;
     uint64_t nextWifiMs_    = 0;
     uint64_t nextLedMs_     = 0;
+    uint64_t nextImuMs_     = 0;
+    uint64_t lastImuMs_     = 0;
 
     // RX accumulation buffer (chars until \r or \n)
     std::string rxBuf_;
@@ -172,8 +182,9 @@ private:
     // ── Utility ───────────────────────────────────────────────────────────────
     static uint64_t    nowMs();
     static std::string shellRead(const char* cmd);  // popen + collect output
-    static int         fieldInt  (const std::string& s);
-    static float       fieldFloat(const std::string& s);
+    static int           fieldInt  (const std::string& s);
+    static unsigned long fieldULong(const std::string& s);  ///< BUG-003: for tick counters
+    static float         fieldFloat(const std::string& s);
 };
 
 } // namespace sunray

@@ -8,11 +8,13 @@ static constexpr unsigned long CHARGE_COMPLETE_V        = 28.5f; // V — fully 
 
 void ChargeOp::begin(OpContext& ctx) {
     ctx.logger.info("Charge", "OP_CHARGE");
-    ctx.stopMotors();
-    ctx.hw.setMowMotor(0, 0, 0);
+    ctx.stopMotors();  // stops drive + mow motors via setMotorPwm(0,0,0)
     retryTouchDock        = false;
     retryTime_ms          = 0;
     nextConsoleDetails_ms = ctx.now_ms + 30000;
+    startTime_ms          = ctx.now_ms;
+    // C.7: clear auto-detected obstacles — robot has returned to dock safely
+    if (ctx.map) ctx.map->clearAutoObstacles();
 }
 
 void ChargeOp::end(OpContext&) {}

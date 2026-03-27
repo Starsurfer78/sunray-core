@@ -16,15 +16,25 @@ export interface Telemetry {
   gps_lon:    number
   bumper_l:   boolean
   bumper_r:   boolean
-  motor_err:  boolean
-  uptime_s:   number
+  lift:        boolean
+  motor_err:   boolean
+  uptime_s:    number
+  diag_active: boolean  // true while a diag motor test is running
+  diag_ticks:  number   // live accumulated ticks in current diag test
+  mcu_v?:      string   // MCU firmware version
+  pi_v?:       string   // Pi software version
+  imu_h?:      number   // IMU heading [deg]
+  imu_r?:      number   // IMU roll [deg]
+  imu_p?:      number   // IMU pitch [deg]
+  ekf_health?: string   // fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
 }
 
 const defaultTelemetry: Telemetry = {
   type: '', op: 'Idle', x: 0, y: 0, heading: 0,
   battery_v: 0, charge_v: 0, gps_sol: 0, gps_text: '---',
-  gps_lat: 0, gps_lon: 0, bumper_l: false, bumper_r: false,
-  motor_err: false, uptime_s: 0,
+  gps_lat: 0, gps_lon: 0, bumper_l: false, bumper_r: false, lift: false,
+  motor_err: false, uptime_s: 0, diag_active: false, diag_ticks: 0,
+  mcu_v: '', pi_v: '', imu_h: 0, imu_r: 0, imu_p: 0
 }
 
 // ── Singleton state ───────────────────────────────────────────────────────────
@@ -92,7 +102,8 @@ function disconnect() {
 
 function sendCmd(cmd: string, extra?: Record<string, unknown>) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return
-  ws.send(JSON.stringify({ cmd, ...extra }))
+  const token = localStorage.getItem('sunray_api_token') ?? ''
+  ws.send(JSON.stringify({ cmd, ...(token ? { token } : {}), ...extra }))
 }
 
 // ── Public composable ─────────────────────────────────────────────────────────

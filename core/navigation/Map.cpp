@@ -34,6 +34,44 @@ static nlohmann::json encodePoints(const PolygonPoints& pts) {
     return arr;
 }
 
+/// Parse mow points — supports both legacy [[x,y],...] and new [{"p":[x,y],"rev":bool},...]
+static std::vector<MowPoint> parseMowPoints(const nlohmann::json& arr) {
+    std::vector<MowPoint> pts;
+    pts.reserve(arr.size());
+    for (auto& e : arr) {
+        MowPoint mp;
+        if (e.is_array()) {
+            // Legacy format: [x, y]
+            mp.p = { e.at(0).get<float>(), e.at(1).get<float>() };
+        } else {
+            // New format: { "p": [x,y], "rev": bool, "slow": bool }
+            auto& pArr = e.at("p");
+            mp.p    = { pArr.at(0).get<float>(), pArr.at(1).get<float>() };
+            mp.rev  = e.value("rev",  false);
+            mp.slow = e.value("slow", false);
+        }
+        pts.push_back(mp);
+    }
+    return pts;
+}
+
+static nlohmann::json encodeMowPoints(const std::vector<MowPoint>& pts) {
+    nlohmann::json arr = nlohmann::json::array();
+    for (auto& mp : pts) {
+        if (!mp.rev && !mp.slow) {
+            // Compact: [x, y]  (no flags set → backwards-compatible legacy format)
+            arr.push_back({ mp.p.x, mp.p.y });
+        } else {
+            nlohmann::json e;
+            e["p"] = { mp.p.x, mp.p.y };
+            if (mp.rev)  e["rev"]  = true;
+            if (mp.slow) e["slow"] = true;
+            arr.push_back(e);
+        }
+    }
+    return arr;
+}
+
 bool Map::load(const std::filesystem::path& path) {
     clear();
     try {
@@ -43,11 +81,31 @@ bool Map::load(const std::filesystem::path& path) {
         f >> j;
 
         if (j.contains("perimeter"))  perimeterPoints_ = parsePoints(j["perimeter"]);
-        if (j.contains("mow"))        mowPoints_        = parsePoints(j["mow"]);
+        if (j.contains("mow"))        mowPoints_        = parseMowPoints(j["mow"]);
+        allMowPoints_ = mowPoints_;
         if (j.contains("dock"))       dockPoints_       = parsePoints(j["dock"]);
         if (j.contains("exclusions")) {
             for (auto& ex : j["exclusions"])
                 exclusions_.push_back(parsePoints(ex));
+        }
+        if (j.contains("zones")) {
+            for (const auto& jz : j["zones"]) {
+                Zone z;
+                z.id    = jz.value("id", "");
+                z.order = jz.value("order", 1);
+                if (jz.contains("polygon")) z.polygon = parsePoints(jz["polygon"]);
+                if (jz.contains("settings")) {
+                    auto& js = jz["settings"];
+                    z.settings.name       = js.value("name", "Zone");
+                    z.settings.stripWidth = js.value("stripWidth", 0.18f);
+                    z.settings.speed      = js.value("speed", 1.0f);
+                    std::string pat       = js.value("pattern", "stripe");
+                    z.settings.pattern    = (pat == "spiral") ? ZonePattern::SPIRAL : ZonePattern::STRIPE;
+                }
+                zones_.push_back(std::move(z));
+            }
+            // Sort by order
+            std::sort(zones_.begin(), zones_.end(), [](const Zone& a, const Zone& b){ return a.order < b.order; });
         }
         mapCRC_ = calcCRC();
         return true;
@@ -61,10 +119,25 @@ bool Map::save(const std::filesystem::path& path) const {
     try {
         nlohmann::json j;
         j["perimeter"] = encodePoints(perimeterPoints_);
-        j["mow"]       = encodePoints(mowPoints_);
+        j["mow"]       = encodeMowPoints(mowPoints_);
         j["dock"]      = encodePoints(dockPoints_);
         j["exclusions"] = nlohmann::json::array();
         for (auto& ex : exclusions_) j["exclusions"].push_back(encodePoints(ex));
+
+        j["zones"] = nlohmann::json::array();
+        for (auto& z : zones_) {
+            nlohmann::json jz;
+            jz["id"]      = z.id;
+            jz["order"]   = z.order;
+            jz["polygon"] = encodePoints(z.polygon);
+            jz["settings"] = {
+                { "name",       z.settings.name },
+                { "stripWidth", z.settings.stripWidth },
+                { "speed",      z.settings.speed },
+                { "pattern",    z.settings.pattern == ZonePattern::SPIRAL ? "spiral" : "stripe" },
+            };
+            j["zones"].push_back(jz);
+        }
 
         std::ofstream f(path);
         if (!f.is_open()) return false;
@@ -78,10 +151,12 @@ bool Map::save(const std::filesystem::path& path) const {
 void Map::clear() {
     perimeterPoints_.clear();
     mowPoints_.clear();
+    allMowPoints_.clear();
     dockPoints_.clear();
     freePoints_.clear();
     exclusions_.clear();
     obstacles_.clear();
+    zones_.clear();
     mowPointsIdx  = 0;
     dockPointsIdx = 0;
     freePointsIdx = 0;
@@ -99,7 +174,7 @@ long Map::calcCRC() const {
         }
     };
     accum(perimeterPoints_);
-    accum(mowPoints_);
+    for (auto& mp : mowPoints_) crc ^= static_cast<long>(mp.p.x * 1000) ^ static_cast<long>(mp.p.y * 1000);
     accum(dockPoints_);
     for (auto& ex : exclusions_) accum(ex);
     return crc;
@@ -108,13 +183,16 @@ long Map::calcCRC() const {
 // ── Mission control ────────────────────────────────────────────────────────────
 
 bool Map::startMowing(float robotX, float robotY) {
+    if (!allMowPoints_.empty()) {
+        mowPoints_ = allMowPoints_;
+    }
     if (mowPoints_.empty()) return false;
 
     // Find nearest mow point to current position.
     float bestDist = 1e9f;
     int   bestIdx  = 0;
     for (int i = 0; i < static_cast<int>(mowPoints_.size()); ++i) {
-        float d = Point(robotX, robotY).distanceTo(mowPoints_[i]);
+        float d = Point(robotX, robotY).distanceTo(mowPoints_[i].p);
         if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
 
@@ -124,16 +202,61 @@ bool Map::startMowing(float robotX, float robotY) {
     wayMode      = WayType::MOW;
 
     setLastTargetPoint(robotX, robotY);
-    targetPoint = mowPoints_[mowPointsIdx];
+    trackReverse = mowPoints_[mowPointsIdx].rev;
+    trackSlow    = mowPoints_[mowPointsIdx].slow;
+    targetPoint  = mowPoints_[mowPointsIdx].p;
+    return true;
+}
+
+bool Map::startMowingZones(float robotX, float robotY, const std::vector<std::string>& zoneIds) {
+    if (zoneIds.empty()) return startMowing(robotX, robotY);
+    if (allMowPoints_.empty()) return startMowing(robotX, robotY);
+
+    // Build set of requested zone IDs for fast lookup
+    std::unordered_set<std::string> requested(zoneIds.begin(), zoneIds.end());
+
+    // Collect mow points that fall inside any of the requested zone polygons
+    std::vector<MowPoint> filtered;
+    for (const auto& mp : allMowPoints_) {
+        for (const auto& zone : zones_) {
+            if (requested.count(zone.id) && pointInPolygon(zone.polygon, mp.p.x, mp.p.y)) {
+                filtered.push_back(mp);
+                break;
+            }
+        }
+    }
+
+    if (filtered.empty()) return startMowing(robotX, robotY);  // fallback: all zones
+
+    // Activate filtered subset for this mowing mission.
+    mowPoints_ = std::move(filtered);
+    if (mowPoints_.empty()) return false;
+
+    float bestDist = 1e9f;
+    int   bestIdx  = 0;
+    for (int i = 0; i < static_cast<int>(mowPoints_.size()); ++i) {
+        float d = Point(robotX, robotY).distanceTo(mowPoints_[i].p);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+
+    mowPointsIdx = bestIdx;
+    shouldMow_   = true;
+    shouldDock_  = false;
+    wayMode      = WayType::MOW;
+
+    setLastTargetPoint(robotX, robotY);
+    trackReverse = mowPoints_[mowPointsIdx].rev;
+    trackSlow    = mowPoints_[mowPointsIdx].slow;
+    targetPoint  = mowPoints_[mowPointsIdx].p;
     return true;
 }
 
 bool Map::startDocking(float robotX, float robotY) {
     if (dockPoints_.empty()) return false;
 
-    // Free-path routing: direct line to first dock point (A* skipped Phase 1).
-    freePoints_.clear();
-    freePoints_.push_back(dockPoints_.front());
+    // Route from current position to first dock point, avoiding obstacles (C.7).
+    const bool havePath = findPath({robotX, robotY}, dockPoints_.front());
+    if (!havePath || freePoints_.empty()) return false;
 
     freePointsIdx = 0;
     dockPointsIdx = 0;
@@ -161,12 +284,28 @@ bool Map::isUndocking() const {
 // ── Waypoint navigation ────────────────────────────────────────────────────────
 
 bool Map::nextPoint(bool sim, float robotX, float robotY) {
+    bool ok = false;
     switch (wayMode) {
-        case WayType::MOW:  return nextMowPoint(sim);
-        case WayType::DOCK: return nextDockPoint(sim);
-        case WayType::FREE: return nextFreePoint(sim);
+        case WayType::MOW:  ok = nextMowPoint(sim); break;
+        case WayType::DOCK: ok = nextDockPoint(sim); break;
+        case WayType::FREE: ok = nextFreePoint(sim); break;
         default:            return false;
     }
+
+    // Dynamic replanning: if the new segment is blocked by a known obstacle,
+    // compute a free-path detour.
+    if (ok && wayMode != WayType::FREE) {
+        for (const auto& obs : obstacles_) {
+            const float r = obs.radius_m + 0.4f;
+            if (lineCircleIntersects(targetPoint, lastTargetPoint, obs.center, r)) {
+                previousWayMode = wayMode;
+                findPath(lastTargetPoint, targetPoint);
+                wayMode = WayType::FREE;
+                break;
+            }
+        }
+    }
+    return ok;
 }
 
 bool Map::nextMowPoint(bool sim) {
@@ -179,9 +318,9 @@ bool Map::nextMowPoint(bool sim) {
     }
     percentCompleted = static_cast<int>(100.0f * mowPointsIdx / mowPoints_.size());
     lastTargetPoint = targetPoint;
-    targetPoint     = mowPoints_[mowPointsIdx];
-    trackReverse    = false;
-    trackSlow       = false;
+    trackReverse    = mowPoints_[mowPointsIdx].rev;
+    trackSlow       = mowPoints_[mowPointsIdx].slow;
+    targetPoint     = mowPoints_[mowPointsIdx].p;
     return true;
 }
 
@@ -200,12 +339,17 @@ bool Map::nextFreePoint(bool sim) {
     if (freePoints_.empty()) return false;
     ++freePointsIdx;
     if (freePointsIdx >= static_cast<int>(freePoints_.size())) {
-        // Transition from free-path to dock points.
-        if (!dockPoints_.empty()) {
-            wayMode       = WayType::DOCK;
-            dockPointsIdx = 0;
+        // End of free-path detour.
+        if (shouldDock_ && !dockPoints_.empty()) {
+            wayMode         = WayType::DOCK;
+            dockPointsIdx   = 0;
             lastTargetPoint = targetPoint;
             targetPoint     = dockPoints_.front();
+            return true;
+        } else if (shouldMow_) {
+            wayMode         = WayType::MOW;
+            // Target point stays what it was (the end of the free-path detour).
+            // But we need to update the tracking state.
             return true;
         }
         return false;
@@ -217,26 +361,23 @@ bool Map::nextFreePoint(bool sim) {
 
 bool Map::nextPointIsStraight() const {
     // Check angle change between current and next segment.
-    int nextIdx = -1;
-    const PolygonPoints* pts = nullptr;
-    int curIdx = -1;
+    Point nextPt;
+    bool  hasNext = false;
 
     if (wayMode == WayType::MOW && mowPointsIdx + 1 < static_cast<int>(mowPoints_.size())) {
-        pts    = &mowPoints_;
-        curIdx = mowPointsIdx;
-        nextIdx = mowPointsIdx + 1;
+        nextPt  = mowPoints_[mowPointsIdx + 1].p;
+        hasNext = true;
     } else if (wayMode == WayType::DOCK && dockPointsIdx + 1 < static_cast<int>(dockPoints_.size())) {
-        pts    = &dockPoints_;
-        curIdx = dockPointsIdx;
-        nextIdx = dockPointsIdx + 1;
+        nextPt  = dockPoints_[dockPointsIdx + 1];
+        hasNext = true;
     }
 
-    if (pts == nullptr || nextIdx < 0) return true;  // no next → assume straight
+    if (!hasNext) return true;  // no next → assume straight
 
     const float a1 = pointsAngle(lastTargetPoint.x, lastTargetPoint.y,
                                   targetPoint.x, targetPoint.y);
     const float a2 = pointsAngle(targetPoint.x, targetPoint.y,
-                                  (*pts)[nextIdx].x, (*pts)[nextIdx].y);
+                                  nextPt.x, nextPt.y);
     return std::fabs(distancePI(a1, a2)) < (20.0f / 180.0f * static_cast<float>(M_PI));
 }
 
@@ -279,7 +420,9 @@ void Map::setMowingPointPercent(float pct) {
 void Map::skipNextMowingPoint() {
     if (mowPointsIdx + 1 < static_cast<int>(mowPoints_.size())) {
         ++mowPointsIdx;
-        targetPoint = mowPoints_[mowPointsIdx];
+        trackReverse = mowPoints_[mowPointsIdx].rev;
+        trackSlow    = mowPoints_[mowPointsIdx].slow;
+        targetPoint  = mowPoints_[mowPointsIdx].p;
     }
 }
 
@@ -289,13 +432,40 @@ void Map::setLastTargetPoint(float x, float y) {
 
 // ── Obstacle management ────────────────────────────────────────────────────────
 
-bool Map::addObstacle(float x, float y) {
-    obstacles_.push_back({x, y});
+bool Map::addObstacle(float x, float y, unsigned now_ms, bool persistent) {
+    // If an existing obstacle is within merge_radius, just increment its hitCount.
+    constexpr float mergeRadius = 0.5f;
+    for (auto& obs : obstacles_) {
+        if (obs.center.distanceTo({x, y}) < mergeRadius) {
+            obs.hitCount++;
+            obs.detectedAt_ms = now_ms;  // refresh timestamp
+            return true;
+        }
+    }
+    float radius_m = 0.3f;
+    if (config_) radius_m = config_->get<float>("obstacle_diameter_m", 0.6f) * 0.5f;
+    obstacles_.push_back({ {x, y}, radius_m, now_ms, 1, persistent });
     return true;
 }
 
 void Map::clearObstacles() {
     obstacles_.clear();
+}
+
+void Map::clearAutoObstacles() {
+    obstacles_.erase(
+        std::remove_if(obstacles_.begin(), obstacles_.end(),
+                       [](const OnTheFlyObstacle& o){ return !o.persistent; }),
+        obstacles_.end());
+}
+
+void Map::cleanupExpiredObstacles(unsigned now_ms, unsigned expiry_ms) {
+    obstacles_.erase(
+        std::remove_if(obstacles_.begin(), obstacles_.end(),
+                       [&](const OnTheFlyObstacle& o){
+                           return !o.persistent && (now_ms - o.detectedAt_ms) >= expiry_ms;
+                       }),
+        obstacles_.end());
 }
 
 // ── Boundary queries ───────────────────────────────────────────────────────────
@@ -377,13 +547,82 @@ bool Map::linePolygonIntersection(const Point& src, const Point& dst,
     return false;
 }
 
-bool Map::findPath(const Point& src, const Point& dst) {
-    // Phase 1: direct line (no obstacle avoidance).
-    // A* will be added in Phase 2.
-    freePoints_.clear();
-    freePoints_.push_back(dst);
+/// Returns true if the line segment src→dst passes within radius of center.
+static bool lineCircleIntersects(const Point& src, const Point& dst,
+                                  const Point& center, float radius) {
+    float dx = dst.x - src.x, dy = dst.y - src.y;
+    float len2 = dx*dx + dy*dy;
+    if (len2 < 1e-8f) return src.distanceTo(center) < radius;
+    // Projection of center onto line, clamped to segment
+    float t = ((center.x - src.x) * dx + (center.y - src.y) * dy) / len2;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    float cx = src.x + t * dx - center.x;
+    float cy = src.y + t * dy - center.y;
+    return (cx*cx + cy*cy) < radius * radius;
+}
+
+void Map::injectFreePath(const std::vector<Point>& waypoints) {
+    if (waypoints.empty()) return;
+    freePoints_   = waypoints;
     freePointsIdx = 0;
-    return true;
+    previousWayMode = wayMode;
+    wayMode         = WayType::FREE;
+    lastTargetPoint = targetPoint;
+    targetPoint     = freePoints_.front();
+}
+
+bool Map::findPath(const Point& src, const Point& dst) {
+    // C.7: Iterative obstacle-avoidance routing.
+    // We start with a direct path and insert detour points as long as any segment is blocked.
+    freePoints_.clear();
+    freePointsIdx = 0;
+
+    std::vector<Point> path = {src, dst};
+    bool changed = true;
+    int iterations = 0;
+    const int maxIterations = 5;  // safety limit to prevent infinite loops in dense areas
+
+    while (changed && iterations < maxIterations) {
+        changed = false;
+        iterations++;
+        for (size_t i = 0; i < path.size() - 1; ++i) {
+            const Point& p1 = path[i];
+            const Point& p2 = path[i+1];
+
+            for (const auto& obs : obstacles_) {
+                const float r = obs.radius_m + 0.4f;
+                if (lineCircleIntersects(p1, p2, obs.center, r)) {
+                    // Perpendicular unit vector to p1→p2
+                    float dx = p2.x - p1.x, dy = p2.y - p1.y;
+                    float len = std::sqrt(dx*dx + dy*dy);
+                    if (len < 0.01f) continue;
+                    float px = -dy / len, py = dx / len;
+
+                    // Project obstacle center onto segment to find closest point on path
+                    float t = ((obs.center.x - p1.x) * dx + (obs.center.y - p1.y) * dy) / (len * len);
+                    t = std::clamp(t, 0.0f, 1.0f);
+                    Point closest{p1.x + t * dx, p1.y + t * dy};
+
+                    // Determine which side the obstacle is on — detour to the opposite side
+                    float cross = dx * (obs.center.y - p1.y) - dy * (obs.center.x - p1.x);
+                    float side  = (cross >= 0.0f) ? -1.0f : 1.0f;
+
+                    Point detour{closest.x + side * px * r, closest.y + side * py * r};
+                    path.insert(path.begin() + i + 1, detour);
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) break;
+        }
+    }
+
+    // Skip the start point (robot position) and store the rest as free-path waypoints.
+    for (size_t i = 1; i < path.size(); ++i) {
+        freePoints_.push_back(path[i]);
+    }
+
+    return !freePoints_.empty();
 }
 
 } // namespace nav

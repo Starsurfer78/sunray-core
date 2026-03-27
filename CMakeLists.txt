@@ -87,9 +87,14 @@ add_executable(sunray-core
     main.cpp
 )
 
+target_compile_definitions(sunray-core PRIVATE 
+    SUNRAY_VERSION="${PROJECT_VERSION}"
+)
+
 target_link_libraries(sunray-core PRIVATE
     sunray_serial_driver       # Alfred driver (links transitively: hal + platform + core)
     sunray_simulation_driver   # Software-only driver (--sim flag)
+    sunray_gps_driver
     sunray_core
     sunray_hal
     sunray_platform

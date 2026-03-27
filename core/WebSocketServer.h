@@ -37,6 +37,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
 
@@ -60,8 +61,16 @@ public:
         double       gps_lon   = 0.0;    ///< WGS-84 longitude (Phase 2)
         bool         bumper_l  = false;
         bool         bumper_r  = false;
+        bool         lift      = false;  ///< lift sensor (C.10)
         bool         motor_err = false;
         unsigned long uptime_s = 0;      ///< seconds since robot start
+        bool         diag_active = false; ///< true while a diag motor test is running
+        long         diag_ticks  = 0;     ///< accumulated encoder ticks in current diag test
+        std::string  mcu_version = "";   ///< MCU firmware version (e.g. "rm18-v1.0")
+        float        imu_heading = 0.0f; ///< integrated yaw [deg]
+        float        imu_roll    = 0.0f; ///< roll [deg]
+        float        imu_pitch   = 0.0f; ///< pitch [deg]
+        std::string  ekf_health = "Odo"; ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
     };
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -70,6 +79,14 @@ public:
                                                   const nlohmann::json& params)>;
     using SimCommandCallback = std::function<void(const std::string& action,
                                                   const nlohmann::json& params)>;
+    /// Diagnostic callback: invoked by POST /api/diag/<action>.
+    /// Returns a JSON result that is sent back as the HTTP response body (C.10b).
+    using DiagCallback       = std::function<nlohmann::json(const std::string& action,
+                                                             const nlohmann::json& params)>;
+    /// Schedule GET callback: returns current schedule as JSON array (C.11).
+    using ScheduleGetCallback = std::function<nlohmann::json()>;
+    /// Schedule PUT callback: receives new schedule JSON array, returns {"ok":true/false} (C.11).
+    using SchedulePutCallback = std::function<nlohmann::json(const nlohmann::json&)>;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -121,6 +138,14 @@ public:
     /// Only active in --sim mode; not called if unregistered.
     void onSimCommand(SimCommandCallback cb);
 
+    /// Register the callback for POST /api/diag/<action> requests (C.10b).
+    /// Callback may block (runs in Crow HTTP thread). Returns JSON response body.
+    void onDiag(DiagCallback cb);
+
+    /// Register callbacks for GET/PUT /api/schedule (C.11).
+    void onScheduleGet(ScheduleGetCallback cb);
+    void onSchedulePut(SchedulePutCallback cb);
+
     // ── Map API ───────────────────────────────────────────────────────────────
 
     /// Set the path of the map JSON file served by GET /api/map and written
@@ -153,6 +178,11 @@ private:
     TelemetryData      latestTelemetry_;
     bool               hasNewTelemetry_ = false;
 
+    // NMEA queue: broadcastNmea() enqueues here; only serverThread_ dequeues+sends
+    // (BUG-005: prevents concurrent send_text() calls from Robot + push threads)
+    std::mutex               nmeaMutex_;
+    std::queue<std::string>  nmeaQueue_;
+
     // WebSocket command callback
     std::mutex      cmdMutex_;
     CommandCallback commandCallback_;
@@ -160,6 +190,15 @@ private:
     // Simulator command callback (POST /api/sim/*)
     std::mutex         simCmdMutex_;
     SimCommandCallback simCommandCallback_;
+
+    // Diagnostic callback (POST /api/diag/*) — C.10b
+    std::mutex    diagCbMutex_;
+    DiagCallback  diagCallback_;
+
+    // Schedule callbacks (GET/PUT /api/schedule) — C.11
+    std::mutex            schedCbMutex_;
+    ScheduleGetCallback   schedGetCb_;
+    SchedulePutCallback   schedPutCb_;
 
     // Map file path + reload callback (GET/POST /api/map)
     std::string      mapPath_;

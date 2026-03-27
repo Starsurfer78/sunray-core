@@ -119,6 +119,22 @@ Last updated: 2026-03-24
 
 ---
 
+## 2026-03-25 Decision: GridMap A* — lokales Gitter, kein globaler Planer
+
+**Choice:** 40×40 lokales Belegungs-Gitter (0.25 m/Zelle, 10 m Radius) um Roboterposition. A* 8-direktional mit Euklidischer Heuristik. String-Pull-Smoothing danach. GridMap ersetzt `Map::findPath()` in `EscapeReverseOp`; legacy `findPath()` bleibt als Fallback in `Map`.
+**Reason:** Globaler Planer (komplette Karte rasterisieren) wäre für einen typischen Garten (~200 m²) bei 0.25 m/Zelle 3200×3200 = 10 M Zellen — zu viel RAM und Rechenzeit. Lokales 10 m-Fenster um den Roboter reicht für Hindernisumfahrung.
+**Rejected:** Globale Gitterkarte — RAM/CPU-Overhead auf Pi; Voronoi-Graph — komplexe Implementierung ohne klaren Vorteil für Gartenmäher
+
+---
+
+## 2026-03-25 Decision: EKF für Sensorfusion
+
+**Choice:** 3-state EKF [x, y, θ] mit analytischer 3×3-Matrizen-Implementierung (keine Bibliothek). Predict: Odometrie-Differentialantrieb. Update 1: GPS RTK-Fix (H=2×3). Update 2: IMU Heading (H=1×3). GPS-Failover nach `ekf_gps_failover_ms` ms ohne Fix.
+**Reason:** Vollständige EKF-Fusion ersetzt direktes GPS-Überschreiben (Phase-1-Stub) — glättet Positions-Sprünge und propagiert Unsicherheit korrekt; Matrizen analytisch damit kein Linker-Overhead.
+**Rejected:** Komplementärfilter (zu simpel, kein Unsicherheitsmaß) | Bibliothek wie Eigen (FetchContent-Overhead, overkill für 3×3)
+
+---
+
 ## Template for new decisions:
 
 ```

@@ -9,7 +9,11 @@ void MowOp::begin(OpContext& ctx) {
     ctx.logger.info("Mow", "OP_MOW");
     ctx.hw.setMotorPwm(0, 0, 200);  // start mow blade
 
-    if (ctx.map)         ctx.map->startMowing(ctx.x, ctx.y);
+    if (ctx.map && !ctx.map->startMowing(ctx.x, ctx.y)) {
+        ctx.logger.error("Mow", "cannot start mowing route => IDLE");
+        changeOp(ctx, ctx.opMgr.idle());
+        return;
+    }
     if (ctx.lineTracker) ctx.lineTracker->reset();
 }
 
@@ -37,6 +41,11 @@ void MowOp::onGpsFixTimeout(OpContext& ctx) {
 void MowOp::onObstacle(OpContext& ctx) {
     ctx.logger.info("Mow", "obstacle => EscapeReverse");
     changeOp(ctx, ctx.opMgr.escape(), true);  // return to Mow after escape
+}
+
+void MowOp::onLiftTriggered(OpContext& ctx) {
+    ctx.logger.error("Mow", "lift sensor => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
 }
 
 void MowOp::onMotorError(OpContext& ctx) {

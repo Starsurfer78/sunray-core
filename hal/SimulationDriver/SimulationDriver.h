@@ -90,7 +90,9 @@ public:
 
     OdometryData readOdometry() override;
     SensorData   readSensors()  override;
-    BatteryData  readBattery()  override;
+    BatteryData readBattery()  override;
+    ImuData      readImu()      override;
+    void         calibrateImu() override;
 
     void setBuzzer(bool on)               override;
     void setLed(LedId id, LedState state) override;

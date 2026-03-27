@@ -11,7 +11,27 @@
       "Bash(make sunray_gps_driver sunray_tests -j4)",
       "Bash(cmake --build . --target sunray_gps_driver sunray_tests -j4)",
       "Bash(cmake -B build_gcc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -G \"MinGW Makefiles\")",
-      "Bash(cmake --build . --target sunray_tests -j4)"
+      "Bash(cmake --build . --target sunray_tests -j4)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(node -e \":*)",
+      "Bash(npx tsx --eval \":*)",
+      "Bash(npx tsx:*)",
+      "Read(//c/Users/info/**)",
+      "Bash(make -j4)",
+      "Bash(cmake --build . --parallel 4)",
+      "Bash(cmake --build . --target sunray_core)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit:*)",
+      "Bash(ls /e/TRAE/sunray-core/build_gcc/*.ninja)",
+      "Read(//usr/**)",
+      "Read(//mingw64/**)",
+      "Read(//c/msys64/mingw64/**)",
+      "Bash(/c/MinGW/bin/mingw32-make -j4 sunray_tests)",
+      "Bash(wsl --list)",
+      "Bash(find e:/TRAE/Sunray -name *flash* -o -name *STM* -o -name *boot*)",
+      "Bash(cmake --build . -j4)",
+      "Bash(grep -m5 -I e:/TRAE/sunray-core/build_gcc/core/Makefile)"
     ]
   }
 }

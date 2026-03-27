@@ -52,97 +52,64 @@ arduino-cli core install STMicroelectronics:stm32
 
 ## Flashing-Prozess
 
-### Option A: Komplettes Build + Flash (recommended)
+> ⚠️ **Wichtig:** Das Flash-Script kompiliert die **Alfred-STM32-Firmware** (`rm18.ino`) —
+> **nicht** das Pi-Binary `sunray-core`. Beide sind getrennte Binaries für getrennte CPUs.
+
+### Option A: Komplett-Workflow (Build + Flash, empfohlen)
 
 ```bash
-cd e:/TRAE/sunray-core
-mkdir -p build_gcc && cd build_gcc
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make sunray-core
-
-# Binärdatei von C++ → STM32 firmware location kopieren
-# (zukünftig: Cmake-Target für flash.sh)
-
 # SSH zum Pi
 ssh pi@raspberrypi.local
 cd ~/sunray-core
 
-# Flash-Script ausführen (angepasste Version von Sunray/alfred/flash.sh)
+# Alfred-Sketch bereitstellen (einmalig, falls noch nicht vorhanden)
+mkdir -p ~/sunray_install/alfred/firmware
+cp /pfad/zu/alfred/firmware/rm18.ino ~/sunray_install/alfred/firmware/rm18.ino
+
+# FQBN für STM32F103 setzen (einmalig in ~/.bashrc eintragen)
+export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
+
+# Kompilieren + Flashen
 sudo bash scripts/flash_alfred.sh build-flash
 ```
 
-### Option B: Nur Probe (Verbindung testen)
+### Option B: Nur Probe (SWD-Verbindung testen)
 ```bash
 sudo bash scripts/flash_alfred.sh probe
-# Output: "Probe: OK" wenn SWD-Verbindung aktiv
+# Output: "✓ SWD connection OK" wenn Verkabelung stimmt
 ```
 
-### Option C: Nur Flash (Binary existiert bereits)
+### Option C: Nur Flash (Binary bereits vorhanden)
 ```bash
 sudo bash scripts/flash_alfred.sh flash
 ```
 
----
-
-## Flash-Script Vorlage
-
-Basierend auf `e:/TRAE/Sunray/alfred/flash.sh`, angepasst für sunray-core:
-
-**`scripts/flash_alfred.sh`** (zu erstellen)
-
+### Option D: Nur Kompilieren (kein Flash)
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# OpenOCD & SWD-Konfiguration
-OPENOCD_BIN="${OPENOCD_BIN:-openocd}"
-OPENOCD_CFG="$REPO_ROOT/docs/swd-pi.ocd"
-
-# Binary-Pfad (aus CMake build)
-BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build_gcc}"
-BIN_PATH="${BIN_PATH:-$BUILD_DIR/sunray-core.bin}"
-
-probe_target() {
-  echo "SWD-Probe: STM32 Verbindung testen..."
-  $OPENOCD_BIN -f "$OPENOCD_CFG" \
-    -c "init; targets; reset halt; exit"
-  echo "SWD-Probe: OK ✓"
-}
-
-flash_bin() {
-  if [ ! -f "$BIN_PATH" ]; then
-    echo "ERROR: Binary nicht gefunden: $BIN_PATH"
-    exit 1
-  fi
-  echo "Flashing: $BIN_PATH → STM32F103 @ 0x08000000"
-  $OPENOCD_BIN -f "$OPENOCD_CFG" \
-    -c "init; targets; reset halt; program $BIN_PATH 0x08000000 verify reset exit"
-  echo "Flashing: OK ✓"
-}
-
-main() {
-  local cmd="${1:-flash}"
-  case "$cmd" in
-    probe) probe_target ;;
-    flash)
-      [ "$(id -u)" = 0 ] || { echo "Muss mit sudo ausgeführt werden"; exit 1; }
-      probe_target
-      flash_bin
-      ;;
-    *)
-      echo "Usage: sudo bash $0 [probe|flash]"
-      exit 1
-      ;;
-  esac
-}
-
-main "$@"
+export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
+bash scripts/flash_alfred.sh build
+# → ~/sunray_install/firmware/rm18.ino.bin
 ```
 
-**`docs/swd-pi.ocd`** (Copy aus Sunray/alfred/config_files/openocd/swd-pi.ocd)
+---
+
+## Script- und Konfigurations-Dateien
+
+Beide Dateien sind bereits im Repository vorhanden:
+
+| Datei | Inhalt |
+|-------|--------|
+| `scripts/flash_alfred.sh` | Vollständiges Build+Flash-Script (basierend auf `e:/TRAE/Sunray/alfred/flash.sh`) |
+| `docs/swd-pi.ocd` | OpenOCD SWD-Konfiguration für Raspberry Pi GPIO |
+
+Das Script kompiliert `rm18.ino` (Alfred-STM32-Firmware) via `arduino-cli` und flasht das
+resultierende `rm18.ino.bin` via SWD. Wichtige Umgebungsvariablen:
+
+```bash
+FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"  # Pflicht für build
+ALFRED_SKETCH=/path/to/rm18.ino   # default: ~/sunray_install/alfred/firmware/rm18.ino
+BIN_PATH=/path/to/rm18.ino.bin    # default: ~/sunray_install/firmware/rm18.ino.bin
+```
 
 ---
 

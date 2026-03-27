@@ -1,5 +1,6 @@
 // EscapeReverseOp.cpp — reverse away from obstacle.
 #include "core/op/Op.h"
+#include "core/navigation/GridMap.h"
 
 namespace sunray {
 
@@ -10,6 +11,8 @@ void EscapeReverseOp::begin(OpContext& ctx) {
     hitLeft  = ctx.sensors.bumperLeft;
     hitRight = ctx.sensors.bumperRight;
     driveReverseStopTime_ms = ctx.now_ms + ESCAPE_REVERSE_MS;
+    // C.7: record obstacle at current robot position for future path avoidance
+    if (ctx.map) ctx.map->addObstacle(ctx.x, ctx.y, ctx.now_ms);
 }
 
 void EscapeReverseOp::end(OpContext&) {}
@@ -46,6 +49,31 @@ void EscapeReverseOp::run(OpContext& ctx) {
         // Continue with previous operation.
         if (nextOp != nullptr) {
             ctx.logger.info("EscapeReverse", "escape done => continue " + nextOp->name());
+            // E.2-c: Route around obstacle using GridMap A* before resuming mission.
+            if (ctx.map && (ctx.map->wayMode == nav::WayType::MOW || ctx.map->wayMode == nav::WayType::DOCK)) {
+                const nav::Point robotPos{ctx.x, ctx.y};
+                const nav::Point target = ctx.map->targetPoint;
+
+                // Build local occupancy grid and plan path
+                nav::GridMap gridMap;
+                gridMap.build(*ctx.map, ctx.x, ctx.y);
+                auto path = gridMap.planPath(robotPos, target);
+
+                if (!path.empty()) {
+                    // Smooth and inject as FREE waypoints
+                    path = gridMap.smoothPath(path);
+                    ctx.map->injectFreePath(path);
+                    ctx.logger.info("EscapeReverse",
+                        "A* path found (" + std::to_string(path.size()) + " waypoints)");
+                } else {
+                    // Fallback: legacy iterative detour routing (C.7)
+                    if (ctx.map->findPath(robotPos, target)) {
+                        ctx.map->previousWayMode = ctx.map->wayMode;
+                        ctx.map->wayMode = nav::WayType::FREE;
+                        ctx.logger.info("EscapeReverse", "A* failed — fallback to legacy routing");
+                    }
+                }
+            }
             changeOp(ctx, *nextOp, false);
         } else {
             ctx.logger.info("EscapeReverse", "escape done, no nextOp => IDLE");

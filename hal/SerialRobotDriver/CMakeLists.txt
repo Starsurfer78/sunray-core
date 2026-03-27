@@ -12,5 +12,6 @@ target_include_directories(sunray_serial_driver PUBLIC
 target_link_libraries(sunray_serial_driver PUBLIC
     sunray_hal        # HardwareInterface.h
     sunray_platform   # Serial, I2C, PortExpander
+    sunray_imu        # MPU6050 driver (C.13)
     sunray_core       # Config.h (no circular dep: core never includes SerialRobotDriver)
 )

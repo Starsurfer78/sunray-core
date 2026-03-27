@@ -228,6 +228,30 @@ Config.cpp.s:
 	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/Config.cpp.s
 .PHONY : Config.cpp.s
 
+MqttClient.obj: MqttClient.cpp.obj
+.PHONY : MqttClient.obj
+
+# target to build an object file
+MqttClient.cpp.obj:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/MqttClient.cpp.obj
+.PHONY : MqttClient.cpp.obj
+
+MqttClient.i: MqttClient.cpp.i
+.PHONY : MqttClient.i
+
+# target to preprocess a source file
+MqttClient.cpp.i:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/MqttClient.cpp.i
+.PHONY : MqttClient.cpp.i
+
+MqttClient.s: MqttClient.cpp.s
+.PHONY : MqttClient.s
+
+# target to generate assembly for a file
+MqttClient.cpp.s:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/MqttClient.cpp.s
+.PHONY : MqttClient.cpp.s
+
 Robot.obj: Robot.cpp.obj
 .PHONY : Robot.obj
 
@@ -252,6 +276,30 @@ Robot.cpp.s:
 	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/Robot.cpp.s
 .PHONY : Robot.cpp.s
 
+Schedule.obj: Schedule.cpp.obj
+.PHONY : Schedule.obj
+
+# target to build an object file
+Schedule.cpp.obj:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/Schedule.cpp.obj
+.PHONY : Schedule.cpp.obj
+
+Schedule.i: Schedule.cpp.i
+.PHONY : Schedule.i
+
+# target to preprocess a source file
+Schedule.cpp.i:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/Schedule.cpp.i
+.PHONY : Schedule.cpp.i
+
+Schedule.s: Schedule.cpp.s
+.PHONY : Schedule.s
+
+# target to generate assembly for a file
+Schedule.cpp.s:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/Schedule.cpp.s
+.PHONY : Schedule.cpp.s
+
 WebSocketServer.obj: WebSocketServer.cpp.obj
 .PHONY : WebSocketServer.obj
 
@@ -275,6 +323,30 @@ WebSocketServer.s: WebSocketServer.cpp.s
 WebSocketServer.cpp.s:
 	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/WebSocketServer.cpp.s
 .PHONY : WebSocketServer.cpp.s
+
+navigation/GridMap.obj: navigation/GridMap.cpp.obj
+.PHONY : navigation/GridMap.obj
+
+# target to build an object file
+navigation/GridMap.cpp.obj:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/navigation/GridMap.cpp.obj
+.PHONY : navigation/GridMap.cpp.obj
+
+navigation/GridMap.i: navigation/GridMap.cpp.i
+.PHONY : navigation/GridMap.i
+
+# target to preprocess a source file
+navigation/GridMap.cpp.i:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/navigation/GridMap.cpp.i
+.PHONY : navigation/GridMap.cpp.i
+
+navigation/GridMap.s: navigation/GridMap.cpp.s
+.PHONY : navigation/GridMap.s
+
+# target to generate assembly for a file
+navigation/GridMap.cpp.s:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f core\CMakeFiles\sunray_core.dir\build.make core/CMakeFiles/sunray_core.dir/navigation/GridMap.cpp.s
+.PHONY : navigation/GridMap.cpp.s
 
 navigation/LineTracker.obj: navigation/LineTracker.cpp.obj
 .PHONY : navigation/LineTracker.obj
@@ -559,12 +631,21 @@ help:
 	@echo ... Config.obj
 	@echo ... Config.i
 	@echo ... Config.s
+	@echo ... MqttClient.obj
+	@echo ... MqttClient.i
+	@echo ... MqttClient.s
 	@echo ... Robot.obj
 	@echo ... Robot.i
 	@echo ... Robot.s
+	@echo ... Schedule.obj
+	@echo ... Schedule.i
+	@echo ... Schedule.s
 	@echo ... WebSocketServer.obj
 	@echo ... WebSocketServer.i
 	@echo ... WebSocketServer.s
+	@echo ... navigation/GridMap.obj
+	@echo ... navigation/GridMap.i
+	@echo ... navigation/GridMap.s
 	@echo ... navigation/LineTracker.obj
 	@echo ... navigation/LineTracker.i
 	@echo ... navigation/LineTracker.s

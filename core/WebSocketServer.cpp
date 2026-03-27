@@ -109,6 +109,21 @@ void WebSocketServer::onSimCommand(SimCommandCallback cb) {
     simCommandCallback_ = std::move(cb);
 }
 
+void WebSocketServer::onDiag(DiagCallback cb) {
+    std::lock_guard<std::mutex> lk(diagCbMutex_);
+    diagCallback_ = std::move(cb);
+}
+
+void WebSocketServer::onScheduleGet(ScheduleGetCallback cb) {
+    std::lock_guard<std::mutex> lk(schedCbMutex_);
+    schedGetCb_ = std::move(cb);
+}
+
+void WebSocketServer::onSchedulePut(SchedulePutCallback cb) {
+    std::lock_guard<std::mutex> lk(schedCbMutex_);
+    schedPutCb_ = std::move(cb);
+}
+
 void WebSocketServer::setMapPath(const std::string& mapPath) {
     mapPath_ = mapPath;
 }
@@ -122,6 +137,15 @@ void WebSocketServer::onMapReload(MapReloadCallback cb) {
 
 void WebSocketServer::setupHttpRoutes() {
     auto& app = impl_->app;
+    const std::string apiToken = config_ ? config_->get<std::string>("api_token", "") : "";
+    auto isAuthorized = [&](const crow::request& req) -> bool {
+        if (apiToken.empty()) return true;
+        const std::string xApiToken = req.get_header_value("X-Api-Token");
+        if (!xApiToken.empty() && xApiToken == apiToken) return true;
+        const std::string auth = req.get_header_value("Authorization");
+        const std::string bearer = "Bearer " + apiToken;
+        return auth == bearer;
+    };
 
     // ── Static file serving ────────────────────────────────────────────────────
     if (!webRoot_.empty()) {
@@ -138,9 +162,27 @@ void WebSocketServer::setupHttpRoutes() {
         });
     }
 
+    // ── GET /api/version ───────────────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/version")(
+        [this]() -> crow::response {
+            nlohmann::json j;
+            j["pi"] = SUNRAY_VERSION;
+            // Get latest MCU version from telemetry snapshot
+            {
+                std::lock_guard<std::mutex> lk(telemetryMutex_);
+                j["mcu"] = latestTelemetry_.mcu_version;
+            }
+            crow::response res(200, j.dump());
+            res.set_header("Content-Type", "application/json");
+            res.set_header("Access-Control-Allow-Origin", "*");
+            return res;
+        }
+    );
+
     // ── GET /api/config ────────────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/config")(
-        [this]() -> crow::response {
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (!config_) return crow::response(503);
             crow::response res(200, config_->dump());
             res.set_header("Content-Type", "application/json");
@@ -150,7 +192,8 @@ void WebSocketServer::setupHttpRoutes() {
 
     // ── PUT /api/config ────────────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/config").methods(crow::HTTPMethod::PUT)(
-        [this](const crow::request& req) -> crow::response {
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (!config_) return crow::response(503);
             try {
                 auto body = nlohmann::json::parse(req.body);
@@ -174,7 +217,8 @@ void WebSocketServer::setupHttpRoutes() {
 
     // ── GET /api/map ───────────────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/map")(
-        [this]() -> crow::response {
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (mapPath_.empty()) return crow::response(404);
             std::string body = readFile(mapPath_);
             if (body.empty()) {
@@ -190,7 +234,8 @@ void WebSocketServer::setupHttpRoutes() {
 
     // ── POST /api/map ──────────────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/map").methods(crow::HTTPMethod::POST)(
-        [this](const crow::request& req) -> crow::response {
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (mapPath_.empty()) return crow::response(503);
             try {
                 auto j = nlohmann::json::parse(req.body);
@@ -227,7 +272,8 @@ void WebSocketServer::setupHttpRoutes() {
     // Coordinates are WGS84 (EPSG:4326).  Origin stored in map.json under key
     // "origin": {"lat":…,"lon":…}.  If absent, lat0=lon0=0 (not georeferenced).
     CROW_ROUTE(app, "/api/map/geojson")(
-        [this]() -> crow::response {
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (mapPath_.empty()) return crow::response(503);
             const std::string raw = readFile(mapPath_);
             if (raw.empty()) return crow::response(404);
@@ -335,7 +381,8 @@ void WebSocketServer::setupHttpRoutes() {
     // Origin: taken from top-level "origin" field if present, otherwise computed
     // as the centroid of the "perimeter" feature.
     CROW_ROUTE(app, "/api/map/geojson").methods(crow::HTTPMethod::POST)(
-        [this](const crow::request& req) -> crow::response {
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (mapPath_.empty()) return crow::response(503);
             try {
                 const auto fc = nlohmann::json::parse(req.body);
@@ -478,15 +525,68 @@ void WebSocketServer::setupHttpRoutes() {
 
             } catch (const std::exception& e) {
                 logger_->warn(TAG, std::string("POST /api/map/geojson: ") + e.what());
-                return crow::response(400,
-                    std::string(R"({"error":")") + e.what() + "\"}");
+                nlohmann::json err; err["error"] = e.what();  // BUG-007 fix
+                return crow::response(400, err.dump());
             }
+        }
+    );
+
+    // ── GET /api/schedule — C.11 ──────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/schedule")(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            nlohmann::json result;
+            {
+                std::lock_guard<std::mutex> lk(schedCbMutex_);
+                result = schedGetCb_ ? schedGetCb_() : nlohmann::json::array();
+            }
+            crow::response res(200, result.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── PUT /api/schedule — C.11 ───────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/schedule").methods(crow::HTTPMethod::PUT)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            try {
+                auto arr = nlohmann::json::parse(req.body);
+                nlohmann::json result;
+                {
+                    std::lock_guard<std::mutex> lk(schedCbMutex_);
+                    result = schedPutCb_ ? schedPutCb_(arr) : nlohmann::json{{"ok",false}};
+                }
+                crow::response res(200, result.dump());
+                res.set_header("Content-Type", "application/json");
+                return res;
+            } catch (...) {
+                return crow::response(400, R"({"error":"bad JSON"})");
+            }
+        }
+    );
+
+    // ── POST /api/diag/<action> ───────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/diag/<string>").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req, const std::string& action) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            nlohmann::json params;
+            if (!req.body.empty()) {
+                try { params = nlohmann::json::parse(req.body); }
+                catch (...) { return crow::response(400); }
+            }
+            if (diagCallback_) {
+                auto res = diagCallback_(action, params);
+                return crow::response(200, res.dump());
+            }
+            return crow::response(501, R"({"error":"diag callback not set"})");
         }
     );
 
     // ── POST /api/sim/<action> ─────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/sim/<string>").methods(crow::HTTPMethod::POST)(
-        [this](const crow::request& req, const std::string& action) -> crow::response {
+        [this, isAuthorized](const crow::request& req, const std::string& action) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             nlohmann::json params;
             if (!req.body.empty()) {
                 try { params = nlohmann::json::parse(req.body); }
@@ -533,6 +633,13 @@ void WebSocketServer::start() {
                 auto j          = nlohmann::json::parse(data);
                 std::string cmd = j.value("cmd", "");
                 if (!cmd.empty()) {
+                    if (config_) {
+                        const std::string token = config_->get<std::string>("api_token", "");
+                        if (!token.empty() && j.value("token", std::string()) != token) {
+                            logger_->warn(TAG, "WS command rejected: unauthorized");
+                            return;
+                        }
+                    }
                     std::lock_guard<std::mutex> lk(cmdMutex_);
                     if (commandCallback_) commandCallback_(cmd, j);
                 }
@@ -551,25 +658,36 @@ void WebSocketServer::start() {
     logger_->info(TAG, "WebSocket server started on port " + std::to_string(port)
                        + (webRoot_.empty() ? "" : " (serving " + webRoot_ + ")"));
 
-    // Push thread: every 100 ms broadcast latest telemetry to all clients
+    // Push thread: every 100 ms broadcast NMEA queue + latest telemetry.
+    // BUG-005 fix: this is the ONLY thread that calls send_text() on connections.
     serverThread_ = std::thread([this]() {
         while (running_.load()) {
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(PUSH_INTERVAL_MS));
 
-            // Build message under lock
-            std::string msg;
+            // Build telemetry message under lock
+            std::string telMsg;
             {
                 std::lock_guard<std::mutex> lk(telemetryMutex_);
                 if (hasNewTelemetry_) {
-                    msg = buildTelemetryJson(latestTelemetry_);
+                    telMsg = buildTelemetryJson(latestTelemetry_);
                     hasNewTelemetry_ = false;
                 } else {
-                    msg = R"({"type":"ping"})";
+                    telMsg = R"({"type":"ping"})";
                 }
             }
 
-            // Snapshot connection set under lock, then send without lock
+            // Drain NMEA queue
+            std::vector<std::string> nmeaMsgs;
+            {
+                std::lock_guard<std::mutex> lk(nmeaMutex_);
+                while (!nmeaQueue_.empty()) {
+                    nmeaMsgs.push_back(std::move(nmeaQueue_.front()));
+                    nmeaQueue_.pop();
+                }
+            }
+
+            // Single connection snapshot, then send everything without lock
             std::vector<crow::websocket::connection*> snap;
             {
                 std::lock_guard<std::mutex> lk(impl_->connMutex);
@@ -577,7 +695,9 @@ void WebSocketServer::start() {
                             impl_->connections.end());
             }
             for (auto* c : snap) {
-                try { c->send_text(msg); }
+                for (const auto& nm : nmeaMsgs)
+                    try { c->send_text(nm); } catch (...) {}
+                try { c->send_text(telMsg); }
                 catch (...) { /* connection may have closed between snapshot and send */ }
             }
         }
@@ -603,22 +723,13 @@ void WebSocketServer::pushTelemetry(const TelemetryData& data) {
 void WebSocketServer::broadcastNmea(const std::string& line) {
     if (!running_.load()) return;
 
-    // Build JSON: {"type":"nmea","line":"<sentence>"}
+    // BUG-005 fix: never call send_text() from the Robot thread.
+    // Enqueue only — serverThread_ is the sole thread calling send_text().
     nlohmann::json j;
     j["type"] = "nmea";
     j["line"] = line;
-    const std::string msg = j.dump();
-
-    // Snapshot connections and broadcast
-    std::vector<crow::websocket::connection*> snap;
-    {
-        std::lock_guard<std::mutex> lk(impl_->connMutex);
-        snap.assign(impl_->connections.begin(), impl_->connections.end());
-    }
-    for (auto* c : snap) {
-        try { c->send_text(msg); }
-        catch (...) {}
-    }
+    std::lock_guard<std::mutex> lk(nmeaMutex_);
+    nmeaQueue_.push(j.dump());
 }
 
 // ── JSON serialization ────────────────────────────────────────────────────────
@@ -641,7 +752,7 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     auto bl = [](bool v) -> const char* { return v ? "true" : "false"; };
 
     std::string s;
-    s.reserve(256);
+    s.reserve(384);
     s += "{\"type\":\"state\"";
     s += ",\"op\":\"";        s += d.op;        s += "\"";
     s += ",\"x\":";           s += flt(d.x);
@@ -655,8 +766,17 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"gps_lon\":";     s += dbl(d.gps_lon);
     s += ",\"bumper_l\":";    s += bl(d.bumper_l);
     s += ",\"bumper_r\":";    s += bl(d.bumper_r);
-    s += ",\"motor_err\":";   s += bl(d.motor_err);
+    s += ",\"lift\":";        s += bl(d.lift);
+    s += ",\"motor_err\":";    s += bl(d.motor_err);
     s += ",\"uptime_s\":";    s += std::to_string(d.uptime_s);
+    s += ",\"mcu_v\":\"";     s += d.mcu_version; s += "\"";
+    s += ",\"pi_v\":\"";      s += SUNRAY_VERSION; s += "\"";
+    s += ",\"imu_h\":";       s += flt(d.imu_heading, 1);
+    s += ",\"imu_r\":";       s += flt(d.imu_roll, 1);
+    s += ",\"imu_p\":";       s += flt(d.imu_pitch, 1);
+    s += ",\"diag_active\":"; s += bl(d.diag_active);
+    s += ",\"diag_ticks\":";  s += std::to_string(d.diag_ticks);
+    s += ",\"ekf_health\":\""; s += d.ekf_health; s += "\"";
     s += "}";
     return s;
 }

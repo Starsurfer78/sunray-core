@@ -99,11 +99,28 @@ Last updated: 2026-03-24 (full repo scan)
 
 ### core/navigation/StateEstimator.h + .cpp
 
-**Status:** ✅ Complete (A.5)
-**Purpose:** Odometry dead-reckoning + GPS fusion stub
-**Phase 1:** odometry-only. `updateGps()` stub for Phase 2.
-**Config:** `ticks_per_meter` (def 120), `wheel_base_m` (def 0.285)
-**Notes:** Sanity guard: >0.5 m/frame → skip. Safety clamp: >±10 km → reset to origin. LP filter α=0.1 for groundSpeed.
+**Status:** ✅ Complete (E.1, 2026-03-25)
+**Purpose:** EKF-based robot pose estimation — fuses odometry, GPS, IMU
+**State:** [x, y, θ], covariance P[9] (3×3 row-major, analytical math, no matrix lib)
+**Predict:** differential-drive odometry (predictStep), Jacobian F = almost-identity
+**GPS update:** RTK-Fix only (H=[[1,0,0],[0,1,0]]), 2×2 S inverted analytically
+**IMU update:** heading-only (H=[0,0,1]), scalar S
+**GPS failover:** `ekf_gps_failover_ms` ms without fix → gpsHasFix_=false → "Odo" mode
+**New accessors:** `fusionMode()` ("EKF+GPS"/"EKF+IMU"/"Odo"), `posUncertainty()` (√(Pxx+Pyy))
+**Config keys:** `ekf_q_xy`, `ekf_q_theta`, `ekf_r_gps`, `ekf_r_imu`, `ekf_gps_failover_ms`
+**Tests:** 3 new EKF tests in test_navigation.cpp: predict grows uncertainty, GPS update corrects position, GPS failover clears fix
+
+### core/navigation/GridMap.h + .cpp
+
+**Status:** ✅ Complete (E.2, 2026-03-25)
+**Purpose:** Local occupancy grid (40×40 cells, 0.25 m/cell) + A* path planning + string-pull smoothing
+**Key methods:** `build(map, x, y)` — rasterises perimeter/exclusions/obstacles into grid; `planPath(src,dst)` — 8-dir A* in world coords; `smoothPath(path)` — visibility string-pull
+**Cell types:** EMPTY / OCCUPIED. Obstacles inflated by `robotRadius` (default 0.3 m)
+**Used by:** `EscapeReverseOp::run()` — plans route around obstacle after reverse escape
+**Fallback:** If A* finds no path, `Map::findPath()` (legacy iterative detour) is tried
+**New Map method:** `Map::injectFreePath(waypoints)` — sets freePoints_ + switches wayMode = FREE
+
+---
 
 ### core/navigation/Map.h + .cpp
 

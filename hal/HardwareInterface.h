@@ -52,6 +52,15 @@ struct BatteryData {
     bool  chargerConnected = false; ///< true when chargeVoltage > threshold
 };
 
+/// Snapshot of IMU (Inertial Measurement Unit) data.
+/// Updated at ~50 Hz. Values are in SI units (g, rad/s, rad).
+struct ImuData {
+    float accX = 0.0f, accY = 0.0f, accZ = 0.0f;  ///< acceleration [g]
+    float gyroX = 0.0f, gyroY = 0.0f, gyroZ = 0.0f; ///< angular velocity [rad/s]
+    float roll = 0.0f, pitch = 0.0f, yaw = 0.0f;    ///< integrated orientation [rad]
+    bool  valid = false;  ///< true if sensor is responding
+};
+
 // ── LED control ───────────────────────────────────────────────────────────────
 
 /// Physical LED slots on the panel.
@@ -115,6 +124,13 @@ public:
 
     /// Returns the most recently received battery / charging data.
     virtual BatteryData readBattery() = 0;
+
+    /// Returns the most recent IMU (gyro/accel/heading) snapshot.
+    /// Implementation should handle internal integration (heading) and filtering.
+    virtual ImuData readImu() = 0;
+
+    /// Start IMU calibration (gyro bias estimation).
+    virtual void calibrateImu() = 0;
 
     // ── Actuators (non-motor) ─────────────────────────────────────────────────
 

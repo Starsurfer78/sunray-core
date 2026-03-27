@@ -276,6 +276,78 @@ test_i2c.cpp.s:
 	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_i2c.cpp.s
 .PHONY : test_i2c.cpp.s
 
+test_mqtt_client.obj: test_mqtt_client.cpp.obj
+.PHONY : test_mqtt_client.obj
+
+# target to build an object file
+test_mqtt_client.cpp.obj:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_mqtt_client.cpp.obj
+.PHONY : test_mqtt_client.cpp.obj
+
+test_mqtt_client.i: test_mqtt_client.cpp.i
+.PHONY : test_mqtt_client.i
+
+# target to preprocess a source file
+test_mqtt_client.cpp.i:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_mqtt_client.cpp.i
+.PHONY : test_mqtt_client.cpp.i
+
+test_mqtt_client.s: test_mqtt_client.cpp.s
+.PHONY : test_mqtt_client.s
+
+# target to generate assembly for a file
+test_mqtt_client.cpp.s:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_mqtt_client.cpp.s
+.PHONY : test_mqtt_client.cpp.s
+
+test_navigation.obj: test_navigation.cpp.obj
+.PHONY : test_navigation.obj
+
+# target to build an object file
+test_navigation.cpp.obj:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_navigation.cpp.obj
+.PHONY : test_navigation.cpp.obj
+
+test_navigation.i: test_navigation.cpp.i
+.PHONY : test_navigation.i
+
+# target to preprocess a source file
+test_navigation.cpp.i:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_navigation.cpp.i
+.PHONY : test_navigation.cpp.i
+
+test_navigation.s: test_navigation.cpp.s
+.PHONY : test_navigation.s
+
+# target to generate assembly for a file
+test_navigation.cpp.s:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_navigation.cpp.s
+.PHONY : test_navigation.cpp.s
+
+test_op_machine.obj: test_op_machine.cpp.obj
+.PHONY : test_op_machine.obj
+
+# target to build an object file
+test_op_machine.cpp.obj:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_op_machine.cpp.obj
+.PHONY : test_op_machine.cpp.obj
+
+test_op_machine.i: test_op_machine.cpp.i
+.PHONY : test_op_machine.i
+
+# target to preprocess a source file
+test_op_machine.cpp.i:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_op_machine.cpp.i
+.PHONY : test_op_machine.cpp.i
+
+test_op_machine.s: test_op_machine.cpp.s
+.PHONY : test_op_machine.s
+
+# target to generate assembly for a file
+test_op_machine.cpp.s:
+	cd /d E:\TRAE\sunray-core\build_gcc && $(MAKE) $(MAKESILENT) -f tests\CMakeFiles\sunray_tests.dir\build.make tests/CMakeFiles/sunray_tests.dir/test_op_machine.cpp.s
+.PHONY : test_op_machine.cpp.s
+
 test_port_expander.obj: test_port_expander.cpp.obj
 .PHONY : test_port_expander.obj
 
@@ -445,6 +517,15 @@ help:
 	@echo ... test_i2c.obj
 	@echo ... test_i2c.i
 	@echo ... test_i2c.s
+	@echo ... test_mqtt_client.obj
+	@echo ... test_mqtt_client.i
+	@echo ... test_mqtt_client.s
+	@echo ... test_navigation.obj
+	@echo ... test_navigation.i
+	@echo ... test_navigation.s
+	@echo ... test_op_machine.obj
+	@echo ... test_op_machine.i
+	@echo ... test_op_machine.s
 	@echo ... test_port_expander.obj
 	@echo ... test_port_expander.i
 	@echo ... test_port_expander.s

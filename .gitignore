@@ -7,3 +7,5 @@ CMakeFiles/
 cmake_install.cmake
 compile_commands.json
 .vscode/
+.claude/settings.local.json
+OLD_DOCS/cassandra_mission_service_analysis.md

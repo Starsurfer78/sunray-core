@@ -140,6 +140,19 @@ BatteryData SimulationDriver::readBattery() {
     return d;
 }
 
+ImuData SimulationDriver::readImu() {
+    std::lock_guard<std::mutex> lk(mutex_);
+    ImuData d;
+    d.valid = true;
+    // Simplified simulation: imu yaw = pose heading
+    d.yaw = static_cast<float>(pose_.heading);
+    return d;
+}
+
+void SimulationDriver::calibrateImu() {
+    // simulation: no-op
+}
+
 // ── Actuators ──────────────────────────────────────────────────────────────────
 
 void SimulationDriver::setBuzzer(bool on) {

@@ -419,8 +419,11 @@ function fitView() {
   ]
   if (allPts.length === 0) { originX = el.width / 2; originY = el.height / 2; scale = 20; return }
   const xs = allPts.map(p => p[0]), ys = allPts.map(p => p[1])
-  const minX = Math.min(...xs), maxX = Math.max(...xs)
-  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  // BUG-011 fix: avoid spread-overflow with >10k waypoints
+  const minX = xs.reduce((a, b) => a < b ? a : b,  Infinity)
+  const maxX = xs.reduce((a, b) => a > b ? a : b, -Infinity)
+  const minY = ys.reduce((a, b) => a < b ? a : b,  Infinity)
+  const maxY = ys.reduce((a, b) => a > b ? a : b, -Infinity)
   const margin = 60
   scale   = Math.min((el.width - margin * 2) / (maxX - minX || 10), (el.height - margin * 2) / (maxY - minY || 10))
   scale   = Math.max(2, Math.min(scale, 100))
@@ -1030,7 +1033,7 @@ watch(pathZoneId, (id) => {
               class="bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-xs text-gray-100"
             >
               <option value="stripe">Streifen</option>
-              <option value="spiral">Spirale</option>
+              <option value="spiral" disabled title="Noch nicht implementiert">Spirale (bald)</option>
             </select>
           </template>
           <template v-else>

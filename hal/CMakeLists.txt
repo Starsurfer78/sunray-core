@@ -16,3 +16,6 @@ add_subdirectory(SimulationDriver)
 
 # GpsDriver — ZED-F9P via USB serial (A.8)
 add_subdirectory(GpsDriver)
+
+# IMU — MPU6050 per I2C (C.13)
+add_subdirectory(Imu)

@@ -15,13 +15,14 @@
 //   startDocking(x, y)       — begin dock approach
 //   nextPoint(x, y)          — advance to next waypoint; returns false when done
 //   isInsideAllowedArea(x,y) — perimeter in, exclusions out
-//   addObstacle(x, y)        — mark a virtual obstacle point
+//   addObstacle(x,y,t)       — mark a virtual obstacle (C.7: OnTheFlyObstacle)
 
 #include "core/Config.h"
 
 #include <cmath>
 #include <filesystem>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <nlohmann/json.hpp>
 
@@ -48,6 +49,47 @@ using PolygonPoints = std::vector<Point>;
 // ── WayType ───────────────────────────────────────────────────────────────────
 
 enum class WayType { PERIMETER, EXCLUSION, DOCK, MOW, FREE };
+
+// ── Per-waypoint mow metadata (C.4c — K-turn support) ────────────────────────
+
+/// A single mowing waypoint with optional motion flags.
+/// JSON format (new):  { "p": [x,y], "rev": true, "slow": true }
+/// JSON format (legacy, read-only compat): [x, y]
+struct MowPoint {
+    Point p;
+    bool  rev  = false;  ///< drive in reverse to reach this point
+    bool  slow = false;  ///< reduce speed (turn transition)
+};
+
+// ── Mow-zone data (from WebUI MapEditor C.4b) ─────────────────────────────────
+
+enum class ZonePattern { STRIPE, SPIRAL };
+
+// ── On-The-Fly Obstacle (C.7) ─────────────────────────────────────────────────
+
+/// A virtual obstacle detected at runtime (e.g. bumper hit).
+/// Stored in Map and respected by findPath() for future routing.
+struct OnTheFlyObstacle {
+    Point    center;
+    float    radius_m      = 0.3f;   ///< avoidance radius in metres
+    unsigned detectedAt_ms = 0;      ///< now_ms when first detected
+    int      hitCount      = 1;      ///< number of bumper hits at this location
+    bool     persistent    = false;  ///< if false → auto-cleaned after expiry
+};
+
+struct ZoneSettings {
+    std::string name        = "Zone";
+    float       stripWidth  = 0.18f;   ///< mowing strip width in metres
+    float       speed       = 1.0f;    ///< target speed in m/s
+    ZonePattern pattern     = ZonePattern::STRIPE;
+};
+
+struct Zone {
+    std::string  id;
+    int          order = 1;
+    PolygonPoints polygon;
+    ZoneSettings  settings;
+};
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
@@ -77,6 +119,11 @@ public:
     /// Begin mowing from current robot position.
     /// Finds nearest mowing point and sets it as first target.
     bool startMowing(float robotX, float robotY);
+
+    /// Begin mowing only the points belonging to the given zone IDs (C.12).
+    /// Points are matched via their zone polygon membership.
+    /// Falls back to startMowing() if zoneIds is empty or no points match.
+    bool startMowingZones(float robotX, float robotY, const std::vector<std::string>& zoneIds);
 
     /// Begin dock approach from current robot position.
     /// Finds nearest free-path entry point toward dock.
@@ -127,15 +174,33 @@ public:
     bool  trackReverse = false; ///< drive in reverse to reach target
     bool  trackSlow    = false; ///< reduce speed (docking approach)
     WayType wayMode    = WayType::MOW;
+    WayType previousWayMode = WayType::MOW;  ///< stores mode before switching to FREE
     int  percentCompleted = 0;
 
     // ── Obstacle management ───────────────────────────────────────────────────
 
-    /// Add a virtual obstacle at (x,y). Future A* routing will avoid it.
-    bool addObstacle(float x, float y);
+    /// Add a virtual obstacle at (x,y) detected at now_ms.
+    /// radius_m taken from config "obstacle_diameter_m" / 2 (default 0.3 m radius).
+    /// persistent = true → survives clearAutoObstacles() (user-placed).
+    bool addObstacle(float x, float y, unsigned now_ms, bool persistent = false);
 
-    /// Remove all virtual obstacles.
+    /// Remove all virtual obstacles (auto + persistent).
     void clearObstacles();
+
+    /// Remove only auto-detected (non-persistent) obstacles — called on ChargeOp entry.
+    void clearAutoObstacles();
+
+    /// Remove auto-detected obstacles older than expiry_ms — call once per second.
+    void cleanupExpiredObstacles(unsigned now_ms, unsigned expiry_ms = 3600000u);
+
+    // ── Path injection (E.2 — GridMap A*) ────────────────────────────────────
+
+    /// Inject a pre-computed path as FREE waypoints.
+    /// Sets wayMode = FREE, freePointsIdx = 0, targetPoint = first waypoint.
+    /// The next call to nextFreePoint() will advance through the injected path,
+    /// then restore previousWayMode.
+    /// waypoints must NOT include the current robot position (start point).
+    void injectFreePath(const std::vector<Point>& waypoints);
 
     // ── Boundary queries ──────────────────────────────────────────────────────
 
@@ -144,10 +209,12 @@ public:
 
     // ── Raw data access (for telemetry / debug) ───────────────────────────────
 
-    const PolygonPoints& perimeterPoints()  const { return perimeterPoints_; }
-    const PolygonPoints& mowPoints()        const { return mowPoints_; }
-    const PolygonPoints& dockPoints()       const { return dockPoints_; }
-    const std::vector<PolygonPoints>& exclusions() const { return exclusions_; }
+    const PolygonPoints&                   perimeterPoints() const { return perimeterPoints_; }
+    const std::vector<MowPoint>&          mowPoints()       const { return mowPoints_; }
+    const PolygonPoints&                   dockPoints()      const { return dockPoints_; }
+    const std::vector<PolygonPoints>&      exclusions()      const { return exclusions_; }
+    const std::vector<Zone>&               zones()           const { return zones_; }
+    const std::vector<OnTheFlyObstacle>&   obstacles()       const { return obstacles_; }  ///< C.7
 
     int mowPointsIdx  = 0;
     int dockPointsIdx = 0;
@@ -183,11 +250,13 @@ private:
     // ── Data ──────────────────────────────────────────────────────────────────
 
     PolygonPoints              perimeterPoints_;
-    PolygonPoints              mowPoints_;
+    std::vector<MowPoint>      mowPoints_;
+    std::vector<MowPoint>      allMowPoints_;  ///< immutable source set loaded from map.json
     PolygonPoints              dockPoints_;
     PolygonPoints              freePoints_;
     std::vector<PolygonPoints> exclusions_;
-    std::vector<Point>         obstacles_;   ///< virtual obstacles from addObstacle()
+    std::vector<OnTheFlyObstacle> obstacles_;  ///< virtual obstacles from addObstacle() (C.7)
+    std::vector<Zone>          zones_;       ///< mow zones (C.4b — ordered by zone.order)
 
     bool isDocked_   = false;
     bool shouldDock_ = false;

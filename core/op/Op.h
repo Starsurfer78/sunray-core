@@ -85,9 +85,9 @@ struct OpContext {
     /// Differential-drive speed control (replaces motor.setLinearAngularSpeed).
     ///   v:     linear velocity  (m/s, + = forward)
     ///   omega: angular velocity (rad/s, + = turn left)
-    /// Converts to left/right PWM using config: motor_max_speed_ms, wheel_base_m.
+    /// Converts to left/right PWM using config: motor_set_speed_ms, wheel_base_m.
     void setLinearAngularSpeed(float v, float omega) {
-        const float maxSpeed  = config.get<float>("motor_max_speed_ms", 0.5f);
+        const float maxSpeed  = config.get<float>("motor_set_speed_ms", 0.5f);
         const float wheelBase = config.get<float>("wheel_base_m",       0.285f);
         const float vLeft  = v - omega * wheelBase * 0.5f;
         const float vRight = v + omega * wheelBase * 0.5f;
