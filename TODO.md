@@ -1,14 +1,25 @@
-# TODO.md — sunray-core
+# TODO
 
-Stand: März 2026
+Last updated: 2026-03-28
 
-> **Konvention:** Jeder offene Task `[ ]` hat ein `<!-- ctx: -->` Profil direkt darunter.
-> Claude Code liest dieses Profil und lädt **nur** die dort genannten Module + Files.
-> Format: `<!-- ctx: module:X, module:Y | files:path/to/A.h, path/to/B.cpp | model:haiku -->
+Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
+
+- Die einzelnen Task-IDs hier sind der detaillierte Backlog.
+- [`TASKS.md`](/mnt/LappiDaten/Projekte/sunray-core/TASKS.md) ist die verdichtete Übersichts- und Prioritätenversion.
+- [`TASK.md`](/mnt/LappiDaten/Projekte/sunray-core/TASK.md) ist inhaltlich abgelöst.
+- `CLAUDE.md` verweist für den Arbeitskontext nur noch auf:
+  - [`PROJECT_OVERVIEW.md`](/mnt/LappiDaten/Projekte/sunray-core/PROJECT_OVERVIEW.md)
+  - [`PROJECT_MAP.md`](/mnt/LappiDaten/Projekte/sunray-core/PROJECT_MAP.md)
+  - [`WORKING_RULES.md`](/mnt/LappiDaten/Projekte/sunray-core/WORKING_RULES.md)
+  - [`TASKS.md`](/mnt/LappiDaten/Projekte/sunray-core/TASKS.md)
+
+> **Hinweis:** Die vorhandenen `<!-- ctx: -->` Profile sind Legacy-Metadaten aus einem älteren Claude-Workflow.
+> Sie können als grobe Orientierung nützlich sein, sind aber nicht mehr der primäre Einstiegspunkt.
+> Maßgeblich für den Arbeitskontext sind jetzt `PROJECT_OVERVIEW.md`, `PROJECT_MAP.md`, `WORKING_RULES.md` und `TASKS.md`.
 
 ---
 
-## ✅ Erledigte Meilensteine
+## Erledigte Meilensteine
 
 - [x] A.1–A.8, A.10 — C++ Fundament, SerialRobotDriver, Robot+DI, SimulationDriver, Op-State-Machine, Navigation, WebSocket-Server, Konfiguration, GPS-Treiber, Pi-Version
 - [x] C.1–C.5, C.7, C.9–C.12 — WebUI, MQTT-Client, On-The-Fly Obstacles, Dashboard, Diagnose, Zeitplan, Zonen-Auswahl
@@ -16,7 +27,7 @@ Stand: März 2026
 
 ---
 
-## A — sunray-core (C++ Rewrite)
+## A — Core- und Plattformarbeit
 
 ### A.9 Alfred Build-Test ⏸ wartet auf Pi-Zugang
 
@@ -102,9 +113,32 @@ Stand: März 2026
 - [x] C.15-i: Warm-Start-/Resume-Grundlagen prüfen: Kartenänderung erkennen und unsicheres Resume blockieren
   <!-- ctx: module:robot, module:navigation | files:core/Robot.h, core/Robot.cpp, core/navigation/Map.h | model:sonnet -->
 
+### C.16 Benutzererlebnis / Nutzerführung
+
+- [ ] C.16-a: Dashboard-Preflight als echte Startfreigabe ergänzen: GPS, Akku, Karte, Dock, Fehlerstatus, Verbindungsstatus sichtbar und verständlich bündeln
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/components/RobotSidebar.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+- [ ] C.16-b: Nutzerfreundliche Statussprache statt rein interner Op-Namen im Haupt-Dashboard etablieren (`Bereit`, `Fährt zum Startpunkt`, `Lädt`, `Wartet auf GPS`, ...)
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/composables/useTelemetry.ts, core/WebSocketServer.h, core/Robot.cpp | model:haiku -->
+- [ ] C.16-c: Für Start-Blocker und Warnzustände direkte Handlungsempfehlungen im UI anzeigen, nicht nur Rohstatus
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/components/RobotSidebar.vue, core/Robot.cpp | model:sonnet -->
+- [ ] C.16-d: Fehler- und Recovery-Karten vereinheitlichen: `Error`, `GpsWait`, `WaitRain`, `Dock`, `Charge` mit Ursache, Kritikalität und nächstem sinnvollen Schritt darstellen
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/views/Diagnostics.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+- [ ] C.16-e: Geführten Erststart-/Setup-Flow in der WebUI anlegen: Verbindung, GPS, Karte, Dock, Testfahrt, Startfreigabe
+  <!-- ctx: module:webui, module:websocket_server | files:webui/src/views/Dashboard.vue, webui/src/router/index.ts, webui/src/components/RobotSidebar.vue | model:opus -->
+- [ ] C.16-f: Mapping-Workflow als Assistent statt nur als Editor denken: neue Karte, RTK-Prüfung, Grenzaufnahme, Validierung, Docking-Pfad, Speichern
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui/src/views/Dashboard.vue, webui/src/views/MapEditor.vue, core/navigation/Map.h | model:sonnet -->
+- [ ] C.16-g: Kartenerstellung vor Freigabe validieren: Perimeter geschlossen, ausreichend Punkte, Docking plausibel, Start grundsätzlich möglich
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui/src/views/MapEditor.vue, core/WebSocketServer.cpp, core/navigation/Map.h, core/navigation/Map.cpp | model:sonnet -->
+- [ ] C.16-h: Ereignis- und Missionshistorie mit verständlichen Sessions und Abbruchgründen aufbauen, statt nur Live-Telemetrie anzuzeigen
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/History.vue, webui/src/composables/useSessionTracker.ts, core/Robot.cpp, core/WebSocketServer.h | model:sonnet -->
+- [ ] C.16-i: Primäransicht und Diagnoseansicht stärker trennen, damit das Dashboard Betriebsoberfläche bleibt und Rohdaten in Diagnose landen
+  <!-- ctx: module:webui | files:webui/src/views/Dashboard.vue, webui/src/views/Diagnostics.vue, webui/src/components/RobotSidebar.vue | model:haiku -->
+- [ ] C.16-j: UX-nahe Ereignistimeline im Dashboard oder in History ergänzen (`Mission gestartet`, `GPS verloren`, `Docking begonnen`, `Laden begonnen`, ...)
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/views/History.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+
 ---
 
-## E — Priorisierte Erweiterungen
+## E — Größere Erweiterungen
 
 ### E.1 Sensorfusion (EKF) ✅ Abgeschlossen (2026-03-25)
 
@@ -203,7 +237,7 @@ Stand: März 2026
 
 ---
 
-## D — Geklaerte / Externe Punkte
+## D — Geklärte / externe Punkte
 
 - [x] Q1: StateEstimator Fehler-Propagation bei dauerhaft ungültigem GPS geklärt
   Entscheidung: aktueller Core fällt bereits kontrolliert auf Odometrie zurück (`gpsHasFix`/`gpsHasFloat` + `ekf_health`). Falls gewünscht, später als explizites Telemetrie-/Policy-Flag (`odometry_only` / `localisation_degraded`) ausbauen.
@@ -220,10 +254,10 @@ Stand: März 2026
 
 ---
 
-## Legende
+## Hinweise zur Nutzung
 
 - [x] Erledigt | [ ] Offen | ⏸ Blockiert
-- `<!-- ctx: -->` — Kontext-Profil für Claude Code (module: + files: + model:)
-- **module:** Kürzel → Datei in `.memory/modules/<kürzel>.md`
-- **files:** konkrete Files die gelesen werden sollen
-- **model:** haiku / sonnet / opus
+- `<!-- ctx: -->` ist Legacy-Metadatenformat: `module:` + `files:` + `model:`
+- `module:` verweist auf Einträge in [`.memory/module_index.md`](/mnt/LappiDaten/Projekte/sunray-core/.memory/module_index.md) bzw. `.memory/modules/`
+- `files:` nennt die konkret zu lesenden Dateien
+- `model:` ist das frühere vorgeschlagene Modell: `haiku`, `sonnet` oder `opus`

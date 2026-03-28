@@ -86,12 +86,19 @@ compile_rm18() {
     run_as=(sudo -u "$SUDO_USER_NAME" -H)
   fi
 
+  local tmp_root=""
+  cleanup_tmp_root() {
+    if [ -n "$tmp_root" ] && [ -d "$tmp_root" ]; then
+      "${run_as[@]}" rm -rf "$tmp_root"
+    fi
+  }
+  trap cleanup_tmp_root RETURN
+
   local firmware_dir
   firmware_dir="$(dirname "$BIN_PATH")"
   "${run_as[@]}" mkdir -p "$firmware_dir" "$BUILD_DIR"
 
   # arduino-cli requires the sketch in a folder matching the .ino name
-  local tmp_root
   tmp_root="$("${run_as[@]}" mktemp -d)"
   "${run_as[@]}" mkdir -p "$tmp_root/rm18"
   "${run_as[@]}" cp "$ALFRED_SKETCH" "$tmp_root/rm18/rm18.ino"
@@ -105,7 +112,10 @@ compile_rm18() {
     "$tmp_root/rm18"
 
   local produced_bin
-  produced_bin="$("${run_as[@]}" find "$BUILD_DIR" -maxdepth 1 -type f -name '*.bin' | head -n 1)"
+  produced_bin="$("${run_as[@]}" find "$BUILD_DIR" -maxdepth 1 -type f -name 'rm18.ino.bin' | head -n 1)"
+  if [ -z "$produced_bin" ]; then
+    produced_bin="$("${run_as[@]}" find "$BUILD_DIR" -maxdepth 1 -type f -name '*.bin' | sort | head -n 1)"
+  fi
   if [ -z "$produced_bin" ]; then
     echo "ERROR: No .bin produced in $BUILD_DIR"
     exit 1
@@ -126,8 +136,10 @@ flash_bin() {
   echo "Binary: $BIN_PATH"
   echo "Target: STM32F103 @ 0x08000000"
 
+  local program_cmd
+  program_cmd="init; targets; reset halt; program {$BIN_PATH} 0x08000000 verify reset exit"
   if openocd_cmd -f "$OPENOCD_CFG" \
-    -c "init; targets; reset halt; program $BIN_PATH 0x08000000 verify reset exit"; then
+    -c "$program_cmd"; then
     echo "✓ Flash successful"
   else
     echo "✗ Flash failed"
