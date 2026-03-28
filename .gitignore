@@ -1,4 +1,9 @@
 build/
+build_gcc/
+build_linux/
+build_clang_ninja/
+webui/node_modules/
+webui/dist/
 .cache/
 *.vcxproj
 *.sln

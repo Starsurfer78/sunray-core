@@ -13,6 +13,13 @@ Der aktuelle Schwerpunkt liegt auf einem robusten, nachvollziehbaren Software-St
 GitHub-Repository:
 <https://github.com/Starsurfer78/sunray-core>
 
+## Herkunft
+
+Dieses Projekt baut auf dem grossartigen Ardumower-Sunray-Projekt auf:
+<https://github.com/Ardumower/Sunray>
+
+`sunray-core` ist keine unabhaengige Neuentwicklung ohne Vorgeschichte, sondern eine Linux-/Pi-orientierte Weiterentwicklung und Neuordnung auf Basis dieser Arbeit.
+
 ## Status
 
 - Linux-Build: validiert
@@ -57,7 +64,7 @@ sunray-core/
 ├── tests/                 Catch2-Test-Suite
 ├── webui/                 Vue 3 + TypeScript Frontend
 ├── docs/                  aktuelle Projektdokumentation
-├── OLD_DOCS/              Alt-Dokumente und Analysen
+├── ALTE_DATEIEN/          Alt-Dokumente und Analysen
 ├── config.example.json    Beispielkonfiguration
 ├── main.cpp               Einstiegspunkt
 └── CMakeLists.txt         Top-Level-Build
@@ -88,6 +95,85 @@ Fuer echten Robot-Betrieb zusaetzlich:
 git clone https://github.com/Starsurfer78/sunray-core.git
 cd sunray-core
 ```
+
+### Komplett-Installation
+
+Fuer Raspberry Pi / Debian-basierte Systeme gibt es jetzt ein Komplett-Skript:
+
+```bash
+chmod +x scripts/install_sunray.sh
+./scripts/install_sunray.sh
+```
+
+Das Skript:
+
+- installiert die benoetigten Linux-Pakete
+- baut den nativen Core
+- installiert und baut die WebUI
+- legt bei Bedarf `/etc/sunray/config.json` aus `config.example.json` an
+- startet `sunray-core`
+- kann optional einen `systemd`-Autostart anlegen
+
+Wichtige Varianten:
+
+```bash
+# Simulation statt echter Hardware
+./scripts/install_sunray.sh --sim
+
+# Nur installieren und bauen, nicht direkt starten
+./scripts/install_sunray.sh --no-start
+
+# systemd-Autostart ohne Rueckfrage aktivieren
+./scripts/install_sunray.sh --autostart yes
+```
+
+Hinweise:
+
+- Das Skript unterstuetzt aktuell `apt`-basierte Systeme.
+- Fuer die WebUI wird Node.js >= 20 erwartet.
+- Der empfohlene Betriebsweg fuer echten Robotereinsatz ist Autostart per `systemd`.
+
+## Skripte
+
+Im Repository liegen zwei wichtige Hilfsskripte:
+
+### `scripts/install_sunray.sh`
+
+Installiert die benoetigten Pakete, baut den nativen Core und die WebUI, legt bei Bedarf die Laufzeitdateien unter `/etc/sunray/` an, startet `sunray-core` und kann optional einen `systemd`-Autostart einrichten.
+
+Beispiele:
+
+```bash
+./scripts/install_sunray.sh
+./scripts/install_sunray.sh --sim
+./scripts/install_sunray.sh --autostart yes
+./scripts/install_sunray.sh --no-start
+```
+
+### `scripts/flash_alfred.sh`
+
+Kompiliert die Alfred-STM32-Firmware `rm18.ino` mit `arduino-cli` und flasht sie ueber SWD/OpenOCD auf den STM32F103.
+
+Typische Aufrufe:
+
+```bash
+# Nur SWD-Verbindung pruefen
+sudo bash scripts/flash_alfred.sh probe
+
+# Nur Firmware bauen
+bash scripts/flash_alfred.sh build
+
+# Firmware bauen und flashen
+sudo bash scripts/flash_alfred.sh build-flash
+```
+
+Fuer den Build der Alfred-Firmware ist ein `FQBN` noetig, zum Beispiel:
+
+```bash
+export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
+```
+
+Weitere Details zu Verkabelung, OpenOCD und dem Pi-SWD-Setup stehen in [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md).
 
 ### 1. Repository bauen
 
@@ -197,13 +283,14 @@ Die wichtigsten Telemetriedaten umfassen unter anderem:
 
 Aktuelle, relevante Dateien:
 
-- [docs/STATUS.md](docs/STATUS.md)
-- [docs/SOFTWARE_RELEASE_GATE.md](docs/SOFTWARE_RELEASE_GATE.md)
-- [docs/RELEASE_CONFIGURATION.md](docs/RELEASE_CONFIGURATION.md)
-- [VERHALTENSKONZEPT.md](VERHALTENSKONZEPT.md)
+- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
+- [PROJECT_MAP.md](PROJECT_MAP.md)
+- [TASKS.md](TASKS.md)
 - [TODO.md](TODO.md)
+- [docs/OP_STATE_MACHINE.md](docs/OP_STATE_MACHINE.md)
+- [docs/USER_EXPERIENCE_IMPROVEMENTS.md](docs/USER_EXPERIENCE_IMPROVEMENTS.md)
 
-Historische bzw. analytische Alt-Dokumente liegen unter `OLD_DOCS/`.
+Historische bzw. analytische Alt-Dokumente liegen unter `ALTE_DATEIEN/`.
 
 ## Entwicklungsworkflow
 
@@ -231,4 +318,5 @@ npm test
 ## Lizenz / Hinweise
 
 Im Repository gibt es aktuell keine separat gepflegte Top-Level-Lizenzdatei.
-Wenn das Projekt oeffentlich auf GitHub erscheinen soll, sollte als naechster Doku-Schritt auch eine klare Lizenz und ein kurzer Contribution-Hinweis ergaenzt werden.
+Vor einer oeffentlichen Weitergabe oder einem breiteren Einsatz sollte die Lizenzlage deshalb explizit geklaert und im Repository dokumentiert werden.
+Das ist besonders wichtig, weil `sunray-core` auf Ardumower/Sunray aufbaut und diese Herkunft im Projekt selbst benannt ist.
