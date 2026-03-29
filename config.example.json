@@ -62,7 +62,7 @@
     "motor_pid_ki":         0.01,
     "motor_pid_kd":         0.01,
 
-    "_c_motor_current":     "Stromgrenzen Fahrmotoren (Ampere). fault=Hardware-Fehler (Sofortstopp), overload=Ueberlast (verlangsamen/stoppen), too_low=Blockade-Erkennung (0=deaktiviert)",
+    "_c_motor_current":     "Legacy-Alfred-Parameter fuer Pi-seitige Motorstromauswertung. Der aktive Core wertet diese Schwellen aktuell NICHT aus; Fault/Overload kommt heute primaer aus der MCU. Werte bleiben fuer spaetere Reaktivierung erhalten.",
     "motor_fault_current_a":        3.0,
     "motor_overload_current_a":     1.2,
     "motor_too_low_current_a":      0.005,
@@ -72,7 +72,7 @@
     "enable_fault_obstacle_avoidance": true,
     "fault_max_successive_count":   5,
 
-    "_c_mow_motor":         "Maehmotor-Stromgrenzen. toggle_dir=Drehrichtung jeder Start wechseln. enable_mow_motor=false zum Testen ohne Messer",
+    "_c_mow_motor":         "Legacy-Alfred-Parameter fuer Pi-seitige Maehmotor-Stromauswertung. Aktuell im Core ungenutzt; fuer spaetere Reaktivierung bewusst erhalten. toggle_dir=Drehrichtung jeder Start wechseln. enable_mow_motor=false zum Testen ohne Messer",
     "mow_fault_current_a":          8.0,
     "mow_overload_current_a":       2.0,
     "mow_too_low_current_a":        0.005,

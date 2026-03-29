@@ -86,206 +86,20 @@ void Robot::loop() {
 
 void Robot::run() {
     try {
-        // ── 1. Monotonic clock ────────────────────────────────────────────────
-        const unsigned long prev_ms = now_ms_;
-        now_ms_ = static_cast<unsigned long>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - startTime_).count());
-        const unsigned long dt_ms = now_ms_ - prev_ms;
-
-        // ── 2. Driver tick ────────────────────────────────────────────────────
-        hw_->run();
-
-        // ── 3. Sensor reads ───────────────────────────────────────────────────
-        odometry_ = hw_->readOdometry();
-        sensors_  = hw_->readSensors();
-        battery_  = hw_->readBattery();
-        lastImu_  = hw_->readImu();
-        if (lastImu_.valid) {
-            stateEst_.updateImu(lastImu_.yaw, lastImu_.roll, lastImu_.pitch);
-        }
-
-        // ── 4. Timetable check (C.11) — once per minute ───────────────────────
-        if (now_ms_ - lastScheduleCheck_ms_ >= 60000UL) {
-            lastScheduleCheck_ms_ = now_ms_;
-            const bool active = schedule_.isActiveNow();
-            if (active != scheduleWasActive_) {
-                OpContext ctx{*hw_, *config_, *logger_, opMgr_};
-                ctx.sensors = sensors_;
-                ctx.battery = battery_;
-                ctx.odometry = odometry_;
-                ctx.x = stateEst_.x();
-                ctx.y = stateEst_.y();
-                ctx.heading = stateEst_.heading();
-                ctx.insidePerimeter = true;
-                ctx.isDockingRoute = false;
-                ctx.gpsHasFix = stateEst_.gpsHasFix();
-                ctx.gpsHasFloat = stateEst_.gpsHasFloat();
-                ctx.gpsFixAge_ms = (gpsLastFixTime_ms_ == 0) ? now_ms_
-                                 : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
-                ctx.stateEst = &stateEst_;
-                ctx.map = &map_;
-                ctx.lineTracker = &lineTracker_;
-                ctx.now_ms = now_ms_;
-                if (active) {
-                    if (Op* op = opMgr_.activeOp()) op->onTimetableStartMowing(ctx);
-                } else {
-                    if (Op* op = opMgr_.activeOp()) op->onTimetableStopMowing(ctx);
-                }
-                scheduleWasActive_ = active;
-            }
-        }
-
-        // ── 5. Obstacle cleanup (C.7) — once per second ───────────────────────
-        if (now_ms_ - lastObstacleCleanup_ms_ >= 1000UL) {
-            map_.cleanupExpiredObstacles(now_ms_);
-            lastObstacleCleanup_ms_ = now_ms_;
-        }
-
-        // ── 5. State estimation ───────────────────────────────────────────────
-        stateEst_.update(odometry_, dt_ms);
-        if (gps_) {
-            lastGps_ = gps_->getData();
-            if (lastGps_.valid) {
-                stateEst_.updateGps(
-                    lastGps_.relPosE, lastGps_.relPosN,
-                    lastGps_.solution == GpsSolution::Fixed,
-                    lastGps_.solution == GpsSolution::Float);
-                gpsLastFixTime_ms_ = now_ms_;  // BUG-006 fix
-            }
-            // Push NMEA line to WebSocket when it changes
-            if (ws_ && !lastGps_.nmeaGGA.empty() &&
-                lastGps_.nmeaGGA != lastNmeaGGA_) {
-                lastNmeaGGA_ = lastGps_.nmeaGGA;
-                ws_->broadcastNmea(lastNmeaGGA_);
-            }
-        }
-
-        // ── 5. Build OpContext ────────────────────────────────────────────────
-        OpContext ctx{*hw_, *config_, *logger_, opMgr_};
-        ctx.sensors = sensors_;
-        ctx.battery = battery_;
-        ctx.odometry = odometry_;
-        ctx.x = stateEst_.x();
-        ctx.y = stateEst_.y();
-        ctx.heading = stateEst_.heading();
-        ctx.insidePerimeter = map_.isLoaded()
-                            ? map_.isInsideAllowedArea(stateEst_.x(), stateEst_.y())
-                            : true;
-        ctx.isDockingRoute = map_.isDocking();
-        ctx.gpsHasFix = stateEst_.gpsHasFix();
-        ctx.gpsHasFloat = stateEst_.gpsHasFloat();
-        ctx.gpsFixAge_ms = (gpsLastFixTime_ms_ == 0) ? now_ms_
-                        : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);  // BUG-006 fix
-        ctx.resumeBlockedByMapChange = resumeBlockedByMapChange_;
-        ctx.stateEst = &stateEst_;
-        ctx.map = &map_;
-        ctx.lineTracker = &lineTracker_;
-        ctx.now_ms = now_ms_;
-
-        // ── 6. Battery guard ──────────────────────────────────────────────────
-        checkBattery(ctx);
-        monitorGpsResilience(ctx);
-
-        // ── 7. Op state machine tick ──────────────────────────────────────────
-        opMgr_.tick(ctx);
-
-        // ── 8. Diagnostic motor test (C.10b) ─────────────────────────────────
-        {
-            std::lock_guard<std::mutex> lk(diagMutex_);
-            if (diagReq_.active && !diagReq_.done) {
-                if (diagReq_.startMs == 0) diagReq_.startMs = now_ms_;
-                auto toPwm = [](float normalized) -> int {
-                    const float clamped = normalized < -1.0f ? -1.0f : (normalized > 1.0f ? 1.0f : normalized);
-                    return static_cast<int>(clamped * 255.0f);
-                };
-                const int pwm = toPwm(diagReq_.pwm);
-
-                // Apply PWM to the target motor
-                if      (diagReq_.motor == "left")  hw_->setMotorPwm(pwm, 0,   0);
-                else if (diagReq_.motor == "right") hw_->setMotorPwm(0,   pwm, 0);
-                else if (diagReq_.motor == "mow")   hw_->setMotorPwm(0,   0,   pwm);
-                else if (diagReq_.motor == "both")  hw_->setMotorPwm(pwm, pwm, 0);
-
-                // Accumulate incremental ticks (average L+R for "both")
-                if      (diagReq_.motor == "left")  diagReq_.accTicks += std::abs(odometry_.leftTicks);
-                else if (diagReq_.motor == "right") diagReq_.accTicks += std::abs(odometry_.rightTicks);
-                else if (diagReq_.motor == "mow")   diagReq_.accTicks += std::abs(odometry_.mowTicks);
-                else if (diagReq_.motor == "both")  diagReq_.accTicks += (std::abs(odometry_.leftTicks) + std::abs(odometry_.rightTicks)) / 2;
-
-                const bool timeDone    = (diagReq_.ticksTarget == 0)
-                                       && (now_ms_ - diagReq_.startMs >= diagReq_.duration_ms);
-                const bool tickDone    = (diagReq_.ticksTarget > 0)
-                                       && (std::abs(diagReq_.accTicks) >= diagReq_.ticksTarget);
-                const bool safeTimeout = (now_ms_ - diagReq_.startMs >= 15000u);  // always
-                if (timeDone || tickDone || safeTimeout) {
-                    hw_->setMotorPwm(0.0f, 0.0f, 0.0f);
-                    const int cfgTpr = config_->get<int>("ticks_per_revolution",
-                                     config_->get<int>("ticks_per_rev", 120));
-                    nlohmann::json r;
-                    r["ok"]                   = true;
-                    r["ticks"]                = diagReq_.accTicks;
-                    r["ticks_target"]         = diagReq_.ticksTarget;
-                    r["ticks_per_rev_config"] = cfgTpr;
-                    diagReq_.resultJson = r.dump();
-                    diagReq_.done = true;
-                    diagCv_.notify_all();
-                }
-                return;  // skip normal control path during diag
-            }
-        }
-
-        // ── 9. Manual drive (joystick) — only in Idle, watchdog 500 ms ───────
-        {
-            const uint64_t driveTs = manualDriveTs_ms_.load();
-            const bool     inIdle  = (activeOpName() == "Idle");
-            const bool     fresh   = (now_ms_ - driveTs < 500UL);
-            if (inIdle && fresh && driveTs > 0) {
-                const float lin = manualLinear1000_.load()  / 1000.f;
-                const float ang = manualAngular1000_.load() / 1000.f;
-                constexpr float MAX_PWM = 0.35f;  // 35 % max in manual mode
-                float left  = (lin - ang * 0.5f) * MAX_PWM;
-                float right = (lin + ang * 0.5f) * MAX_PWM;
-                left  = left  < -1.f ? -1.f : left  > 1.f ? 1.f : left;
-                right = right < -1.f ? -1.f : right > 1.f ? 1.f : right;
-                hw_->setMotorPwm(static_cast<int>(left * 255.0f),
-                                 static_cast<int>(right * 255.0f), 0);
-            }
-        }
-
-        // ── 10. Safety: bumper/lift/motor fault → force motor stop ───────────
-        if (sensors_.bumperLeft || sensors_.bumperRight || sensors_.lift || sensors_.motorFault) {
-            // Let the active Op handle it via events (Op::onObstacle etc.).
-            // But always guarantee motors stop immediately.
-            hw_->setMotorPwm(0, 0, 0);
-
-            if (Op* op = opMgr_.activeOp()) {
-                // Edge-triggered events (fire only once on contact)
-                if ((sensors_.bumperLeft  && !previousSensors_.bumperLeft) ||
-                    (sensors_.bumperRight && !previousSensors_.bumperRight)) {
-                    op->onObstacle(ctx);
-                }
-                if (sensors_.lift && !previousSensors_.lift) {
-                    op->onLiftTriggered(ctx);
-                }
-                if (sensors_.motorFault && !previousSensors_.motorFault) {
-                    op->onMotorError(ctx);
-                }
-                if (sensors_.rain && !previousSensors_.rain) {
-                    op->onRainTriggered(ctx);
-                }
-            }
-        }
-        previousSensors_ = sensors_;
-
-        // ── 11. Status LEDs ───────────────────────────────────────────────────
+        const unsigned long dt_ms = tickTiming();
+        tickHardware();
+        tickSchedule();
+        tickObstacleCleanup();
+        tickStateEstimation(dt_ms);
+        OpContext ctx = assembleOpContext();
+        tickSafetyGuards(ctx);
+        tickStateMachine(ctx);
+        if (tickDiag()) return;
+        tickButtonControl();
+        tickManualDrive();
+        tickSafetyStop(ctx);
         updateStatusLeds();
-
-        // ── 12. Telemetry push (WebSocket + MQTT) ────────────────────────────
-        const auto td = buildTelemetry();
-        if (ws_)   ws_->pushTelemetry(td);
-        if (mqtt_) mqtt_->pushTelemetry(td);
-
+        tickTelemetry();
         ++controlLoops_;
     } catch (const std::exception& e) {
         try { hw_->setMotorPwm(0, 0, 0); } catch (...) {}
@@ -296,6 +110,263 @@ void Robot::run() {
         running_.store(false);
         logger_->error(TAG, "Unhandled non-standard exception in run()");
     }
+}
+
+unsigned long Robot::tickTiming() {
+    const unsigned long prev_ms = now_ms_;
+    now_ms_ = static_cast<unsigned long>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startTime_).count());
+    return now_ms_ - prev_ms;
+}
+
+void Robot::tickHardware() {
+    hw_->run();
+
+    odometry_ = hw_->readOdometry();
+    sensors_  = hw_->readSensors();
+    battery_  = hw_->readBattery();
+    lastImu_  = hw_->readImu();
+    if (lastImu_.valid) {
+        stateEst_.updateImu(lastImu_.yaw, lastImu_.roll, lastImu_.pitch);
+    }
+}
+
+void Robot::tickSchedule() {
+    if (now_ms_ - lastScheduleCheck_ms_ < 60000UL) return;
+
+    lastScheduleCheck_ms_ = now_ms_;
+    const bool active = schedule_.isActiveNow();
+    if (active == scheduleWasActive_) return;
+
+    OpContext ctx{*hw_, *config_, *logger_, opMgr_};
+    ctx.sensors = sensors_;
+    ctx.battery = battery_;
+    ctx.odometry = odometry_;
+    ctx.x = stateEst_.x();
+    ctx.y = stateEst_.y();
+    ctx.heading = stateEst_.heading();
+    ctx.insidePerimeter = true;
+    ctx.isDockingRoute = false;
+    ctx.gpsHasFix = stateEst_.gpsHasFix();
+    ctx.gpsHasFloat = stateEst_.gpsHasFloat();
+    ctx.gpsFixAge_ms = (gpsLastFixTime_ms_ == 0) ? now_ms_
+                     : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
+    ctx.stateEst = &stateEst_;
+    ctx.map = &map_;
+    ctx.lineTracker = &lineTracker_;
+    ctx.now_ms = now_ms_;
+    if (active) {
+        if (Op* op = opMgr_.activeOp()) op->onTimetableStartMowing(ctx);
+    } else {
+        if (Op* op = opMgr_.activeOp()) op->onTimetableStopMowing(ctx);
+    }
+    scheduleWasActive_ = active;
+}
+
+void Robot::tickObstacleCleanup() {
+    if (now_ms_ - lastObstacleCleanup_ms_ < 1000UL) return;
+    map_.cleanupExpiredObstacles(now_ms_);
+    lastObstacleCleanup_ms_ = now_ms_;
+}
+
+void Robot::tickStateEstimation(unsigned long dt_ms) {
+    stateEst_.update(odometry_, dt_ms);
+    if (!gps_) return;
+
+    lastGps_ = gps_->getData();
+    if (lastGps_.valid) {
+        stateEst_.updateGps(
+            lastGps_.relPosE, lastGps_.relPosN,
+            lastGps_.solution == GpsSolution::Fixed,
+            lastGps_.solution == GpsSolution::Float);
+        gpsLastFixTime_ms_ = now_ms_;
+    }
+    if (ws_ && !lastGps_.nmeaGGA.empty() && lastGps_.nmeaGGA != lastNmeaGGA_) {
+        lastNmeaGGA_ = lastGps_.nmeaGGA;
+        ws_->broadcastNmea(lastNmeaGGA_);
+    }
+}
+
+OpContext Robot::assembleOpContext() {
+    OpContext ctx{*hw_, *config_, *logger_, opMgr_};
+    ctx.sensors = sensors_;
+    ctx.battery = battery_;
+    ctx.odometry = odometry_;
+    ctx.x = stateEst_.x();
+    ctx.y = stateEst_.y();
+    ctx.heading = stateEst_.heading();
+    ctx.insidePerimeter = map_.isLoaded()
+                        ? map_.isInsideAllowedArea(stateEst_.x(), stateEst_.y())
+                        : true;
+    ctx.isDockingRoute = map_.isDocking();
+    ctx.gpsHasFix = stateEst_.gpsHasFix();
+    ctx.gpsHasFloat = stateEst_.gpsHasFloat();
+    ctx.gpsFixAge_ms = (gpsLastFixTime_ms_ == 0) ? now_ms_
+                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
+    ctx.resumeBlockedByMapChange = resumeBlockedByMapChange_;
+    ctx.stateEst = &stateEst_;
+    ctx.map = &map_;
+    ctx.lineTracker = &lineTracker_;
+    ctx.now_ms = now_ms_;
+    return ctx;
+}
+
+void Robot::tickSafetyGuards(OpContext& ctx) {
+    checkBattery(ctx);
+    monitorGpsResilience(ctx);
+}
+
+void Robot::tickStateMachine(OpContext& ctx) {
+    opMgr_.tick(ctx);
+}
+
+bool Robot::tickDiag() {
+    std::lock_guard<std::mutex> lk(diagMutex_);
+    if (!diagReq_.active || diagReq_.done) return false;
+
+    if (diagReq_.startMs == 0) diagReq_.startMs = now_ms_;
+    auto toPwm = [](float normalized) -> int {
+        const float clamped = normalized < -1.0f ? -1.0f : (normalized > 1.0f ? 1.0f : normalized);
+        return static_cast<int>(clamped * 255.0f);
+    };
+    const int pwm = toPwm(diagReq_.pwm);
+
+    if      (diagReq_.motor == "left")  hw_->setMotorPwm(pwm, 0,   0);
+    else if (diagReq_.motor == "right") hw_->setMotorPwm(0,   pwm, 0);
+    else if (diagReq_.motor == "mow")   hw_->setMotorPwm(0,   0,   pwm);
+    else if (diagReq_.motor == "both")  hw_->setMotorPwm(pwm, pwm, 0);
+
+    if      (diagReq_.motor == "left")  diagReq_.accTicks += std::abs(odometry_.leftTicks);
+    else if (diagReq_.motor == "right") diagReq_.accTicks += std::abs(odometry_.rightTicks);
+    else if (diagReq_.motor == "mow")   diagReq_.accTicks += std::abs(odometry_.mowTicks);
+    else if (diagReq_.motor == "both")  diagReq_.accTicks += (std::abs(odometry_.leftTicks) + std::abs(odometry_.rightTicks)) / 2;
+
+    const bool timeDone    = (diagReq_.ticksTarget == 0)
+                           && (now_ms_ - diagReq_.startMs >= diagReq_.duration_ms);
+    const bool tickDone    = (diagReq_.ticksTarget > 0)
+                           && (std::abs(diagReq_.accTicks) >= diagReq_.ticksTarget);
+    const bool safeTimeout = (now_ms_ - diagReq_.startMs >= 15000u);
+    if (timeDone || tickDone || safeTimeout) {
+        hw_->setMotorPwm(0.0f, 0.0f, 0.0f);
+        const int cfgTpr = config_->get<int>("ticks_per_revolution",
+                         config_->get<int>("ticks_per_rev", 120));
+        nlohmann::json r;
+        r["ok"]                   = true;
+        r["ticks"]                = diagReq_.accTicks;
+        r["ticks_target"]         = diagReq_.ticksTarget;
+        r["ticks_per_rev_config"] = cfgTpr;
+        diagReq_.resultJson = r.dump();
+        diagReq_.done = true;
+        diagCv_.notify_all();
+    }
+    return true;
+}
+
+void Robot::tickButtonControl() {
+    // End short button-beep pulse.
+    if (buttonBeepOffAt_ms_ != 0 && now_ms_ >= buttonBeepOffAt_ms_) {
+        hw_->setBuzzer(false);
+        buttonBeepOffAt_ms_ = 0;
+    }
+
+    const bool pressed = sensors_.stopButton;
+    const std::string opName = activeOpName();
+    const bool canRunHoldActions = (opName == "Idle" || opName == "Charge");
+
+    if (pressed && !stopButtonPrev_ && !canRunHoldActions) {
+        emergencyStop();
+    }
+
+    if (pressed) {
+        if (!buttonHoldActive_) {
+            buttonHoldStart_ms_ = now_ms_;
+            buttonLastFeedback_s_ = 0;
+            buttonHoldActive_ = true;
+        }
+
+        const unsigned heldSeconds = static_cast<unsigned>((now_ms_ - buttonHoldStart_ms_) / 1000UL);
+        if (heldSeconds > buttonLastFeedback_s_) {
+            buttonLastFeedback_s_ = heldSeconds;
+            hw_->setBuzzer(true);
+            buttonBeepOffAt_ms_ = now_ms_ + 100;
+        }
+    } else if (stopButtonPrev_ && buttonHoldActive_) {
+        const unsigned heldSeconds = static_cast<unsigned>((now_ms_ - buttonHoldStart_ms_) / 1000UL);
+
+        if (buttonBeepOffAt_ms_ != 0) {
+            hw_->setBuzzer(false);
+            buttonBeepOffAt_ms_ = 0;
+        }
+
+        if (heldSeconds >= 9) {
+            emergencyStop();
+            hw_->keepPowerOn(false);
+            running_.store(false);
+            logger_->warn(TAG, "Stop button long-press >=9s — shutdown requested");
+        } else if (heldSeconds >= 6) {
+            startMowing();
+            logger_->info(TAG, "Stop button long-press >=6s — start mowing");
+        } else if (heldSeconds >= 5) {
+            startDocking();
+            logger_->info(TAG, "Stop button long-press >=5s — start docking");
+        } else if (heldSeconds >= 1) {
+            emergencyStop();
+            logger_->warn(TAG, "Stop button short-press >=1s — emergency stop");
+        }
+
+        buttonHoldStart_ms_ = 0;
+        buttonLastFeedback_s_ = 0;
+        buttonHoldActive_ = false;
+    }
+
+    stopButtonPrev_ = pressed;
+}
+
+void Robot::tickManualDrive() {
+    const uint64_t driveTs = manualDriveTs_ms_.load();
+    const bool     inIdle  = (activeOpName() == "Idle");
+    const bool     fresh   = (now_ms_ - driveTs < 500UL);
+    if (!(inIdle && fresh && driveTs > 0) || sensors_.stopButton) return;
+
+    const float lin = manualLinear1000_.load()  / 1000.f;
+    const float ang = manualAngular1000_.load() / 1000.f;
+    constexpr float MAX_PWM = 0.35f;
+    float left  = (lin - ang * 0.5f) * MAX_PWM;
+    float right = (lin + ang * 0.5f) * MAX_PWM;
+    left  = left  < -1.f ? -1.f : left  > 1.f ? 1.f : left;
+    right = right < -1.f ? -1.f : right > 1.f ? 1.f : right;
+    hw_->setMotorPwm(static_cast<int>(left * 255.0f),
+                     static_cast<int>(right * 255.0f), 0);
+}
+
+void Robot::tickSafetyStop(OpContext& ctx) {
+    if (sensors_.bumperLeft || sensors_.bumperRight || sensors_.lift || sensors_.motorFault) {
+        hw_->setMotorPwm(0, 0, 0);
+
+        if (Op* op = opMgr_.activeOp()) {
+            if ((sensors_.bumperLeft  && !previousSensors_.bumperLeft) ||
+                (sensors_.bumperRight && !previousSensors_.bumperRight)) {
+                op->onObstacle(ctx);
+            }
+            if (sensors_.lift && !previousSensors_.lift) {
+                op->onLiftTriggered(ctx);
+            }
+            if (sensors_.motorFault && !previousSensors_.motorFault) {
+                op->onMotorError(ctx);
+            }
+            if (sensors_.rain && !previousSensors_.rain) {
+                op->onRainTriggered(ctx);
+            }
+        }
+    }
+    previousSensors_ = sensors_;
+}
+
+void Robot::tickTelemetry() {
+    const auto td = buildTelemetry();
+    if (ws_)   ws_->pushTelemetry(td);
+    if (mqtt_) mqtt_->pushTelemetry(td);
 }
 
 void Robot::stop() {
@@ -484,8 +555,8 @@ void Robot::updateStatusLeds() {
 WebSocketServer::TelemetryData Robot::buildTelemetry() const {
     WebSocketServer::TelemetryData d;
     const std::string opName = activeOpName();
-    const float lowV      = config_->get<float>("battery_low_v",      21.0f);
-    const float criticalV = config_->get<float>("battery_critical_v", 20.0f);
+    const float lowV      = config_->get<float>("battery_low_v",      25.5f);
+    const float criticalV = config_->get<float>("battery_critical_v", 18.9f);
 
     d.op        = activeOpName();
     d.x         = stateEst_.x();
@@ -593,8 +664,8 @@ WebSocketServer::TelemetryData Robot::buildTelemetry() const {
 }
 
 void Robot::checkBattery(OpContext& ctx) {
-    const float lowV      = config_->get<float>("battery_low_v",      21.0f);
-    const float criticalV = config_->get<float>("battery_critical_v", 20.0f);
+    const float lowV      = config_->get<float>("battery_low_v",      25.5f);
+    const float criticalV = config_->get<float>("battery_critical_v", 18.9f);
 
     if (battery_.voltage < 0.1f) return;  // no MCU data yet
     if (battery_.chargerConnected) return; // charging — no guard needed

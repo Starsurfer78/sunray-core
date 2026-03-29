@@ -1,6 +1,6 @@
 # TASKS
 
-Last updated: 2026-03-28
+Last updated: 2026-03-29
 
 Dieses Dokument ist die zusammengeführte Aufgabenübersicht aus:
 
@@ -51,6 +51,65 @@ Wichtige Dateien:
 
 ## Priorität 2
 
+### Alfred-Migrationslücken nach Originalvergleich
+
+Diese Reihenfolge folgt direkt aus
+[`ALFRED_MIGRATIONSPLAN.md`](/mnt/LappiDaten/Projekte/sunray-core/ALFRED_MIGRATIONSPLAN.md)
+und schließt die wichtigsten Alfred-spezifischen Lücken nach der reinen
+Pi-/Build-Validierung.
+
+Offene Aufgaben:
+
+- [x] Alfred-1: Button-Hold-Logic portieren und testen
+- [x] Alfred-2: Battery-Fallbacks auf Originalwerte korrigieren
+- [x] Alfred-3: Motorstrom-/Fault-Entscheidung treffen und umsetzen oder bewusst dokumentieren
+- [ ] Alfred-4: echte Alfred-Hardwareabnahme inkl. Multiplexer/ADC/EEPROM durchführen und dokumentieren
+- [ ] Alfred-5: NTRIP als echter Runtime-Pfad bewerten und priorisiert umsetzen
+- [ ] Alfred-6: optionale Linux-Extras wie BLE, Audio, CAN, Kamera bewusst entscheiden
+- [ ] Alfred-7: PID-Controller fuer geschlossene Radgeschwindigkeitsregelung planen und stufenweise einfuehren
+
+Warum das hier steht:
+
+- Diese Punkte schließen die wichtigsten Unterschiede zwischen Original-Alfred
+  und `sunray-core`, ohne die modernere Architektur zurückzubauen.
+- Die ersten vier Punkte betreffen reale Bedienbarkeit, Maschinenverhalten und
+  Hardwareparität.
+- NTRIP und Linux-Extras sind fachlich sinnvoll, aber nachgeordnet.
+
+Aktueller Fortschritt:
+
+- `Alfred-1` ist umgesetzt für die praxisrelevanten Hold-Aktionen `>=1s Stop`,
+  `>=5s Dock`, `>=6s Mow`, `>=9s Shutdown` inklusive Sekunden-Beep und Tests.
+- Die historischen Sonderpfade `3s R/C` und `12s WPS` sind damit noch nicht
+  wiederhergestellt und bleiben Folgearbeit, falls dafür echte Anforderungen
+  bestehen.
+- `Alfred-2` ist umgesetzt: `Robot` nutzt als Fallback jetzt `25.5V` /
+  `18.9V` statt der zu niedrigen Altwerte.
+- `Alfred-3` ist entschieden als Variante A: Die Legacy-Current-/Fault-Parameter
+  bleiben erhalten, sind aber jetzt explizit als aktuell ungenutzt markiert,
+  weil die aktive Fault-Erkennung heute primär aus der MCU kommt.
+- `Alfred-4` ist vorbereitet: Die Hardwareabnahme ist jetzt als
+  [`docs/ALFRED_HARDWARE_ACCEPTANCE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/ALFRED_HARDWARE_ACCEPTANCE.md)
+  konkret beschrieben. Offen bleibt die echte Ausfuehrung auf Pi/Alfred.
+- `Alfred-7` ist jetzt als technischer Umsetzungsplan beschrieben in
+  [`docs/PID_CONTROLLER_PLAN.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/PID_CONTROLLER_PLAN.md).
+  Der Plan fuehrt den PID bewusst unterhalb von Stanley ein, nicht als Ersatz.
+  Die erste Vorstufe ist bereits umgesetzt: Das bisherige direkte Open-Loop-
+  Mapping aus `OpContext` steckt jetzt in einer eigenen
+  `OpenLoopDriveController`-Klasse, noch ohne Verhaltensaenderung.
+
+Wichtige Dateien:
+
+- [`ALFRED_MIGRATIONSPLAN.md`](/mnt/LappiDaten/Projekte/sunray-core/ALFRED_MIGRATIONSPLAN.md)
+- [`IST_SOLL_ANALYSE.md`](/mnt/LappiDaten/Projekte/sunray-core/IST_SOLL_ANALYSE.md)
+- [`docs/ALFRED_HARDWARE_ACCEPTANCE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/ALFRED_HARDWARE_ACCEPTANCE.md)
+- [`docs/PID_CONTROLLER_PLAN.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/PID_CONTROLLER_PLAN.md)
+- [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
+- [`hal/SerialRobotDriver/SerialRobotDriver.cpp`](/mnt/LappiDaten/Projekte/sunray-core/hal/SerialRobotDriver/SerialRobotDriver.cpp)
+- [`config.example.json`](/mnt/LappiDaten/Projekte/sunray-core/config.example.json)
+
+## Priorität 3
+
 ### C.16 Benutzererlebnis / Nutzerführung
 
 Das ist der sichtbarste offene Produktblock und der naheliegendste nächste Schritt nach Hardware-Validierung.
@@ -78,7 +137,7 @@ Wichtige Dateien:
 - [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
 - [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
 
-## Priorität 3
+## Priorität 4
 
 ### C.8-b Energie-Budget + Rückkehr-Berechnung
 
@@ -102,7 +161,7 @@ Wichtige Dateien:
 
 Diese Punkte sind weniger reine Implementierungsaufgaben als offene Feld- und Integrationsthemen.
 
-## Priorität 4
+## Priorität 5
 
 ### B Pico-Driver
 
@@ -121,7 +180,7 @@ Wichtige Dateien:
 - [`hal/HardwareInterface.h`](/mnt/LappiDaten/Projekte/sunray-core/hal/HardwareInterface.h)
 - [`platform/I2C.h`](/mnt/LappiDaten/Projekte/sunray-core/platform/I2C.h)
 
-## Priorität 5
+## Priorität 6
 
 ### Größere Erweiterungen
 
@@ -187,6 +246,105 @@ Die WebUI hängt direkt an:
 Folge:
 
 - Änderungen an [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp) und [`webui/src/composables/useTelemetry.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/composables/useTelemetry.ts) brauchen besondere Sorgfalt.
+
+### Architektur-Reduktionsplan für die nächsten Commits
+
+Vor Commit 1:
+
+- aktuellen Telemetrie-Vertrag kurz fixieren, bevor `Robot::run()` angefasst wird
+- Payload-Keys und ihre Bedeutung bewusst festhalten, damit Commit 1 nicht still das Frontend-Verhalten verändert
+- Bestandsaufnahme von `Robot::run()` und aktuellen Testlücken schriftlich festhalten
+- Baseline-Dokumente:
+  - [`docs/ROBOT_RUN_BASELINE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/ROBOT_RUN_BASELINE.md)
+  - [`docs/TELEMETRY_CONTRACT.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/TELEMETRY_CONTRACT.md)
+
+#### Commit 1 — `Robot` entlasten ohne Verhaltensänderung
+
+Status: erledigt am 2026-03-28.
+
+- `Robot::run()` in wenige klar benannte private Schritte zerlegen
+- Telemetrieaufbau nur dann herausziehen, wenn vorher/nachher per Smoke-Test derselbe Output sichtbar bleibt
+- vorhandene Robot-Tests vor oder zusammen mit dem Umbau stärken
+
+Ergebnis:
+
+- `Robot::run()` ist jetzt in klar benannte private Schritte zerlegt, ohne fachliche Ablaufänderung
+- Telemetrie-Smoke-Test friert `Idle` und `NavToStart` weiterhin auf `op`, `state_phase`, `resume_target`, `event_reason` und `error_code` ein
+- ein zusätzlicher Diag-Test hält fest, dass der Early-Return-Pfad weiterhin `controlLoops_++` überspringt
+
+Änderungserlaubnis:
+
+- erlaubt sind Struktur- und Lesbarkeitsänderungen
+- nicht erlaubt sind neue Zustandsübergänge, geänderte Telemetrie-Keys oder neue fachliche Logik
+
+Primäre Dateien:
+
+- [`core/Robot.h`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.h)
+- [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
+- [`tests/test_robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/tests/test_robot.cpp)
+
+#### Commit 2 — Telemetrie- und API-Vertrag explizit machen
+
+Status: erledigt am 2026-03-28.
+
+- Telemetrieformat kurz dokumentieren
+- Contract-Tests für WebSocket/REST-Payloads ergänzen
+- additive Änderungen bevorzugen, keine stillen Umbenennungen
+
+Ergebnis:
+
+- der Telemetrie-Vertrag ist in [`docs/TELEMETRY_CONTRACT.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/TELEMETRY_CONTRACT.md) explizit festgehalten
+- der WebSocket-Contract-Test deckt jetzt den vollständigen gefrorenen Op-Satz inklusive `WaitRain` und `EscapeForward` ab
+- das Frontend-Telemetry-Interface behandelt immer gelieferte Felder jetzt als required, statt still `undefined` zuzulassen
+
+Änderungserlaubnis:
+
+- erlaubt sind Dokumentation, Tests und additive Payload-Felder
+- nicht erlaubt sind Breaking Changes an bestehenden Schlüsseln ohne explizite Gegenanpassung und Dokumentationsupdate
+
+Primäre Dateien:
+
+- [`core/WebSocketServer.h`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.h)
+- [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
+- [`webui/src/composables/useTelemetry.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/composables/useTelemetry.ts)
+- [`tests/test_websocket_server.cpp`](/mnt/LappiDaten/Projekte/sunray-core/tests/test_websocket_server.cpp)
+
+#### Commit 3 — High-Risk-Szenarien absichern
+
+Status: erledigt am 2026-03-28.
+
+- gezielte Regressionstests für GPS-Verlust, Hindernis-Recovery, Docking-Retry und Resume
+- Navigation nur noch zusammen mit Szenario-Tests ändern
+
+Ergebnis:
+
+- Escape-Recovery ist jetzt nicht nur beim Eintritt, sondern bis zur Rückkehr nach `Mow` abgesichert
+- `resume_target` ist für den GPS-Recovery-Pfad szenariobasiert geprüft
+- der Gegenbeweis für Zustände ohne Resume-Semantik ist als Fehlerfall-Telemetrie abgesichert
+
+Änderungserlaubnis:
+
+- erlaubt sind Tests und gezielte Stabilisierung an den betroffenen Pfaden
+- nicht erlaubt sind größere Navigationsumbauten ohne begleitende Szenario-Tests
+
+Pflicht nach jedem der drei Commits:
+
+- [`TASKS.md`](/mnt/LappiDaten/Projekte/sunray-core/TASKS.md) aktualisieren
+- [`TODO.md`](/mnt/LappiDaten/Projekte/sunray-core/TODO.md) aktualisieren
+
+Primäre Dateien:
+
+- [`tests/test_op_machine.cpp`](/mnt/LappiDaten/Projekte/sunray-core/tests/test_op_machine.cpp)
+- [`tests/test_robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/tests/test_robot.cpp)
+- [`core/navigation/Map.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/Map.cpp)
+- [`core/navigation/GridMap.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/GridMap.cpp)
+- [`core/navigation/LineTracker.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/LineTracker.cpp)
+
+Status des Architektur-Reduktionsplans:
+
+- Commit 1 abgeschlossen
+- Commit 2 abgeschlossen
+- Commit 3 abgeschlossen
 
 ### 3. Source-vs-generated Unschärfe im Repo
 

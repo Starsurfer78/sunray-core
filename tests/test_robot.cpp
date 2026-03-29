@@ -29,6 +29,23 @@
 
 using namespace sunray;
 
+namespace sunray {
+struct RobotTelemetryAccess {
+    static WebSocketServer::TelemetryData build(const Robot& robot) {
+        return robot.buildTelemetry();
+    }
+
+    static void advanceTimeMs(Robot& robot, unsigned long ms) {
+        robot.startTime_ -= std::chrono::milliseconds(ms);
+    }
+
+    static void armDiag(Robot& robot, const std::string& motor, float pwm, unsigned duration_ms) {
+        std::lock_guard<std::mutex> lk(robot.diagMutex_);
+        robot.diagReq_ = Robot::DiagReq{motor, pwm, duration_ms, 0, true, 0, 0, false, ""};
+    }
+};
+}
+
 // ── MockHardware ───────────────────────────────────────────────────────────────
 
 struct MockHardware : public HardwareInterface {
@@ -292,6 +309,74 @@ TEST_CASE("Robot: run() exposes sensor snapshot", "[run]") {
     REQUIRE(robot->lastBattery().voltage == Catch::Approx(24.5f));
 }
 
+TEST_CASE("Robot: telemetry smoke test freezes current business semantics", "[run][telemetry]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    SECTION("Idle telemetry uses stable defaults") {
+        robot->run();
+
+        const auto td = RobotTelemetryAccess::build(*robot);
+        REQUIRE(robot->activeOpName() == "Idle");
+        REQUIRE(td.op == "Idle");
+        REQUIRE(td.state_phase == "idle");
+        REQUIRE(td.resume_target.empty());
+        REQUIRE(td.event_reason == "none");
+        REQUIRE(td.error_code.empty());
+    }
+
+    SECTION("Start mowing enters NavToStart telemetry state first") {
+        REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_telemetry_map.json")));
+
+        robot->startMowing();
+        robot->run();
+
+        const auto td = RobotTelemetryAccess::build(*robot);
+        REQUIRE(robot->activeOpName() == "NavToStart");
+        REQUIRE(td.op == "NavToStart");
+        REQUIRE(td.state_phase == "navigating_to_start");
+        REQUIRE(td.event_reason == "navigating_to_start");
+        REQUIRE(td.error_code.empty());
+    }
+
+    SECTION("Error telemetry keeps resume target empty") {
+        REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_telemetry_error_map.json")));
+
+        robot->startMowing();
+        robot->run();
+        robot->run();
+        REQUIRE(robot->activeOpName() == "Mow");
+
+        hw->sensors.lift = true;
+        robot->run();
+        robot->run();
+
+        const auto td = RobotTelemetryAccess::build(*robot);
+        REQUIRE(robot->activeOpName() == "Error");
+        REQUIRE(td.resume_target.empty());
+        REQUIRE(td.state_phase == "fault");
+        REQUIRE(td.error_code == "ERR_LIFT");
+    }
+}
+
+TEST_CASE("Robot: diag early-return skips normal loop completion", "[run][diag]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    hw->odometry.leftTicks = 7;
+    RobotTelemetryAccess::armDiag(*robot, "left", 0.25f, 1000);
+
+    REQUIRE(robot->controlLoops() == 0);
+    robot->run();
+
+    REQUIRE(robot->controlLoops() == 0);
+    REQUIRE_FALSE(hw->hadMotorStop());
+    REQUIRE_FALSE(hw->ledCalls.empty());
+    const auto td = RobotTelemetryAccess::build(*robot);
+    REQUIRE(td.diag_active == true);
+    REQUIRE(td.diag_ticks == 7);
+}
+
 TEST_CASE("Robot: bumper triggers safety motor stop", "[run]") {
     auto [robot, hw] = makeRobot();
     robot->init();
@@ -329,6 +414,63 @@ TEST_CASE("Robot: motor fault triggers safety stop", "[run]") {
     robot->run();
 
     REQUIRE(hw->hadMotorStop());
+}
+
+TEST_CASE("Robot: stop button hold logic matches Alfred command thresholds", "[run][button]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_button_map.json")));
+
+    SECTION("button press during mowing immediately triggers emergency stop") {
+        robot->startMowing();
+        robot->run();
+        robot->run();
+        REQUIRE(robot->activeOpName() == "Mow");
+
+        hw->sensors.stopButton = true;
+        robot->run();
+        robot->run();
+
+        REQUIRE(robot->activeOpName() == "Idle");
+        REQUIRE(hw->hadMotorStop());
+    }
+
+    SECTION("5 second hold starts docking on release") {
+        hw->sensors.stopButton = true;
+        robot->run();
+        RobotTelemetryAccess::advanceTimeMs(*robot, 5100);
+        robot->run();
+        hw->sensors.stopButton = false;
+        robot->run();
+        robot->run();
+
+        REQUIRE(robot->activeOpName() == "Dock");
+    }
+
+    SECTION("6 second hold starts mowing on release") {
+        hw->sensors.stopButton = true;
+        robot->run();
+        RobotTelemetryAccess::advanceTimeMs(*robot, 6100);
+        robot->run();
+        hw->sensors.stopButton = false;
+        robot->run();
+        robot->run();
+
+        REQUIRE(robot->activeOpName() == "NavToStart");
+    }
+
+    SECTION("9 second hold requests shutdown on release") {
+        hw->sensors.stopButton = true;
+        robot->run();
+        RobotTelemetryAccess::advanceTimeMs(*robot, 9100);
+        robot->run();
+        hw->sensors.stopButton = false;
+        robot->run();
+
+        REQUIRE(hw->keepPowerOnFlag == false);
+        REQUIRE(robot->isRunning() == false);
+        REQUIRE(hw->hadMotorStop());
+    }
 }
 
 // ── [state] ───────────────────────────────────────────────────────────────────
@@ -389,8 +531,8 @@ TEST_CASE("Robot: low battery triggers dock request", "[battery]") {
     robot->startMowing();
     robot->run();  // -> MOWING
 
-    // Set battery below battery_low_v default (25.5V), above critical (18.9V)
-    hw->battery.voltage          = 20.5f;
+    // Set battery below Alfred low-battery default (25.5V), above critical (18.9V)
+    hw->battery.voltage          = 25.0f;
     hw->battery.chargerConnected = false;
     robot->run();  // triggers dock
     robot->run();  // applies dock transition

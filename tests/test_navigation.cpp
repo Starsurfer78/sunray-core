@@ -15,6 +15,7 @@
 #include "core/navigation/GridMap.h"
 #include "core/navigation/LineTracker.h"
 #include "core/navigation/Map.h"
+#include "core/control/OpenLoopDriveController.h"
 #include "core/op/Op.h"
 #include "core/Config.h"
 #include "core/Logger.h"
@@ -218,6 +219,48 @@ TEST_CASE("LineTracker: map progression data can be prepared safely", "[line_tra
 // ─────────────────────────────────────────────────────────────────────────────
 // Map Tests
 // ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("OpenLoopDriveController: zero command maps to zero PWM", "[drive]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    cfg.set("motor_set_speed_ms", 0.5f);
+    cfg.set("wheel_base_m", 0.4f);
+
+    const auto pwm = control::OpenLoopDriveController::compute(cfg, 0.0f, 0.0f);
+    REQUIRE(pwm.left == 0);
+    REQUIRE(pwm.right == 0);
+}
+
+TEST_CASE("OpenLoopDriveController: forward command maps symmetrically", "[drive]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    cfg.set("motor_set_speed_ms", 0.5f);
+    cfg.set("wheel_base_m", 0.4f);
+
+    const auto pwm = control::OpenLoopDriveController::compute(cfg, 0.25f, 0.0f);
+    REQUIRE(pwm.left == 127);
+    REQUIRE(pwm.right == 127);
+}
+
+TEST_CASE("OpenLoopDriveController: positive angular command slows left and speeds right", "[drive]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    cfg.set("motor_set_speed_ms", 0.5f);
+    cfg.set("wheel_base_m", 0.4f);
+
+    const auto pwm = control::OpenLoopDriveController::compute(cfg, 0.2f, 1.0f);
+    REQUIRE(pwm.left == 0);
+    REQUIRE(pwm.right == 204);
+}
+
+TEST_CASE("OpenLoopDriveController: output is clamped to PWM range", "[drive]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    cfg.set("motor_set_speed_ms", 0.3f);
+    cfg.set("wheel_base_m", 0.39f);
+
+    const auto pwm = control::OpenLoopDriveController::compute(cfg, 1.0f, 5.0f);
+    REQUIRE(pwm.left >= -255);
+    REQUIRE(pwm.left <= 255);
+    REQUIRE(pwm.right >= -255);
+    REQUIRE(pwm.right <= 255);
+}
 
 TEST_CASE("Map: load() with non-existent path returns false", "[map]") {
     Map map;

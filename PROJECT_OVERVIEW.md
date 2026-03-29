@@ -221,6 +221,28 @@ Operational convention going forward:
 - Backend and frontend are tightly coupled through a frozen telemetry format and specific REST/WS payloads. Changes in one side can easily break the other.
 - Map handling, routing, and recovery logic span multiple modules (`Robot`, `Map`, `GridMap`, `LineTracker`, `Op` classes), so navigation changes have wide impact.
 
+### Risk Reduction Plan
+
+Near-term reduction plan for the architecture risks:
+
+1. Before commit 1: freeze the telemetry contract
+   - briefly capture the current payload keys and meanings before touching `Robot::run()`
+   - use that frozen view to prevent silent frontend breakage during the refactor
+   - current baseline documents:
+     - [`docs/ROBOT_RUN_BASELINE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/ROBOT_RUN_BASELINE.md)
+     - [`docs/TELEMETRY_CONTRACT.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/TELEMETRY_CONTRACT.md)
+2. Commit 1: reduce `Robot` risk without changing behavior
+   - split `Robot::run()` into a few clearly named private steps
+   - keep `Robot` as orchestrator, but move telemetry assembly and similar helper logic out of the long inline flow only if the output remains equivalent
+   - extend `tests/test_robot.cpp` before or alongside the extraction
+3. Commit 2: stabilize backend/frontend contracts
+   - document the telemetry payload as an explicit contract
+   - add focused tests for WebSocket/REST payload compatibility
+   - prefer additive payload changes over renames or shape changes
+4. Commit 3: harden navigation/recovery regressions
+   - add a small set of high-risk scenario tests for GPS loss, obstacle recovery, docking retry, and resume behavior
+   - treat navigation changes as scenario-driven changes, not isolated math edits
+
 ## Recommended Reading Order
 
 1. [`README.md`](/mnt/LappiDaten/Projekte/sunray-core/README.md)

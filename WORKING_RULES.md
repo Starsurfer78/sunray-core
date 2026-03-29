@@ -24,3 +24,8 @@
 ## Testing
 - Always run build
 - Run tests if available
+- For navigation, recovery, docking, or resume changes: add or update scenario tests in the same change
+
+## Docs
+- Update TASKS.md and TODO.md when a planned architecture-risk reduction commit is completed
+- Before refactoring `Robot::run()`, keep `docs/ROBOT_RUN_BASELINE.md` and `docs/TELEMETRY_CONTRACT.md` in sync with the observed pre-refactor behavior
