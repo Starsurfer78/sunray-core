@@ -70,6 +70,10 @@ public:
     /// Returns 0 if the port is closed or the ioctl fails.
     int  available();
 
+    /// Wait up to timeoutMs for readable input on the serial fd.
+    /// Returns true if select() reports readable data.
+    bool waitReadable(int timeoutMs);
+
     /// Discard all unread input and unsent output (tcflush TCIOFLUSH).
     void flush();
 

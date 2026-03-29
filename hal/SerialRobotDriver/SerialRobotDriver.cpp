@@ -319,6 +319,17 @@ void SerialRobotDriver::pollRx() {
     const uint64_t now = nowMs();
     bool sawData = false;
 
+    if (!uart_->waitReadable(1)) {
+        if (!rxBuf_.empty() && rxLastByteMs_ != 0 && (now - rxLastByteMs_) >= rxGapMs_) {
+            if (serialDebug_) {
+                std::cerr << "[SRD] RX frame(gap): " << rxBuf_ << '\n';
+            }
+            dispatchFrame(std::move(rxBuf_));
+            rxBuf_.clear();
+        }
+        return;
+    }
+
     while (true) {
         uint8_t buf[256];
         int n = uart_->read(buf, sizeof(buf));
@@ -355,9 +366,6 @@ void SerialRobotDriver::pollRx() {
         drainFramedRx();
     }
 
-    // Some Alfred/RM18 setups appear to return valid AT frames without a final
-    // CR/LF. If the line stays idle for a short time, treat the buffered bytes
-    // as a complete frame instead of waiting forever.
     if (!sawData && !rxBuf_.empty() && rxLastByteMs_ != 0 && (now - rxLastByteMs_) >= rxGapMs_) {
         if (serialDebug_) {
             std::cerr << "[SRD] RX frame(gap): " << rxBuf_ << '\n';

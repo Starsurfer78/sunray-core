@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include <fcntl.h>
+#include <sys/select.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -154,6 +155,21 @@ int Serial::available() {
     int bytes = 0;
     if (::ioctl(fd_, FIONREAD, &bytes) < 0) return 0;
     return bytes;
+}
+
+bool Serial::waitReadable(int timeoutMs) {
+    if (fd_ < 0) return false;
+
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(fd_, &readfds);
+
+    struct timeval tv{};
+    tv.tv_sec  = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+
+    const int rc = ::select(fd_ + 1, &readfds, nullptr, nullptr, &tv);
+    return rc > 0 && FD_ISSET(fd_, &readfds);
 }
 
 void Serial::flush() {
