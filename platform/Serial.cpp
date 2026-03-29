@@ -33,13 +33,25 @@ Serial::Serial(const std::string& port, unsigned int baud)
             "Serial: tcgetattr failed on '" + port + "': " + std::strerror(errno));
     }
 
-    // Build clean raw 8N1 configuration.
-    struct termios t{};  // zero-initialise all fields
+    // Start from the existing port settings and then force the fields we need.
+    // On some Raspberry Pi UART setups this is more reliable than building a
+    // termios struct from all-zero state.
+    struct termios t = savedTermios_;
     speed_t speed = baudConstant(baud);
     ::cfsetispeed(&t, speed);
     ::cfsetospeed(&t, speed);
 
-    t.c_cflag  = CS8 | CLOCAL | CREAD;  // 8 data bits, no modem control, enable RX
+    t.c_cflag &= ~CSIZE;
+    t.c_cflag |= CS8 | CLOCAL | CREAD;  // 8 data bits, no modem control, enable RX
+#ifdef PARENB
+    t.c_cflag &= ~PARENB;
+#endif
+#ifdef CSTOPB
+    t.c_cflag &= ~CSTOPB;
+#endif
+#ifdef CRTSCTS
+    t.c_cflag &= ~CRTSCTS;
+#endif
     t.c_iflag  = 0;  // raw input — no IXON/IXOFF, no CR/LF translation
     t.c_oflag  = 0;  // raw output
     t.c_lflag  = 0;  // raw mode — no ICANON, no ECHO, no signals
