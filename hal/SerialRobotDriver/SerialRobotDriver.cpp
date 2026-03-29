@@ -316,38 +316,49 @@ void SerialRobotDriver::sendAt(const std::string& cmd) {
 // ── AT protocol — receive ─────────────────────────────────────────────────────
 
 void SerialRobotDriver::pollRx() {
-    uint8_t buf[256];
-    int n = uart_->read(buf, sizeof(buf));
     const uint64_t now = nowMs();
+    bool sawData = false;
 
-    if (n > 0) {
+    while (true) {
+        uint8_t buf[256];
+        int n = uart_->read(buf, sizeof(buf));
+
+        if (n < 0) {
+            std::cerr << "[SRD] WARN: UART read failed\n";
+            break;
+        }
+        if (n == 0) {
+            break;
+        }
+
+        sawData = true;
         rxLastByteMs_ = now;
         if (serialDebug_) {
             logSerialBytes("[SRD] RX", buf, static_cast<size_t>(n));
         }
-    }
 
-    for (int i = 0; i < n; i++) {
-        char ch = static_cast<char>(buf[i]);
-        if (ch == '\r' || ch == '\n') {
-            if (!rxBuf_.empty()) {
-                if (serialDebug_) {
-                    std::cerr << "[SRD] RX frame(eol): " << rxBuf_ << '\n';
+        for (int i = 0; i < n; i++) {
+            char ch = static_cast<char>(buf[i]);
+            if (ch == '\r' || ch == '\n') {
+                if (!rxBuf_.empty()) {
+                    if (serialDebug_) {
+                        std::cerr << "[SRD] RX frame(eol): " << rxBuf_ << '\n';
+                    }
+                    dispatchFrame(std::move(rxBuf_));
+                    rxBuf_.clear();
                 }
-                dispatchFrame(std::move(rxBuf_));
-                rxBuf_.clear();
+            } else if (rxBuf_.size() < 500) {
+                rxBuf_ += ch;
             }
-        } else if (rxBuf_.size() < 500) {
-            rxBuf_ += ch;
         }
-    }
 
-    drainFramedRx();
+        drainFramedRx();
+    }
 
     // Some Alfred/RM18 setups appear to return valid AT frames without a final
     // CR/LF. If the line stays idle for a short time, treat the buffered bytes
     // as a complete frame instead of waiting forever.
-    if (n == 0 && !rxBuf_.empty() && rxLastByteMs_ != 0 && (now - rxLastByteMs_) >= rxGapMs_) {
+    if (!sawData && !rxBuf_.empty() && rxLastByteMs_ != 0 && (now - rxLastByteMs_) >= rxGapMs_) {
         if (serialDebug_) {
             std::cerr << "[SRD] RX frame(gap): " << rxBuf_ << '\n';
         }
