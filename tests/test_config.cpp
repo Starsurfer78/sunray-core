@@ -41,8 +41,11 @@ TEST_CASE("Config: missing file yields built-in defaults", "[config]") {
     Config cfg(p);
 
     CHECK(cfg.get<std::string>("driver",      "")    == "serial");
-    CHECK(cfg.get<std::string>("driver_port", "")    == "/dev/ttyS0");
-    CHECK(cfg.get<int>        ("driver_baud", 0)     == 115200);
+    CHECK(cfg.get<std::string>("driver_port", "")    == "/dev/ttyS1");
+    CHECK(cfg.get<int>        ("driver_baud", 0)     == 19200);
+    CHECK(cfg.get<bool>       ("i2c_mux_enabled", false) == true);
+    CHECK(cfg.get<std::string>("i2c_mux_addr", "")   == "0x70");
+    CHECK(cfg.get<std::string>("imu_i2c_addr", "")   == "0x69");
     CHECK(cfg.get<double>     ("stanley_k",   0.0)   == Approx(0.5));
     CHECK(cfg.get<double>     ("battery_low_v",  0.0) == Approx(25.5));
     CHECK(cfg.get<double>     ("battery_full_v", 0.0) == Approx(30.0));
@@ -132,7 +135,7 @@ TEST_CASE("Config: invalid JSON falls back to defaults", "[config]") {
 
     Config cfg(p);
     // Must not throw; must return built-in default
-    CHECK(cfg.get<int>("driver_baud", 0) == 115200);
+    CHECK(cfg.get<int>("driver_baud", 0) == 19200);
 
     removeSilent(p);
 }

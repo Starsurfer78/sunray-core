@@ -42,6 +42,10 @@ bool SerialRobotDriver::init() {
     const std::string i2cBus = config_->get<std::string>("i2c_bus", "/dev/i2c-1");
     try {
         i2c_ = std::make_unique<platform::I2C>(i2cBus);
+        if (config_->get<bool>("i2c_mux_enabled", true)) {
+            mux_ = std::make_unique<platform::I2cMux>(
+                *i2c_, configI2cAddr("i2c_mux_addr", 0x70));
+        }
         ex1_ = std::make_unique<platform::PortExpander>(*i2c_, 0x21); // IMU/fan/ADC mux
         ex2_ = std::make_unique<platform::PortExpander>(*i2c_, 0x20); // Buzzer
         ex3_ = std::make_unique<platform::PortExpander>(*i2c_, 0x22); // Panel LEDs
@@ -60,9 +64,31 @@ bool SerialRobotDriver::init() {
     ex1_->setPin(1, 6, true);   // IMU ON
     setFanPower(true);           // Fan ON
 
+    if (mux_) {
+        uint8_t mask = 0;
+        const auto addChannel = [&mask](int channel) {
+            if (channel >= 0 && channel <= 7) {
+                mask = static_cast<uint8_t>(mask | (1u << channel));
+            }
+        };
+        addChannel(config_->get<int>("i2c_mux_legacy_channel", 0));
+        addChannel(config_->get<int>("imu_mux_channel", 4));
+        addChannel(config_->get<int>("eeprom_mux_channel", 5));
+        addChannel(config_->get<int>("adc_mux_channel", 6));
+        if (!mux_->setEnabledMask(mask)) {
+            std::cerr << "[SRD] WARN: failed to configure TCA9548A mux\n";
+        }
+    }
+
     // ── MPU-6050 IMU ──────────────────────────────────────────────────────────
-    imu_ = std::make_unique<Mpu6050Driver>(*i2c_);
-    if (!imu_->init()) {
+    const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
+    imu_ = std::make_unique<Mpu6050Driver>(*i2c_, imuAddr);
+    bool imuOk = imu_->init();
+    if (!imuOk && imuAddr != 0x68) {
+        imu_ = std::make_unique<Mpu6050Driver>(*i2c_, 0x68);
+        imuOk = imu_->init();
+    }
+    if (!imuOk) {
         std::cerr << "[SRD] IMU init failed (maybe not connected to /dev/i2c-1?)\n";
         // Do not return false — robot can drive without IMU (GPS+Odo only)
     }
@@ -468,6 +494,23 @@ std::string SerialRobotDriver::shellRead(const char* cmd) {
     while (::fgets(buf, sizeof(buf), f)) result += buf;
     ::pclose(f);
     return result;
+}
+
+uint8_t SerialRobotDriver::configI2cAddr(const std::string& key, uint8_t fallback) const {
+    const std::string s = config_->get<std::string>(key, "");
+    if (!s.empty()) {
+        char* end = nullptr;
+        const long v = std::strtol(s.c_str(), &end, 0);
+        if (end && *end == '\0' && v >= 0 && v <= 0x7F) {
+            return static_cast<uint8_t>(v);
+        }
+    }
+
+    const int v = config_->get<int>(key, -1);
+    if (v >= 0 && v <= 0x7F) {
+        return static_cast<uint8_t>(v);
+    }
+    return fallback;
 }
 
 } // namespace sunray
