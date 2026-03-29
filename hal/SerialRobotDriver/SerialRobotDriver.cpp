@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <vector>
 
@@ -28,6 +29,9 @@ SerialRobotDriver::~SerialRobotDriver() {
 // ── HardwareInterface: init() ─────────────────────────────────────────────────
 
 bool SerialRobotDriver::init() {
+    serialDebug_ = config_->get<bool>("serial_debug", false);
+    rxGapMs_     = static_cast<uint64_t>(config_->get<int>("serial_rx_gap_ms", 50));
+
     // ── UART to STM32 ─────────────────────────────────────────────────────────
     const std::string port = config_->get<std::string>("driver_port", "/dev/ttyS0");
     const int         baud = config_->get<int>        ("driver_baud", 115200);
@@ -303,6 +307,9 @@ void SerialRobotDriver::sendAt(const std::string& cmd) {
     char crcBuf[12];
     std::snprintf(crcBuf, sizeof(crcBuf), ",0x%02X\r\n", calcCrc(cmd));
     const std::string frame = cmd + crcBuf;
+    if (serialDebug_) {
+        std::cerr << "[SRD] TX " << frame;
+    }
     uart_->writeStr(frame.c_str());
 }
 
@@ -311,16 +318,39 @@ void SerialRobotDriver::sendAt(const std::string& cmd) {
 void SerialRobotDriver::pollRx() {
     uint8_t buf[256];
     int n = uart_->read(buf, sizeof(buf));
+    const uint64_t now = nowMs();
+
+    if (n > 0) {
+        rxLastByteMs_ = now;
+        if (serialDebug_) {
+            logSerialBytes("[SRD] RX", buf, static_cast<size_t>(n));
+        }
+    }
+
     for (int i = 0; i < n; i++) {
         char ch = static_cast<char>(buf[i]);
         if (ch == '\r' || ch == '\n') {
             if (!rxBuf_.empty()) {
+                if (serialDebug_) {
+                    std::cerr << "[SRD] RX frame(eol): " << rxBuf_ << '\n';
+                }
                 dispatchFrame(std::move(rxBuf_));
                 rxBuf_.clear();
             }
         } else if (rxBuf_.size() < 500) {
             rxBuf_ += ch;
         }
+    }
+
+    // Some Alfred/RM18 setups appear to return valid AT frames without a final
+    // CR/LF. If the line stays idle for a short time, treat the buffered bytes
+    // as a complete frame instead of waiting forever.
+    if (n == 0 && !rxBuf_.empty() && rxLastByteMs_ != 0 && (now - rxLastByteMs_) >= rxGapMs_) {
+        if (serialDebug_) {
+            std::cerr << "[SRD] RX frame(gap): " << rxBuf_ << '\n';
+        }
+        dispatchFrame(std::move(rxBuf_));
+        rxBuf_.clear();
     }
 }
 
@@ -494,6 +524,21 @@ std::string SerialRobotDriver::shellRead(const char* cmd) {
     while (::fgets(buf, sizeof(buf), f)) result += buf;
     ::pclose(f);
     return result;
+}
+
+void SerialRobotDriver::logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const {
+    std::ostringstream oss;
+    oss << prefix << ' ';
+    for (size_t i = 0; i < len; ++i) {
+        oss << std::hex << std::setw(2) << std::setfill('0')
+            << static_cast<unsigned>(buf[i]) << ' ';
+    }
+    oss << std::dec << "| ";
+    for (size_t i = 0; i < len; ++i) {
+        const char ch = static_cast<char>(buf[i]);
+        oss << ((ch >= 32 && ch <= 126) ? ch : '.');
+    }
+    std::cerr << oss.str() << '\n';
 }
 
 uint8_t SerialRobotDriver::configI2cAddr(const std::string& key, uint8_t fallback) const {

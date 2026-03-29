@@ -17,8 +17,10 @@ nlohmann::json Config::defaults() {
     return nlohmann::json{
         // ── Driver / hardware ────────────────────────────────────────────────
         {"driver",              "serial"},      // "serial" = Alfred/STM32, "sim" = Simulation
-        {"driver_port",         "/dev/ttyS1"},
+        {"driver_port",         "/dev/ttyS0"},
         {"driver_baud",         19200},
+        {"serial_debug",        false},
+        {"serial_rx_gap_ms",    50},
         {"i2c_bus",             "/dev/i2c-1"},
         {"i2c_mux_enabled",     true},
         {"i2c_mux_addr",        "0x70"},

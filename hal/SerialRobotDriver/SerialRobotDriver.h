@@ -140,8 +140,11 @@ private:
     float cpuTemp_        = 30.0f;
     bool  wifiConnected_  = false;
     bool  wifiInactive_   = false;
+    bool  serialDebug_    = false;
     bool  shutdownPending_ = false;
     uint64_t shutdownAt_  = 0;   // nowMs() at which shutdown command fires
+    uint64_t rxLastByteMs_ = 0;
+    uint64_t rxGapMs_      = 50;
 
     // Diagnostic counters (reset every 1 s)
     int motorTxCount_   = 0;
@@ -184,6 +187,7 @@ private:
     // ── Utility ───────────────────────────────────────────────────────────────
     static uint64_t    nowMs();
     static std::string shellRead(const char* cmd);  // popen + collect output
+    void               logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const;
     uint8_t            configI2cAddr(const std::string& key, uint8_t fallback) const;
     static int           fieldInt  (const std::string& s);
     static unsigned long fieldULong(const std::string& s);  ///< BUG-003: for tick counters

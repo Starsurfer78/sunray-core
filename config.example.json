@@ -3,8 +3,10 @@
 
     "_c_driver":            "serial=Alfred/STM32 ueber UART, sim=Simulation ohne Hardware",
     "driver":               "serial",
-    "driver_port":          "/dev/ttyS1",
+    "driver_port":          "/dev/ttyS0",
     "driver_baud":          19200,
+    "serial_debug":         false,
+    "serial_rx_gap_ms":     50,
     "i2c_bus":              "/dev/i2c-1",
     "_c_i2c_topology":      "Original Alfred nutzt den TCA9548A-Mux (0x70). IMU haengt typischerweise auf Kanal 4 an 0x69, ADC auf Kanal 6 an 0x68, EEPROM auf Kanal 5 an 0x50. legacy_channel=0 bleibt fuer dev-PCB-Kompatibilitaet mit aktiviert.",
     "i2c_mux_enabled":      true,
