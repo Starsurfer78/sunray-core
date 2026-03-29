@@ -76,6 +76,7 @@ bool SerialRobotDriver::init() {
             }
         };
         addChannel(config_->get<int>("i2c_mux_legacy_channel", 0));
+        addChannel(config_->get<int>("ex3_mux_channel", 1));
         addChannel(config_->get<int>("imu_mux_channel", 4));
         addChannel(config_->get<int>("eeprom_mux_channel", 5));
         addChannel(config_->get<int>("adc_mux_channel", 6));
