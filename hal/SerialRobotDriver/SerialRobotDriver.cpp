@@ -342,6 +342,8 @@ void SerialRobotDriver::pollRx() {
         }
     }
 
+    drainFramedRx();
+
     // Some Alfred/RM18 setups appear to return valid AT frames without a final
     // CR/LF. If the line stays idle for a short time, treat the buffered bytes
     // as a complete frame instead of waiting forever.
@@ -351,6 +353,46 @@ void SerialRobotDriver::pollRx() {
         }
         dispatchFrame(std::move(rxBuf_));
         rxBuf_.clear();
+    }
+}
+
+void SerialRobotDriver::drainFramedRx() {
+    // Alfred/RM18 replies can arrive as back-to-back frames without CR/LF.
+    // Detect the CRC trailer ",0xNN" and dispatch each complete frame directly
+    // from the byte stream.
+    while (true) {
+        if (rxBuf_.size() < 6) return;
+
+        std::size_t start = rxBuf_.find_first_of("MSV");
+        if (start == std::string::npos) {
+            rxBuf_.clear();
+            return;
+        }
+        if (start > 0) {
+            rxBuf_.erase(0, start);
+        }
+
+        const std::size_t crcPos = rxBuf_.find(",0x");
+        if (crcPos == std::string::npos) return;
+        if (crcPos + 5 > rxBuf_.size()) return;  // wait for two hex digits
+
+        const auto isHex = [](char c) {
+            return (c >= '0' && c <= '9')
+                || (c >= 'a' && c <= 'f')
+                || (c >= 'A' && c <= 'F');
+        };
+        if (!isHex(rxBuf_[crcPos + 3]) || !isHex(rxBuf_[crcPos + 4])) {
+            // False positive — skip this marker and keep scanning.
+            rxBuf_.erase(0, crcPos + 1);
+            continue;
+        }
+
+        std::string frame = rxBuf_.substr(0, crcPos + 5);
+        rxBuf_.erase(0, crcPos + 5);
+        if (serialDebug_) {
+            std::cerr << "[SRD] RX frame(crc): " << frame << '\n';
+        }
+        dispatchFrame(std::move(frame));
     }
 }
 

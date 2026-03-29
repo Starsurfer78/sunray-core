@@ -169,6 +169,7 @@ private:
     void sendAt(const std::string& cmd);
     void pollRx();
     void dispatchFrame(std::string frame);  // strips CRC, routes to parse*
+    void drainFramedRx();                   // extracts Alfred AT frames without CR/LF
     void parseMotorFrame  (const std::string& frame);
     void parseSummaryFrame(const std::string& frame);
     void parseVersionFrame(const std::string& frame);
