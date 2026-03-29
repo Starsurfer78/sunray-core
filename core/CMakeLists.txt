@@ -6,6 +6,7 @@ add_library(sunray_core STATIC
     Robot.cpp
     WebSocketServer.cpp
     MqttClient.cpp
+    control/OpenLoopDriveController.cpp
     op/Op.cpp
     op/IdleOp.cpp
     op/ChargeOp.cpp

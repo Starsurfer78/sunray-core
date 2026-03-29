@@ -24,6 +24,9 @@ Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
 - [x] A.1–A.8, A.10 — C++ Fundament, SerialRobotDriver, Robot+DI, SimulationDriver, Op-State-Machine, Navigation, WebSocket-Server, Konfiguration, GPS-Treiber, Pi-Version
 - [x] C.1–C.5, C.7, C.9–C.12 — WebUI, MQTT-Client, On-The-Fly Obstacles, Dashboard, Diagnose, Zeitplan, Zonen-Auswahl
 - [x] P0 Blocker (A.9) — STM32 Flashen via Pi, CRC-Verifikation, Motor-API
+- [x] 2026-03-28 Architektur Commit 1 — `Robot::run()` in private Schritte zerlegt, Telemetrie-Smoke-Test ergänzt, Diag-Early-Return gegen stilles Drift abgesichert
+- [x] 2026-03-28 Architektur Commit 2 — Telemetrie-Vertrag explizit dokumentiert, WebSocket-Op-Contract vervollständigt, Frontend-Typen an immer gelieferte Felder angepasst
+- [x] 2026-03-28 Architektur Commit 3 — GPS-/Escape-/Resume-Szenarien per Regressionstests ergänzt und gegen stille Zustandsdrifts abgesichert
 
 ---
 

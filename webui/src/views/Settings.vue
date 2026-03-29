@@ -168,10 +168,10 @@ const FIELD_GROUPS: FieldGroup[] = [
   {
     label: 'Motorstrom',
     fields: [
-      { key: 'motor_fault_current_a',    label: 'Fahrmotoren Fehler',   unit: 'A', step: 0.1, min: 0, max: 10 },
-      { key: 'motor_overload_current_a', label: 'Fahrmotoren Überlast', unit: 'A', step: 0.1, min: 0, max: 5  },
-      { key: 'mow_fault_current_a',      label: 'Mähmotor Fehler',      unit: 'A', step: 0.1, min: 0, max: 15 },
-      { key: 'mow_overload_current_a',   label: 'Mähmotor Überlast',    unit: 'A', step: 0.1, min: 0, max: 8  },
+      { key: 'motor_fault_current_a',    label: 'Fahrmotoren Fehler (aktuell ungenutzt)',   unit: 'A', step: 0.1, min: 0, max: 10 },
+      { key: 'motor_overload_current_a', label: 'Fahrmotoren Überlast (aktuell ungenutzt)', unit: 'A', step: 0.1, min: 0, max: 5  },
+      { key: 'mow_fault_current_a',      label: 'Mähmotor Fehler (aktuell ungenutzt)',      unit: 'A', step: 0.1, min: 0, max: 15 },
+      { key: 'mow_overload_current_a',   label: 'Mähmotor Überlast (aktuell ungenutzt)',    unit: 'A', step: 0.1, min: 0, max: 8  },
     ],
   },
   {

@@ -27,6 +27,14 @@
 
 using namespace sunray;
 
+namespace sunray {
+struct RobotTelemetryAccess {
+    static WebSocketServer::TelemetryData build(const Robot& robot) {
+        return robot.buildTelemetry();
+    }
+};
+}
+
 namespace {
 
 struct MockHardware : public HardwareInterface {
@@ -271,6 +279,41 @@ TEST_CASE("A5: prolonged GPS loss during Mow escalates to Dock", "[a5_gps]") {
     (void)hw;
 }
 
+TEST_CASE("A5: GpsWait telemetry exposes resume target for mission recovery", "[a5_gps][telemetry]") {
+    auto cfg = makeConfig();
+    cfg->set("gps_no_signal_ms", 1);
+    cfg->set("gps_fix_timeout_ms", 1000);
+    cfg->set("gps_recover_hysteresis_ms", 1);
+    cfg->set("ekf_gps_failover_ms", 1);
+
+    auto hwOwned = std::make_unique<MockHardware>();
+    Robot robot(std::move(hwOwned), cfg, makeLogger());
+    REQUIRE(robot.init());
+
+    const auto mapPath = writeSimpleMap("sunray_test_a5_resume_target_map.json");
+    REQUIRE(robot.loadMap(mapPath));
+
+    auto gps = std::make_unique<MockGpsDriver>();
+    MockGpsDriver* gpsRaw = gps.get();
+    gpsRaw->data.valid = true;
+    gpsRaw->data.solution = GpsSolution::Fixed;
+    robot.setGpsDriver(std::move(gps));
+
+    enterMowFromStartCommand(robot);
+
+    gpsRaw->data.valid = false;
+    for (int i = 0; i < 10 && robot.activeOpName() != "GpsWait"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "GpsWait");
+
+    const auto td = RobotTelemetryAccess::build(robot);
+    REQUIRE(td.resume_target == "Mow");
+    REQUIRE(td.state_phase == "gps_recovery");
+    REQUIRE(td.event_reason == "gps_signal_lost");
+}
+
 TEST_CASE("A8 Scenario 1: bumper hit in Mow transitions to EscapeReverse", "[a8_sim]") {
     auto [robot, hw] = makeRobot();
     REQUIRE(robot->init());
@@ -282,6 +325,41 @@ TEST_CASE("A8 Scenario 1: bumper hit in Mow transitions to EscapeReverse", "[a8_
     robot->run(); // queue transition
     robot->run(); // apply transition
     REQUIRE(robot->activeOpName() == "EscapeReverse");
+}
+
+TEST_CASE("A8 Scenario 1b: EscapeReverse resumes back to Mow after timeout", "[a8_sim]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+
+    nav::Map map(cfg);
+    REQUIRE(map.load(writeSimpleMap("sunray_test_a8_escape_resume_map.json")));
+    ctx.map = &map;
+    ctx.x = 0.0f;
+    ctx.y = 0.0f;
+    ctx.insidePerimeter = true;
+    ctx.now_ms = 0;
+
+    opMgr.idle().changeOp(ctx, opMgr.mow());
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Mow");
+
+    ctx.sensors.bumperLeft = true;
+    opMgr.mow().onObstacle(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+
+    ctx.sensors.bumperLeft = false;
+    ctx.sensors.lift = false;
+    ctx.insidePerimeter = true;
+    ctx.now_ms = 3001;
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Mow");
 }
 
 TEST_CASE("A8 Scenario 2: lift event in Mow transitions to Error", "[a8_sim]") {

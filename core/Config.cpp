@@ -62,19 +62,24 @@ nlohmann::json Config::defaults() {
         {"motor_pid_kd",        0.01},
 
         // ── Motorstrom-Grenzen / Fehlerbehandlung ─────────────────────────────
+        // Legacy Alfred/Sunray tuning keys. They are kept for future reactivation,
+        // but are currently NOT evaluated by the active Core runtime. Today the
+        // STM32/MCU remains the source of truth for motor fault detection.
         {"motor_fault_current_a",        3.0},
         {"motor_overload_current_a",     1.2},
-        {"motor_too_low_current_a",      0.005}, // Blockade-Erkennung (0=deaktiviert)
-        {"motor_overload_speed_ms",      0.1},   // Geschwindigkeit bei Ueberlast
+        {"motor_too_low_current_a",      0.005},
+        {"motor_overload_speed_ms",      0.1},
         {"enable_fault_detection",       true},
-        {"enable_overload_detection",    false},  // false=verlangsamen, true=stoppen
+        {"enable_overload_detection",    false},
         {"enable_fault_obstacle_avoidance", true},
-        {"fault_max_successive_count",   5},     // Max. aufeinanderfolgende Fehler
+        {"fault_max_successive_count",   5},
 
         // ── Maehmotor ─────────────────────────────────────────────────────────
+        // Same note as above: preserved as legacy tuning keys, currently unused
+        // by the active Core runtime until Pi-side current evaluation returns.
         {"mow_fault_current_a",      8.0},
         {"mow_overload_current_a",   2.0},
-        {"mow_too_low_current_a",    0.005},     // Blockade-Erkennung (0=deaktiviert)
+        {"mow_too_low_current_a",    0.005},
         {"mow_toggle_dir",           true},      // Drehrichtung bei jedem Start wechseln
         {"enable_mow_motor",         true},      // false zum Testen ohne Messer
 

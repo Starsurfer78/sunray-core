@@ -46,6 +46,7 @@
 namespace sunray {
 
 class MqttClient;  // forward declaration — full header included only in Robot.cpp
+struct RobotTelemetryAccess;
 
 // ── Robot ─────────────────────────────────────────────────────────────────────
 
@@ -175,7 +176,22 @@ public:
     float poseHeading() const { return stateEst_.heading(); }
 
 private:
+    friend struct RobotTelemetryAccess;
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+    unsigned long tickTiming();
+    void tickHardware();
+    void tickSchedule();
+    void tickObstacleCleanup();
+    void tickStateEstimation(unsigned long dt_ms);
+    OpContext assembleOpContext();
+    void tickSafetyGuards(OpContext& ctx);
+    void tickStateMachine(OpContext& ctx);
+    bool tickDiag();
+    void tickButtonControl();
+    void tickManualDrive();
+    void tickSafetyStop(OpContext& ctx);
+    void tickTelemetry();
 
     /// Update LED_2 (status) and LED_3 (GPS) from active Op name.
     void updateStatusLeds();
@@ -232,6 +248,12 @@ private:
     std::atomic<int>      manualLinear1000_{0};
     std::atomic<int>      manualAngular1000_{0};
     std::atomic<uint64_t> manualDriveTs_ms_{0};
+
+    uint64_t buttonHoldStart_ms_   = 0;
+    uint64_t buttonBeepOffAt_ms_   = 0;
+    unsigned buttonLastFeedback_s_ = 0;
+    bool     buttonHoldActive_     = false;
+    bool     stopButtonPrev_       = false;
 
     OdometryData odometry_;
     SensorData   sensors_;

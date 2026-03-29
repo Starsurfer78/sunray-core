@@ -96,9 +96,9 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — mandatory debug keys present"
 
 TEST_CASE("WebSocketServer: buildTelemetryJson — op names pass through", "[ws]") {
     // All frozen Op names used by Mission Service
-    for (const auto& opName : {"Idle", "Mow", "Dock", "Charge",
-                                "Undock", "NavToStart",
-                                "EscapeReverse", "GpsWait", "Error"}) {
+    for (const auto& opName : {"Idle", "Undock", "NavToStart", "Mow", "Dock",
+                                "Charge", "WaitRain", "GpsWait",
+                                "EscapeReverse", "EscapeForward", "Error"}) {
         WebSocketServer::TelemetryData d;
         d.op = opName;
         auto j = nlohmann::json::parse(WebSocketServer::buildTelemetryJson(d));

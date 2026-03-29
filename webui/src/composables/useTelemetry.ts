@@ -4,7 +4,7 @@ import { ref, readonly, onUnmounted, type Ref } from 'vue'
 
 export interface Telemetry {
   type:       string
-  op:         string   // Idle | Mow | Dock | Charge | EscapeReverse | GpsWait | Error
+  op:         string   // Idle | Undock | NavToStart | Mow | Dock | Charge | WaitRain | GpsWait | EscapeReverse | EscapeForward | Error
   x:          number   // local metres east
   y:          number   // local metres north
   heading:    number   // radians, 0 = east
@@ -22,16 +22,16 @@ export interface Telemetry {
   uptime_s:    number
   diag_active: boolean  // true while a diag motor test is running
   diag_ticks:  number   // live accumulated ticks in current diag test
-  mcu_v?:      string   // MCU firmware version
-  pi_v?:       string   // Pi software version
-  imu_h?:      number   // IMU heading [deg]
-  imu_r?:      number   // IMU roll [deg]
-  imu_p?:      number   // IMU pitch [deg]
-  ekf_health?: string   // fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
-  state_phase?: string
-  resume_target?: string
-  event_reason?: string
-  error_code?: string
+  mcu_v:       string   // MCU firmware version
+  pi_v:        string   // Pi software version
+  imu_h:       number   // IMU heading [deg]
+  imu_r:       number   // IMU roll [deg]
+  imu_p:       number   // IMU pitch [deg]
+  ekf_health:  string   // fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
+  state_phase: string
+  resume_target: string
+  event_reason: string
+  error_code: string
 }
 
 const defaultTelemetry: Telemetry = {
@@ -39,7 +39,7 @@ const defaultTelemetry: Telemetry = {
   battery_v: 0, charge_v: 0, gps_sol: 0, gps_text: '---',
   gps_acc: 0, gps_lat: 0, gps_lon: 0, bumper_l: false, bumper_r: false, lift: false,
   motor_err: false, uptime_s: 0, diag_active: false, diag_ticks: 0,
-  mcu_v: '', pi_v: '', imu_h: 0, imu_r: 0, imu_p: 0,
+  mcu_v: '', pi_v: '', imu_h: 0, imu_r: 0, imu_p: 0, ekf_health: 'Odo',
   state_phase: 'idle', resume_target: '', event_reason: 'none', error_code: ''
 }
 
