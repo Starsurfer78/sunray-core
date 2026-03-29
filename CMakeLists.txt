@@ -118,6 +118,14 @@ target_link_libraries(ex3_led_probe PRIVATE
     sunray_platform
 )
 
+add_executable(pca9555_probe
+    tools/pca9555_probe.cpp
+)
+
+target_link_libraries(pca9555_probe PRIVATE
+    sunray_platform
+)
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
