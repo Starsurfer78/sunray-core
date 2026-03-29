@@ -102,6 +102,14 @@ target_link_libraries(sunray-core PRIVATE
     Crow::Crow
 )
 
+add_executable(rm18_serial_probe
+    tools/rm18_serial_probe.cpp
+)
+
+target_link_libraries(rm18_serial_probe PRIVATE
+    sunray_platform
+)
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
