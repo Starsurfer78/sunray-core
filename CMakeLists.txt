@@ -110,6 +110,14 @@ target_link_libraries(rm18_serial_probe PRIVATE
     sunray_platform
 )
 
+add_executable(ex3_led_probe
+    tools/ex3_led_probe.cpp
+)
+
+target_link_libraries(ex3_led_probe PRIVATE
+    sunray_platform
+)
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
