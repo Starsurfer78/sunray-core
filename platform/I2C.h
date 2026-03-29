@@ -19,7 +19,8 @@
 //   0x21  PCA9555 EX1 — IMU power, Fan power, ADC mux
 //   0x22  PCA9555 EX3 — Panel LEDs (LED1..LED3 red/green)
 //   0x50  BL24C256A   — EEPROM
-//   0x68  MCP3421     — ADC (battery voltage)
+//   0x68  MCP3421     — ADC (battery voltage, via mux)
+//   0x69  MPU6050     — IMU on Alfred production PCB (via mux)
 //   0x70  TCA9548A    — I2C mux (selects IMU / EEPROM / ADC sub-bus)
 //
 // Usage:

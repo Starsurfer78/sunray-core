@@ -17,9 +17,16 @@ nlohmann::json Config::defaults() {
     return nlohmann::json{
         // ── Driver / hardware ────────────────────────────────────────────────
         {"driver",              "serial"},      // "serial" = Alfred/STM32, "sim" = Simulation
-        {"driver_port",         "/dev/ttyS0"},
-        {"driver_baud",         115200},
+        {"driver_port",         "/dev/ttyS1"},
+        {"driver_baud",         19200},
         {"i2c_bus",             "/dev/i2c-1"},
+        {"i2c_mux_enabled",     true},
+        {"i2c_mux_addr",        "0x70"},
+        {"i2c_mux_legacy_channel", 0},
+        {"imu_mux_channel",     4},
+        {"eeprom_mux_channel",  5},
+        {"adc_mux_channel",     6},
+        {"imu_i2c_addr",        "0x69"},
 
         // ── GPS ──────────────────────────────────────────────────────────────
         {"gps_port",            "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00"},

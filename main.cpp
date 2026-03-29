@@ -22,6 +22,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 
 // ── Global robot pointer for signal handler ────────────────────────────────────
@@ -32,12 +33,25 @@ static void signalHandler(int) {
     if (g_robot) g_robot->stop();
 }
 
+static std::string defaultConfigPath() {
+    if (const char* env = std::getenv("CONFIG_PATH"); env && *env) {
+        return env;
+    }
+
+    const std::filesystem::path corePath = "/etc/sunray-core/config.json";
+    if (std::filesystem::exists(corePath)) {
+        return corePath.string();
+    }
+
+    return "/etc/sunray/config.json";
+}
+
 // ── main ───────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
     // ── Argument parsing ───────────────────────────────────────────────────────
     bool        simMode    = false;
-    std::string configPath = "/etc/sunray/config.json";
+    std::string configPath = defaultConfigPath();
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--sim") == 0) {
@@ -49,6 +63,7 @@ int main(int argc, char* argv[]) {
 
     // ── 1. Config ──────────────────────────────────────────────────────────────
     auto config = std::make_shared<sunray::Config>(configPath);
+    const auto configDir = config->path().parent_path();
 
     // ── 2. Logger ──────────────────────────────────────────────────────────────
     auto logger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::INFO);
@@ -99,8 +114,8 @@ int main(int argc, char* argv[]) {
     wsServer->setWebRoot("webui/dist");
 
     // Map file: read/written by GET/POST /api/map; reloaded into Robot on POST
-    const std::string mapPath = config->get<std::string>("map_path",
-                                                          "/etc/sunray/map.json");
+    const std::string mapPath =
+        config->get<std::string>("map_path", (configDir / "map.json").string());
     wsServer->setMapPath(mapPath);
     wsServer->onMapReload([&robot, mapPath]() {
         return robot.loadMap(mapPath);
@@ -154,7 +169,10 @@ int main(int argc, char* argv[]) {
 
     // Schedule API (C.11)
     {
-        auto schedulePath = std::filesystem::path(config->get<std::string>("config_dir", ".")) / "schedule.json";
+        auto schedulePath =
+            std::filesystem::path(
+                config->get<std::string>("config_dir", configDir.string()))
+            / "schedule.json";
         robot.loadSchedule(schedulePath);
         wsServer->onScheduleGet([&robot]() -> nlohmann::json {
             return robot.getSchedule();

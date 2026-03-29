@@ -25,6 +25,7 @@
 #include "../../core/Config.h"
 #include "../../platform/Serial.h"
 #include "../../platform/I2C.h"
+#include "../../platform/I2cMux.h"
 #include "../../platform/PortExpander.h"
 #include "../Imu/Mpu6050Driver.h"
 
@@ -105,6 +106,7 @@ private:
     // Platform objects — constructed in init(), null until then
     std::unique_ptr<platform::Serial>       uart_;
     std::unique_ptr<platform::I2C>          i2c_;
+    std::unique_ptr<platform::I2cMux>       mux_;
     std::unique_ptr<platform::PortExpander> ex1_;  // 0x21: IMU power, Fan, ADC mux
     std::unique_ptr<platform::PortExpander> ex2_;  // 0x20: Buzzer
     std::unique_ptr<platform::PortExpander> ex3_;  // 0x22: Panel LEDs
@@ -182,6 +184,7 @@ private:
     // ── Utility ───────────────────────────────────────────────────────────────
     static uint64_t    nowMs();
     static std::string shellRead(const char* cmd);  // popen + collect output
+    uint8_t            configI2cAddr(const std::string& key, uint8_t fallback) const;
     static int           fieldInt  (const std::string& s);
     static unsigned long fieldULong(const std::string& s);  ///< BUG-003: for tick counters
     static float         fieldFloat(const std::string& s);

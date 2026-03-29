@@ -1,11 +1,19 @@
 {
-    "_comment": "Sunray Core — example configuration. Copy to /etc/sunray/config.json and adjust.",
+    "_comment": "Sunray Core — example configuration. Copy to /etc/sunray-core/config.json and adjust.",
 
     "_c_driver":            "serial=Alfred/STM32 ueber UART, sim=Simulation ohne Hardware",
     "driver":               "serial",
-    "driver_port":          "/dev/ttyS0",
-    "driver_baud":          115200,
+    "driver_port":          "/dev/ttyS1",
+    "driver_baud":          19200,
     "i2c_bus":              "/dev/i2c-1",
+    "_c_i2c_topology":      "Original Alfred nutzt den TCA9548A-Mux (0x70). IMU haengt typischerweise auf Kanal 4 an 0x69, ADC auf Kanal 6 an 0x68, EEPROM auf Kanal 5 an 0x50. legacy_channel=0 bleibt fuer dev-PCB-Kompatibilitaet mit aktiviert.",
+    "i2c_mux_enabled":      true,
+    "i2c_mux_addr":         "0x70",
+    "i2c_mux_legacy_channel": 0,
+    "imu_mux_channel":      4,
+    "eeprom_mux_channel":   5,
+    "adc_mux_channel":      6,
+    "imu_i2c_addr":         "0x69",
 
     "_c_gps":               "ZED-F9P via USB. gps_configure=true konfiguriert 5 Hz + UBX-Messages beim Start. gps_config_filter=true aktiviert Elevationsfilter fuer stabiles RTK-Signal",
     "gps_port":             "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00",

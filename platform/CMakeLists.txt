@@ -4,6 +4,7 @@
 add_library(sunray_platform STATIC
     Serial.cpp
     I2C.cpp
+    I2cMux.cpp
     PortExpander.cpp
 )
 
