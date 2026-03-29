@@ -108,6 +108,15 @@ bool SerialRobotDriver::init() {
     // ── Initial battery data default (safe fallback if MCU not yet connected) ─
     battery_.voltage = 28.0f;  // prevents immediate shutdown on startup
 
+    // Avoid an immediate false communication warning on the very first run().
+    const uint64_t now = nowMs();
+    nextMotorMs_   = now + 20;
+    nextSummaryMs_ = now + 500;
+    nextConsoleMs_ = now + 1000;
+    nextLedMs_     = now + 3000;
+    nextTempMs_    = now + 59000;
+    nextWifiMs_    = now + 7000;
+
     std::cerr << "[SRD] init complete — UART=" << port
               << " @" << baud << " I2C=" << i2cBus << '\n';
     return true;
