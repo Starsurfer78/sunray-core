@@ -49,10 +49,6 @@ bool Robot::init() {
         return false;
     }
 
-    hw_->setLed(LedId::LED_1, LedState::OFF);
-    hw_->setLed(LedId::LED_2, LedState::OFF);
-    hw_->setLed(LedId::LED_3, LedState::OFF);
-
     running_.store(false);
     now_ms_  = 0;
     sensors_ = hw_->readSensors();
