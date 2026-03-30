@@ -10,6 +10,7 @@
   export let showHeader = true
   export let showViewportActions = true
   export let showRobot = true
+  export let showZoomControls = false
 
   const baseScale = 20
   const grid = 1
@@ -18,6 +19,8 @@
   let zoom = 1
   let offsetX = 0
   let offsetY = 0
+
+  $: currentScale = baseScale * zoom
   let isPanning = false
   let panStartX = 0
   let panStartY = 0
@@ -35,12 +38,10 @@
 
   let dragTarget: DragTarget | null = null
 
-  const scale = () => baseScale * zoom
-
   function worldToScreen(point: Point) {
     return {
-      x: width / 2 + offsetX + point.x * scale(),
-      y: height / 2 + offsetY - point.y * scale(),
+      x: width / 2 + offsetX + point.x * currentScale,
+      y: height / 2 + offsetY - point.y * currentScale,
     }
   }
 
@@ -57,8 +58,8 @@
   function screenToWorldFromCoordinates(clientX: number, clientY: number, target: SVGSVGElement) {
     const { x: sx, y: sy } = clientToSvgCoordinates(clientX, clientY, target)
     return {
-      x: Number((((sx - width / 2 - offsetX) / scale())).toFixed(2)),
-      y: Number((((height / 2 + offsetY - sy) / scale())).toFixed(2)),
+      x: Number((((sx - width / 2 - offsetX) / currentScale)).toFixed(2)),
+      y: Number((((height / 2 + offsetY - sy) / currentScale)).toFixed(2)),
     }
   }
 
@@ -123,17 +124,26 @@
     }
   }
 
+  export function zoomIn() {
+    zoom = Math.max(0.5, Math.min(4, Number((zoom * 1.2).toFixed(3))))
+  }
+
+  export function zoomOut() {
+    zoom = Math.max(0.5, Math.min(4, Number((zoom * 0.8).toFixed(3))))
+  }
+
   function handlePointerDown(event: PointerEvent) {
-    if (!interactive) return
     const target = event.currentTarget as SVGSVGElement
-    const drag = findDragTarget(event.clientX, event.clientY, target)
     suppressClick = false
 
-    if (drag) {
-      dragTarget = drag
-      pointerCaptured = true
-      target.setPointerCapture(event.pointerId)
-      return
+    if (interactive) {
+      const drag = findDragTarget(event.clientX, event.clientY, target)
+      if (drag) {
+        dragTarget = drag
+        pointerCaptured = true
+        target.setPointerCapture(event.pointerId)
+        return
+      }
     }
 
     isPanning = true
@@ -146,7 +156,6 @@
   }
 
   function handlePointerMove(event: PointerEvent) {
-    if (!interactive) return
     const target = event.currentTarget as SVGSVGElement
     if (dragTarget) {
       applyDraggedPoint(dragTarget, screenToWorldFromCoordinates(event.clientX, event.clientY, target))
@@ -162,7 +171,6 @@
   }
 
   function releasePointer(event: PointerEvent) {
-    if (!interactive) return
     const target = event.currentTarget as SVGSVGElement
     if (pointerCaptured) {
       try {
@@ -177,7 +185,7 @@
   }
 
   function handleCanvasClick(event: MouseEvent) {
-    if (!interactive) return
+    if (!interactive || $mapStore.selectedTool === 'move') return
     if (suppressClick) {
       suppressClick = false
       return
@@ -187,7 +195,6 @@
   }
 
   function handleWheel(event: WheelEvent) {
-    if (!interactive) return
     event.preventDefault()
     const delta = event.deltaY < 0 ? 1.1 : 0.9
     zoom = Math.max(0.5, Math.min(4, Number((zoom * delta).toFixed(3))))
@@ -232,7 +239,7 @@
     offsetY = 0
   }
 
-  function fitToContent() {
+  export function fitToContent() {
     const points = allMapPoints()
     if (points.length === 0) {
       resetView()
@@ -256,8 +263,8 @@
 
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
-    offsetX = Number((-centerX * scale()).toFixed(2))
-    offsetY = Number((centerY * scale()).toFixed(2))
+    offsetX = Number((-centerX * currentScale).toFixed(2))
+    offsetY = Number((centerY * currentScale).toFixed(2))
   }
 
   $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y })
@@ -290,9 +297,17 @@
   {/if}
 
   <div class="canvas-wrap">
+    {#if showZoomControls}
+      <div class="zoom-controls">
+        <button type="button" title="Heranzoomen" on:click={zoomIn}>+</button>
+        <button type="button" title="Herauszoomen" on:click={zoomOut}>−</button>
+        <button type="button" title="Auf Inhalt zoomen" on:click={fitToContent}>◎</button>
+      </div>
+    {/if}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
     <svg
       viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="xMidYMid slice"
       role="img"
       aria-label="Map canvas"
       tabindex={interactive ? 0 : -1}
@@ -302,11 +317,11 @@
       on:pointermove={handlePointerMove}
       on:pointerup={releasePointer}
       on:pointerleave={releasePointer}
-      on:wheel={handleWheel}
+      on:wheel|nonpassive={handleWheel}
     >
       <defs>
-        <pattern id="grid" width={scale() * grid} height={scale() * grid} patternUnits="userSpaceOnUse" x={offsetX} y={offsetY}>
-          <path d={`M ${scale() * grid} 0 L 0 0 0 ${scale() * grid}`} fill="none" stroke="rgba(30,58,95,0.45)" stroke-width="1" />
+        <pattern id="grid" width={currentScale * grid} height={currentScale * grid} patternUnits="userSpaceOnUse" x={offsetX} y={offsetY}>
+          <path d={`M ${currentScale * grid} 0 L 0 0 0 ${currentScale * grid}`} fill="none" stroke="rgba(30,58,95,0.45)" stroke-width="1" />
         </pattern>
       </defs>
 
@@ -392,6 +407,7 @@
     padding: 0;
     background: transparent;
     border: 0;
+    height: 100%;
   }
 
   header {
@@ -438,16 +454,42 @@
   }
 
   .canvas-wrap {
+    position: relative;
     overflow: hidden;
-    border-radius: 0.8rem;
-    border: 1px solid #1e3a5f;
+    height: 100%;
     background: #070d18;
+  }
+
+  .zoom-controls {
+    position: absolute;
+    left: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 2;
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .zoom-controls button {
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.45rem;
+    border: 1px solid #1e3a5f;
+    background: rgba(15, 24, 41, 0.96);
+    color: #60a5fa;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .zoom-controls button:hover {
+    background: rgba(30, 58, 95, 0.96);
+    color: #93c5fd;
   }
 
   svg {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
     cursor: grab;
     touch-action: none;
   }

@@ -66,22 +66,21 @@
 <style>
   .panel {
     display: grid;
-    gap: 0.9rem;
-    padding: 1rem;
-    border-radius: 0.8rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
+    gap: 0.4rem;
+    padding: 0.58rem 0.68rem;
+    border-bottom: 1px solid #0f1829;
   }
-  header, .actions { display: grid; gap: 0.6rem; }
-  h2, p { margin: 0; }
-  p, .meta { color: #64748b; font-size: 0.84rem; }
+  header, .actions { display: grid; gap: 0.3rem; }
+  h2 { margin: 0; color: #7a8da8; font-size: 0.59rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+  p, .meta { margin: 0; color: #64748b; font-size: 0.6rem; }
   button {
-    padding: 0.75rem 0.9rem;
+    padding: 0.38rem 0.5rem;
     border: 1px solid #0891b2;
-    border-radius: 0.6rem;
+    border-radius: 0.4rem;
     background: #082f49;
     color: #67e8f9;
     font-weight: 700;
+    font-size: 0.64rem;
     cursor: pointer;
   }
   button.active {
@@ -89,16 +88,19 @@
   }
   label {
     display: grid;
-    gap: 0.35rem;
-    color: #cbd5e1;
-    font-size: 0.84rem;
+    gap: 0.25rem;
+    color: #94a3b8;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
   select, input {
     width: 100%;
-    padding: 0.7rem 0.8rem;
+    padding: 0.32rem 0.45rem;
     border: 1px solid #1a2a40;
-    border-radius: 0.6rem;
+    border-radius: 0.4rem;
     background: #0a1020;
     color: #dce8e8;
+    font-size: 0.7rem;
   }
 </style>

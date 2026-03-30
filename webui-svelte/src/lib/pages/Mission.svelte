@@ -78,6 +78,7 @@
   .page {
     display: grid;
     gap: 1rem;
+    padding: 1rem;
   }
 
   .head {

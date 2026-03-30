@@ -19,7 +19,7 @@ export interface Zone {
   settings: ZoneSettings
 }
 
-export type MapTool = 'perimeter' | 'dock' | 'zone' | 'nogo'
+export type MapTool = 'perimeter' | 'dock' | 'zone' | 'nogo' | 'move'
 
 export interface RobotMap {
   perimeter: Point[]

@@ -126,9 +126,10 @@
   }
 
   .app-shell {
-    min-height: 100vh;
+    height: 100dvh;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
     background:
       radial-gradient(circle at top, rgba(30, 58, 95, 0.38), transparent 34%),
       #0a0f1a;
@@ -235,7 +236,7 @@
 
   .view {
     min-width: 0;
-    padding: 1rem;
+    overflow: hidden;
   }
 
   .error-banner {

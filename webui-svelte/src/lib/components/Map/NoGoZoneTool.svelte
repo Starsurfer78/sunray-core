@@ -75,37 +75,24 @@
 <style>
   .panel {
     display: grid;
-    gap: 0.9rem;
-    padding: 1rem;
-    border-radius: 0.8rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
+    gap: 0.4rem;
+    padding: 0.58rem 0.68rem;
+    border-bottom: 1px solid #0f1829;
   }
 
-  header,
-  .actions {
-    display: grid;
-    gap: 0.6rem;
-  }
+  header, .actions { display: grid; gap: 0.3rem; }
 
-  h2,
-  p {
-    margin: 0;
-  }
-
-  p,
-  .meta {
-    color: #64748b;
-    font-size: 0.84rem;
-  }
+  h2 { margin: 0; color: #7a8da8; font-size: 0.59rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+  p, .meta { margin: 0; color: #64748b; font-size: 0.6rem; }
 
   button {
-    padding: 0.75rem 0.9rem;
+    padding: 0.38rem 0.5rem;
     border: 1px solid #dc2626;
-    border-radius: 0.6rem;
+    border-radius: 0.4rem;
     background: #450a0a;
     color: #fca5a5;
     font-weight: 700;
+    font-size: 0.64rem;
     cursor: pointer;
   }
   button.active {
@@ -114,24 +101,27 @@
 
   label {
     display: grid;
-    gap: 0.35rem;
-    color: #cbd5e1;
-    font-size: 0.84rem;
+    gap: 0.25rem;
+    color: #94a3b8;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 
   select {
     width: 100%;
-    padding: 0.7rem 0.8rem;
+    padding: 0.32rem 0.45rem;
     border: 1px solid #1a2a40;
-    border-radius: 0.6rem;
+    border-radius: 0.4rem;
     background: #0a1020;
     color: #dce8e8;
+    font-size: 0.7rem;
   }
 
   .list {
     display: grid;
-    gap: 0.45rem;
-    max-height: 220px;
+    gap: 0.3rem;
+    max-height: 160px;
     overflow: auto;
     padding-right: 0.2rem;
   }
@@ -140,16 +130,18 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.8rem;
-    padding: 0.7rem 0.8rem;
-    border-radius: 0.6rem;
+    gap: 0.5rem;
+    padding: 0.32rem 0.45rem;
+    border-radius: 0.4rem;
     background: #0a1020;
     border: 1px solid #1a2a40;
     color: #dce8e8;
+    font-size: 0.64rem;
   }
 
   .list-item small {
     color: #64748b;
+    font-size: 0.6rem;
   }
 
   .list-item.selected {
