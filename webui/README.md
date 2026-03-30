@@ -21,6 +21,14 @@ Keine externen Kartenbibliotheken. Alle Karten-Renderings sind eigene `<canvas>`
 
 ## Schnellstart
 
+Voraussetzung fuer den aktuellen Frontend-Stack:
+
+- `Node.js >= 20`
+- empfohlen: eine aktuelle LTS-Version von Node 20
+
+Mit `Node 18` kann `npm install` noch Warnungen statt Fehler liefern, der
+Produktions-Build (`npm run build`) ist damit aber nicht verlaesslich moeglich.
+
 ```bash
 cd sunray-core/webui
 

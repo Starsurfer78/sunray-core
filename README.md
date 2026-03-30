@@ -79,6 +79,12 @@ Fuer den Linux-Build:
 - C++17-Compiler (`g++` oder `clang++`)
 - Node.js + npm fuer die WebUI
 
+Wichtig fuer die aktuelle WebUI-Toolchain:
+
+- die WebUI benoetigt derzeit `Node.js >= 20`
+- `Node 18` reicht fuer `npm install` teils noch aus, scheitert aber spaetestens
+  beim Frontend-Build mit Vite 8 / Tailwind 4
+
 Fuer echten Robot-Betrieb zusaetzlich:
 
 - Raspberry Pi
