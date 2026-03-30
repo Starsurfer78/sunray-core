@@ -109,6 +109,14 @@ Realer Hinweis aus Gartenscreenshots:
   Kurz: Verbindung, Modus, Akku und Laden auf allen Seiten sichtbar halten.
   Datei/Pfad: `webui-svelte/src/lib/components/StatusBar.svelte`
 
+- [x] Globalen Fehlerbanner einbauen
+  Kurz: Fehlerzustand und Fehlergrund bei OP_ERROR oben immer sichtbar machen.
+  Datei/Pfad: `webui-svelte/src/App.svelte`
+
+- [x] Ladeanzeige fachlich korrigieren
+  Kurz: Dockkontakt und Ladestrom sauber unterscheiden statt nur `charge_v` als Laden anzuzeigen.
+  Datei/Pfad: `webui-svelte/src/lib/components/StatusBar.svelte`
+
 - [~] Altes Dashboard-Layout als Svelte-Referenz uebernehmen
   Kurz: Topbar, Tab-Navigation, dominante Karte und rechte Sidebar an den HTML-Referenzen ausrichten.
   Datei/Pfad: `webui/design/sunray_dashboard_v5.html`

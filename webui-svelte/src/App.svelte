@@ -6,6 +6,7 @@
   import Mission from './lib/pages/Mission.svelte'
   import StatusBar from './lib/components/StatusBar.svelte'
   import { startTelemetry, stopTelemetry } from './lib/api/websocket'
+  import { telemetry } from './lib/stores/telemetry'
 
   type View = 'dashboard' | 'diagnostics' | 'map' | 'mission'
 
@@ -25,6 +26,24 @@
       if (emergencyInfo === 'NOTAUS ist aktuell noch ein Platzhalter') emergencyInfo = ''
     }, 2600)
   }
+
+  function humanizeReason(reason: string) {
+    return reason
+      .replace(/^ERR_/, '')
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/^\w/, (c) => c.toUpperCase())
+  }
+
+  $: globalError =
+    $telemetry.op === 'Error'
+      ? ($telemetry.error_code || humanizeReason($telemetry.event_reason || 'Unbekannter Fehler'))
+      : ''
+
+  $: globalErrorDetail =
+    $telemetry.op === 'Error' && $telemetry.event_reason
+      ? humanizeReason($telemetry.event_reason)
+      : ''
 
   onMount(() => {
     startTelemetry()
@@ -64,6 +83,16 @@
         <span class="topbar-info">{emergencyInfo}</span>
       {/if}
     </div>
+
+    {#if globalError}
+      <div class="error-banner" role="alert" aria-live="assertive">
+        <strong>Fehler:</strong>
+        <span>{globalError}</span>
+        {#if globalErrorDetail && globalErrorDetail !== globalError}
+          <small>{globalErrorDetail}</small>
+        {/if}
+      </div>
+    {/if}
   </header>
 
   <section class="view">
@@ -189,6 +218,27 @@
   .view {
     min-width: 0;
     padding: 1rem;
+  }
+
+  .error-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid #dc2626;
+    border-radius: 0.55rem;
+    background: rgba(69, 10, 10, 0.88);
+    color: #fecaca;
+    font-size: 0.84rem;
+  }
+
+  .error-banner strong {
+    color: #fca5a5;
+  }
+
+  .error-banner small {
+    color: #fda4af;
   }
 
   @media (max-width: 900px) {

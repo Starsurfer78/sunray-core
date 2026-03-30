@@ -56,6 +56,7 @@ public:
         float        heading   = 0.0f;   ///< heading (rad, 0 = east)
         float        battery_v = 0.0f;   ///< battery voltage (V)
         float        charge_v  = 0.0f;   ///< charger output voltage (V)
+        float        charge_a  = 0.0f;   ///< charging current (A)
         int          gps_sol   = 0;      ///< NMEA quality (0=none, 4=RTK, 5=float)
         std::string  gps_text  = "---";  ///< human-readable GPS quality
         float        gps_acc   = 0.0f;   ///< horizontal GPS accuracy estimate (m)

@@ -865,6 +865,7 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"heading\":";     s += flt(d.heading);
     s += ",\"battery_v\":";   s += flt(d.battery_v, 2);
     s += ",\"charge_v\":";    s += flt(d.charge_v,  2);
+    s += ",\"charge_a\":";    s += flt(d.charge_a,  2);
     s += ",\"gps_sol\":";     s += std::to_string(d.gps_sol);
     s += ",\"gps_text\":\"";  s += esc(d.gps_text);  s += "\"";
     s += ",\"gps_acc\":";     s += flt(d.gps_acc, 3);

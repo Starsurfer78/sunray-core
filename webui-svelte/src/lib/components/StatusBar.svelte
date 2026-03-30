@@ -6,6 +6,13 @@
 
   const formatNumber = (value: number | string | null | undefined, digits = 1) =>
     typeof value === 'number' ? value.toFixed(digits) : '---'
+
+  $: chargeStateLabel =
+    $telemetry.charge_a > 0.05
+      ? `Laedt ${formatNumber($telemetry.charge_a, 2)} A`
+      : $telemetry.charge_v >= 7
+        ? `Dockkontakt ${formatNumber($telemetry.charge_v)} V`
+        : 'Kein Dock'
 </script>
 
 <div class:compact class="statusbar">
@@ -25,8 +32,8 @@
   </div>
 
   <div class="pill">
-    <span class="label">Laden</span>
-    <strong>{formatNumber($telemetry.charge_v)} V</strong>
+    <span class="label">Dock</span>
+    <strong>{chargeStateLabel}</strong>
   </div>
 
   <div class="pill">

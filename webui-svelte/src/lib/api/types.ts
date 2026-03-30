@@ -6,6 +6,7 @@ export interface Telemetry {
   heading: number
   battery_v: number
   charge_v: number
+  charge_a: number
   gps_sol: number
   gps_text: string
   gps_acc: number
@@ -49,6 +50,7 @@ export const defaultTelemetry: Telemetry = {
   heading: 0,
   battery_v: 0,
   charge_v: 0,
+  charge_a: 0,
   gps_sol: 0,
   gps_text: '---',
   gps_acc: 0,

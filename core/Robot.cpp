@@ -560,6 +560,7 @@ WebSocketServer::TelemetryData Robot::buildTelemetry() const {
     d.heading   = stateEst_.heading();
     d.battery_v = battery_.voltage;
     d.charge_v  = battery_.chargeVoltage;
+    d.charge_a  = battery_.chargeCurrent;
     // GPS quality: derive from StateEstimator state
     if (stateEst_.gpsHasFix()) {
         d.gps_sol  = 4;
