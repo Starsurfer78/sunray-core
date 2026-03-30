@@ -617,21 +617,32 @@ void WebSocketServer::setupHttpRoutes() {
                 return;
             }
             // Run blocking robot operation in a detached thread; ASIO thread returns immediately.
+            // IMPORTANT: res.end() → complete_request() → asio::async_write() MUST run on the
+            // ASIO thread, not the worker thread.  We use req.io_service->post() to dispatch the
+            // response completion back to the ASIO thread after the blocking work finishes.
             // try/catch is mandatory: an uncaught exception in a detached thread calls
             // std::terminate() and crashes the process.
-            std::thread([diagCb = std::move(diagCb), action, params, &res]() mutable {
+            std::thread([diagCb = std::move(diagCb), action, params,
+                         io_service = req.io_service, &res]() mutable {
+                int         code;
+                std::string body;
                 try {
                     auto resJson = diagCb(action, params);
-                    res.code = 200;
-                    res.body = resJson.dump();
+                    code = 200;
+                    body = resJson.dump();
                 } catch (const std::exception& e) {
-                    res.code = 500;
-                    res.body = std::string(R"({"ok":false,"error":")") + e.what() + "\"}";
+                    code = 500;
+                    body = std::string(R"({"ok":false,"error":")") + e.what() + "\"}";
                 } catch (...) {
-                    res.code = 500;
-                    res.body = R"({"ok":false,"error":"unknown error"})";
+                    code = 500;
+                    body = R"({"ok":false,"error":"unknown error"})";
                 }
-                res.end();
+                // Post response finalisation back to the ASIO thread.
+                io_service->post([&res, code, body = std::move(body)]() mutable {
+                    res.code = code;
+                    res.body = std::move(body);
+                    res.end();
+                });
             }).detach();
         }
     );
