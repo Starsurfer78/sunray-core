@@ -21,6 +21,7 @@
   let panOriginY = 0
   let suppressClick = false
   let pointerCaptured = false
+  let hasAutoFit = false
 
   type DragTarget =
     | { kind: 'perimeter'; index: number }
@@ -190,7 +191,68 @@
     }).join(' ')
   }
 
+  function centroid(points: Point[]) {
+    if (points.length === 0) return null
+    const sum = points.reduce((acc, point) => ({
+      x: acc.x + point.x,
+      y: acc.y + point.y,
+    }), { x: 0, y: 0 })
+    return {
+      x: sum.x / points.length,
+      y: sum.y / points.length,
+    }
+  }
+
+  function allMapPoints() {
+    return [
+      ...$mapStore.map.perimeter,
+      ...$mapStore.map.dock,
+      ...$mapStore.map.mow,
+      ...$mapStore.map.zones.flatMap((zone) => zone.polygon),
+      ...$mapStore.map.exclusions.flatMap((exclusion) => exclusion),
+    ]
+  }
+
+  function resetView() {
+    zoom = 1
+    offsetX = 0
+    offsetY = 0
+  }
+
+  function fitToContent() {
+    const points = allMapPoints()
+    if (points.length === 0) {
+      resetView()
+      return
+    }
+
+    const minX = Math.min(...points.map((point) => point.x))
+    const maxX = Math.max(...points.map((point) => point.x))
+    const minY = Math.min(...points.map((point) => point.y))
+    const maxY = Math.max(...points.map((point) => point.y))
+
+    const spanX = Math.max(maxX - minX, 1)
+    const spanY = Math.max(maxY - minY, 1)
+    const padding = 48
+
+    const availableWidth = Math.max(width - padding * 2, 120)
+    const availableHeight = Math.max(height - padding * 2, 120)
+
+    const fitScale = Math.min(availableWidth / spanX, availableHeight / spanY)
+    zoom = Math.max(0.25, Math.min(6, Number((fitScale / baseScale).toFixed(3))))
+
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    offsetX = Number((-centerX * scale()).toFixed(2))
+    offsetY = Number((centerY * scale()).toFixed(2))
+  }
+
   $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y })
+  $: mapPointCount = allMapPoints().length
+  $: if (!hasAutoFit && mapPointCount > 1) {
+    fitToContent()
+    hasAutoFit = true
+  }
 
   onDestroy(() => {
     dragTarget = null
@@ -204,11 +266,18 @@
     <p>Lokales Gitter in Meterkoordinaten. Klicks setzen Punkte fuer das aktuell aktive Werkzeug.</p>
   </header>
 
+  <div class="viewport-actions">
+    <button type="button" on:click={fitToContent}>Auf Karte zoomen</button>
+    <button type="button" class="secondary" on:click={resetView}>Ansicht zentrieren</button>
+    <span class="meta">Zoom {(zoom * 100).toFixed(0)}%</span>
+  </div>
+
   <div class="canvas-wrap">
     <svg
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label="Map canvas"
+      tabindex="0"
       on:click={handleCanvasClick}
       on:pointerdown={handlePointerDown}
       on:pointermove={handlePointerMove}
@@ -242,14 +311,24 @@
 
       <circle cx={robotScreen.x} cy={robotScreen.y} r="7" fill="#f2f6f1" stroke="#0c1513" stroke-width="2" />
 
-      {#each $mapStore.map.exclusions as exclusion}
+      {#each $mapStore.map.exclusions as exclusion, exclusionIndex}
         {#if exclusion.length > 1}
-          <polygon points={path(exclusion)} fill="rgba(224, 123, 141, 0.14)" stroke="#de8899" stroke-width="2" />
+          <polygon
+            points={path(exclusion)}
+            fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(224, 123, 141, 0.24)' : 'rgba(224, 123, 141, 0.14)'}
+            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#f1b3bf' : '#de8899'}
+            stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
+          />
         {/if}
         {#each exclusion as point}
           {@const p = worldToScreen(point)}
-          <circle cx={p.x} cy={p.y} r="5" fill="#de8899" />
+          <circle cx={p.x} cy={p.y} r="5" fill={$mapStore.selectedExclusionIndex === exclusionIndex ? '#f1b3bf' : '#de8899'} />
         {/each}
+        {@const exclusionCenter = centroid(exclusion)}
+        {#if exclusionCenter}
+          {@const center = worldToScreen(exclusionCenter)}
+          <text x={center.x + 8} y={center.y - 8} class="label exclusion-label">NoGo {exclusionIndex + 1}</text>
+        {/if}
       {/each}
 
       {#each $mapStore.map.zones as zone}
@@ -260,6 +339,11 @@
           {@const p = worldToScreen(point)}
           <circle cx={p.x} cy={p.y} r="5" fill="#86b8ea" />
         {/each}
+        {@const zoneCenter = centroid(zone.polygon)}
+        {#if zoneCenter}
+          {@const center = worldToScreen(zoneCenter)}
+          <text x={center.x + 8} y={center.y - 8} class="label zone-label">{zone.settings.name}</text>
+        {/if}
       {/each}
     </svg>
   </div>
@@ -278,6 +362,34 @@
   header {
     display: grid;
     gap: 0.25rem;
+  }
+
+  .viewport-actions {
+    display: flex;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .viewport-actions button {
+    padding: 0.65rem 0.9rem;
+    border: 0;
+    border-radius: 0.8rem;
+    background: #90c6ea;
+    color: #07110f;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .viewport-actions button.secondary {
+    background: rgba(148, 173, 161, 0.18);
+    color: #dce8e8;
+    border: 1px solid rgba(152, 187, 170, 0.14);
+  }
+
+  .meta {
+    color: #9db3ab;
+    font-size: 0.92rem;
   }
 
   h2,
@@ -302,5 +414,22 @@
     height: auto;
     cursor: grab;
     touch-action: none;
+  }
+
+  .label {
+    font-size: 12px;
+    font-weight: 700;
+    paint-order: stroke;
+    stroke: rgba(7, 17, 15, 0.85);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .zone-label {
+    fill: #bfe0ff;
+  }
+
+  .exclusion-label {
+    fill: #ffd7df;
   }
 </style>

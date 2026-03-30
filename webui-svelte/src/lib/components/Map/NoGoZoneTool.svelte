@@ -47,6 +47,22 @@
     </select>
   </label>
 
+  {#if $mapStore.map.exclusions.length > 0}
+    <div class="list">
+      {#each $mapStore.map.exclusions as exclusion, index}
+        <button
+          type="button"
+          class:list-item={true}
+          class:selected={$mapStore.selectedExclusionIndex === index}
+          on:click={() => mapStore.selectExclusion(index)}
+        >
+          <span>NoGo {index + 1}</span>
+          <small>{exclusion.length} Punkte</small>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <div class="meta">
     Gesamt: {$mapStore.map.exclusions.length}
     {#if $mapStore.selectedExclusionIndex !== null}
@@ -109,5 +125,34 @@
     border-radius: 0.8rem;
     background: rgba(24, 38, 34, 0.85);
     color: #dce8e8;
+  }
+
+  .list {
+    display: grid;
+    gap: 0.45rem;
+    max-height: 220px;
+    overflow: auto;
+    padding-right: 0.2rem;
+  }
+
+  .list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 0.7rem 0.8rem;
+    border-radius: 0.8rem;
+    background: rgba(24, 38, 34, 0.8);
+    border: 1px solid rgba(152, 187, 170, 0.12);
+    color: #dce8e8;
+  }
+
+  .list-item small {
+    color: #9db3ab;
+  }
+
+  .list-item.selected {
+    border-color: rgba(255, 223, 229, 0.6);
+    background: rgba(214, 154, 165, 0.18);
   }
 </style>

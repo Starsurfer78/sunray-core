@@ -142,7 +142,7 @@ Realer Hinweis aus Gartenscreenshots:
   Kurz: kein OSM, nur lokales Gitter, Pan und Zoom.
   Datei/Pfad: `webui-svelte/src/lib/components/Map/MapCanvas.svelte`
 
-- [ ] Karten-Canvas gegen reale Gartengroesse pruefen
+- [x] Karten-Canvas gegen reale Gartengroesse pruefen
   Kurz: Pan/Zoom und Bedienbarkeit mit grossem Perimeter und vielen NoGo-Zonen verifizieren.
   Datei/Pfad: `webui-svelte/src/lib/components/Map/MapCanvas.svelte`
 
@@ -170,7 +170,7 @@ Realer Hinweis aus Gartenscreenshots:
   Kurz: NoGo-Zonen als eigener Kartenbestandteil im State fuehren.
   Datei/Pfad: `webui-svelte/src/lib/stores/map.ts`
 
-- [ ] NoGo-Zonen-UX fuer viele Hindernisse pruefen
+- [x] NoGo-Zonen-UX fuer viele Hindernisse pruefen
   Kurz: Auswahl und Bearbeitung mit 10+ NoGo-Zonen praktikabel machen.
   Datei/Pfad: `webui-svelte/src/lib/components/Map/NoGoZoneTool.svelte`
 
