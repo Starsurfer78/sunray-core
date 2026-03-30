@@ -786,11 +786,10 @@ nlohmann::json Robot::diagImuCalib() {
         return {{"ok", false}, {"error", "Nur im Idle-Zustand erlaubt"}};
 
     hw_->calibrateImu();
-    // Wait for calibration to finish (approx 5 seconds)
-    // We could make it async, but for a diag command, blocking is fine.
-    std::this_thread::sleep_for(std::chrono::milliseconds(5500));
-
-    return {{"ok", true}, {"message", "IMU-Kalibrierung abgeschlossen"}};
+    // The IMU driver completes calibration asynchronously in its 50 Hz update loop.
+    // Returning immediately keeps the HTTP diag endpoint short-lived and avoids
+    // tying the request lifetime to the full 5 s sensor calibration window.
+    return {{"ok", true}, {"message", "IMU-Kalibrierung gestartet"}};
 }
 
 nlohmann::json Robot::diagMowMotor(bool on) {
