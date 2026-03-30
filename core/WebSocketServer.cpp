@@ -197,10 +197,17 @@ void WebSocketServer::setupHttpRoutes() {
         [this, isAuthorized](const crow::request& req) -> crow::response {
             if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (!config_) return crow::response(503);
-            const std::string body = config_->dump();
-            crow::response res(200, body);
-            res.set_header("Content-Type", "application/json");
-            return res;
+            try {
+                const std::string body = config_->dump();
+                crow::response res;
+                res.code = 200;
+                res.body = body;
+                res.set_header("Content-Type", "application/json");
+                return res;
+            } catch (const std::exception& e) {
+                logger_->warn(TAG, std::string("GET /api/config error: ") + e.what());
+                return crow::response(500, R"({"error":"config dump failed"})");
+            }
         }
     );
 
