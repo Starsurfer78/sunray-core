@@ -190,6 +190,8 @@
     }).join(' ')
   }
 
+  $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y })
+
   onDestroy(() => {
     dragTarget = null
     isPanning = false
@@ -238,8 +240,7 @@
         <rect x={p.x - 6} y={p.y - 6} width="12" height="12" fill="#e1c57e" rx="2" />
       {/each}
 
-      {@const robot = worldToScreen({ x: $telemetry.x, y: $telemetry.y })}
-      <circle cx={robot.x} cy={robot.y} r="7" fill="#f2f6f1" stroke="#0c1513" stroke-width="2" />
+      <circle cx={robotScreen.x} cy={robotScreen.y} r="7" fill="#f2f6f1" stroke="#0c1513" stroke-width="2" />
 
       {#each $mapStore.map.exclusions as exclusion}
         {#if exclusion.length > 1}
