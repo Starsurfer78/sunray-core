@@ -19,6 +19,7 @@
 //   auto robot  = Robot(std::move(hw), config);
 
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <nlohmann/json.hpp>
 
@@ -70,6 +71,7 @@ public:
 private:
     std::filesystem::path path_;
     nlohmann::json        data_;   ///< in-memory document (defaults merged + file)
+    mutable std::mutex    mutex_;
 
     /// Map legacy alias keys to canonical keys used internally.
     static std::string canonicalKey(const std::string& key);
@@ -86,6 +88,7 @@ private:
 
 template<typename T>
 T Config::get(const std::string& key, const T& fallback) const {
+    std::lock_guard<std::mutex> lk(mutex_);
     const std::string k = canonicalKey(key);
     if (data_.contains(k)) {
         try {
@@ -99,6 +102,7 @@ T Config::get(const std::string& key, const T& fallback) const {
 
 template<typename T>
 void Config::set(const std::string& key, const T& value) {
+    std::lock_guard<std::mutex> lk(mutex_);
     data_[canonicalKey(key)] = value;
 }
 

@@ -198,6 +198,8 @@ std::string Config::canonicalKey(const std::string& key) {
 }
 
 void Config::load() {
+    std::lock_guard<std::mutex> lk(mutex_);
+
     // Start from built-in defaults so every known key is always present.
     data_ = defaults();
 
@@ -226,6 +228,7 @@ void Config::load() {
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 void Config::save() const {
+    std::lock_guard<std::mutex> lk(mutex_);
     std::ofstream f(path_);
     if (!f.is_open()) {
         throw std::runtime_error(
@@ -241,6 +244,7 @@ void Config::reload() {
 // ── Inspection ────────────────────────────────────────────────────────────────
 
 std::string Config::dump() const {
+    std::lock_guard<std::mutex> lk(mutex_);
     return data_.dump(4);
 }
 
