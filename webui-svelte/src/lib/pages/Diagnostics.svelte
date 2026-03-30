@@ -54,7 +54,7 @@
   .eyebrow {
     display: inline-block;
     margin-bottom: 0.35rem;
-    color: #fbbf24;
+    color: #60a5fa;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.72rem;
@@ -62,10 +62,7 @@
 
   h1 { margin: 0; }
 
-  h1 {
-    font-size: clamp(1.4rem, 2vw, 1.9rem);
-    line-height: 1.05;
-  }
+  h1 { font-size: 1.55rem; line-height: 1.05; }
 
   .result-card {
     display: grid;

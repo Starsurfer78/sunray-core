@@ -55,10 +55,10 @@
   .panel {
     display: grid;
     gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    padding: 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header, .toolbar, .list {
@@ -74,16 +74,14 @@
     margin: 0;
   }
 
-  p, .empty {
-    color: #9db3ab;
-  }
+  p, .empty { color: #64748b; font-size: 0.84rem; }
 
   button {
     padding: 0.75rem 0.95rem;
-    border: 0;
-    border-radius: 0.8rem;
-    background: #9fd17d;
-    color: #07110f;
+    border: 1px solid #2563eb;
+    border-radius: 0.6rem;
+    background: #0c1a3a;
+    color: #93c5fd;
     font-weight: 700;
     cursor: pointer;
   }
@@ -99,18 +97,18 @@
     gap: 0.7rem;
     align-items: center;
     padding: 0.8rem 0.9rem;
-    border-radius: 0.9rem;
-    background: rgba(24, 38, 34, 0.8);
-    border: 1px solid rgba(152, 187, 170, 0.12);
+    border-radius: 0.7rem;
+    background: #0a1020;
+    border: 1px solid #1a2a40;
     color: #dce8e8;
   }
 
   .list label.selected {
-    border-color: rgba(173, 219, 141, 0.4);
-    background: rgba(55, 80, 43, 0.38);
+    border-color: #2563eb;
+    background: rgba(30, 58, 95, 0.45);
   }
 
   small {
-    color: #8fa59f;
+    color: #64748b;
   }
 </style>

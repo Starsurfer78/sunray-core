@@ -82,10 +82,10 @@
   .panel {
     display: grid;
     gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    padding: 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header {
@@ -97,9 +97,7 @@
     margin: 0;
   }
 
-  p {
-    color: #9db3ab;
-  }
+  p { color: #64748b; font-size: 0.84rem; }
 
   .settings {
     display: grid;
@@ -110,15 +108,16 @@
   label {
     display: grid;
     gap: 0.3rem;
-    color: #c8d9d2;
+    color: #cbd5e1;
+    font-size: 0.84rem;
   }
 
   input {
     width: 100%;
     padding: 0.7rem 0.8rem;
-    border: 1px solid rgba(152, 187, 170, 0.2);
-    border-radius: 0.8rem;
-    background: rgba(24, 38, 34, 0.85);
+    border: 1px solid #1a2a40;
+    border-radius: 0.6rem;
+    background: #0a1020;
     color: #dce8e8;
   }
 
@@ -130,11 +129,11 @@
 
   button {
     padding: 0.8rem 1rem;
-    border: 0;
-    border-radius: 0.9rem;
+    border: 1px solid #2563eb;
+    border-radius: 0.6rem;
     cursor: pointer;
-    background: #9bbf7f;
-    color: #07110f;
+    background: #0c1a3a;
+    color: #93c5fd;
     font-weight: 700;
   }
 
@@ -147,6 +146,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 1rem;
-    color: #98aca6;
+    color: #64748b;
+    font-size: 0.84rem;
   }
 </style>

@@ -32,10 +32,10 @@
   .panel {
     display: grid;
     gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    padding: 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header, .grid {
@@ -47,9 +47,7 @@
     margin: 0;
   }
 
-  p {
-    color: #9db3ab;
-  }
+  p { color: #64748b; font-size: 0.84rem; }
 
   .grid {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -59,16 +57,12 @@
     display: grid;
     gap: 0.35rem;
     padding: 0.9rem;
-    border-radius: 0.9rem;
-    background: rgba(24, 38, 34, 0.8);
-    border: 1px solid rgba(152, 187, 170, 0.12);
+    border-radius: 0.7rem;
+    background: #0a1020;
+    border: 1px solid #1a2a40;
   }
 
-  strong {
-    color: #c9d7d1;
-  }
+  strong { color: #94a3b8; }
 
-  .active {
-    color: #9be38e;
-  }
+  .active { color: #4ade80; }
 </style>

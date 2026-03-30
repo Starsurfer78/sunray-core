@@ -82,10 +82,7 @@
 
 <main class="page">
   <section class="head">
-    <div>
-      <span class="eyebrow">Karte</span>
-      <h1>Perimeter, Dock und Zonen</h1>
-    </div>
+    <span class="eyebrow">Karte</span>
     <div class="status-card">
       <span class="label">Status</span>
       <strong>{$mapStore.dirty ? 'Ungespeichert' : 'Synchron'}</strong>
@@ -121,23 +118,20 @@
     gap: 1rem;
   }
   .head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 260px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
     gap: 1rem;
-    align-items: start;
   }
   .eyebrow {
-    display: inline-block;
-    margin-bottom: 0.35rem;
+    display: inline-flex;
+    align-items: center;
     color: #60a5fa;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.72rem;
-  }
-  h1 { margin: 0; }
-  h1 {
-    font-size: clamp(1.4rem, 2vw, 1.9rem);
-    line-height: 1.05;
+    padding: 0.2rem 0;
   }
   .status-card {
     display: grid;
@@ -188,7 +182,7 @@
     cursor: not-allowed;
   }
   @media (max-width: 980px) {
-    .head, .layout {
+    .layout {
       grid-template-columns: 1fr;
     }
   }

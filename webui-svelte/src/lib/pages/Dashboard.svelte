@@ -5,21 +5,26 @@
 </script>
 
 <main class="page">
-  <section class="head">
+  <section class="title-row">
     <div>
       <span class="eyebrow">Dashboard</span>
       <h1>Betriebsueberblick</h1>
     </div>
-    <div class="state-card">
-      <span class="label">Aktiver Zustand</span>
-      <strong>{$telemetry.op}</strong>
-      <span class="muted">Phase {$telemetry.state_phase || 'idle'}</span>
-    </div>
   </section>
 
-  <section class="content">
-    <TelemetryPanel />
-    <RobotControls />
+  <section class="layout">
+    <div class="main-column">
+      <TelemetryPanel />
+    </div>
+
+    <aside class="sidebar">
+      <div class="state-card">
+        <span class="label">Aktiver Zustand</span>
+        <strong>{$telemetry.op}</strong>
+        <span class="muted">Phase {$telemetry.state_phase || 'idle'}</span>
+      </div>
+      <RobotControls />
+    </aside>
   </section>
 </main>
 
@@ -29,12 +34,7 @@
     gap: 1rem;
   }
 
-  .head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 260px;
-    gap: 1rem;
-    align-items: start;
-  }
+  .title-row { display: block; }
 
   .eyebrow {
     display: inline-block;
@@ -47,9 +47,24 @@
 
   h1 { margin: 0; }
 
-  h1 {
-    font-size: clamp(1.4rem, 2vw, 1.9rem);
-    line-height: 1.05;
+  h1 { font-size: 1.7rem; line-height: 1.05; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .main-column,
+  .sidebar {
+    min-width: 0;
+  }
+
+  .sidebar {
+    display: grid;
+    gap: 1rem;
+    align-content: start;
   }
 
   .state-card {
@@ -78,16 +93,8 @@
     font-size: 0.82rem;
   }
 
-  .content {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
-    gap: 1rem;
-    align-items: start;
-  }
-
   @media (max-width: 900px) {
-    .head,
-    .content {
+    .layout {
       grid-template-columns: 1fr;
     }
   }

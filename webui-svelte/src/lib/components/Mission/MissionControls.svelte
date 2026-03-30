@@ -54,10 +54,10 @@
   .panel {
     display: grid;
     gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    padding: 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header, .actions {
@@ -69,16 +69,14 @@
     margin: 0;
   }
 
-  p, .meta {
-    color: #9db3ab;
-  }
+  p, .meta { color: #64748b; font-size: 0.84rem; }
 
   button {
     padding: 0.8rem 1rem;
-    border: 0;
-    border-radius: 0.9rem;
-    background: #8db8e8;
-    color: #07110f;
+    border: 1px solid #2563eb;
+    border-radius: 0.6rem;
+    background: #0c1a3a;
+    color: #93c5fd;
     font-weight: 700;
     cursor: pointer;
   }
