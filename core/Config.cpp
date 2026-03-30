@@ -25,7 +25,7 @@ nlohmann::json Config::defaults() {
         {"i2c_mux_enabled",     true},
         {"i2c_mux_addr",        "0x70"},
         {"i2c_mux_legacy_channel", 0},
-        {"ex3_mux_channel",     1},
+        {"ex3_mux_channel",     0},
         {"imu_mux_channel",     4},
         {"eeprom_mux_channel",  5},
         {"adc_mux_channel",     6},

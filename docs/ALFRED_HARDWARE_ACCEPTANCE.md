@@ -1,6 +1,6 @@
 # ALFRED_HARDWARE_ACCEPTANCE
 
-Last updated: 2026-03-29
+Last updated: 2026-03-30
 
 ## Zweck
 
@@ -41,6 +41,7 @@ Das Script ist absichtlich read-only:
 Im aktiven `sunray-core` klar sichtbar und runtime-relevant:
 
 - UART zur Alfred-STM32
+- TCA9548A-Multiplexer `0x70`
 - PCA9555 EX1 `0x21`
 - PCA9555 EX2 `0x20`
 - PCA9555 EX3 `0x22`
@@ -52,9 +53,18 @@ Im aktiven `sunray-core` klar sichtbar und runtime-relevant:
 
 Aktuell nicht als aktiver Runtime-Pfad sichtbar:
 
-- TCA9548A-Multiplexer `0x70`
 - MCP3421-ADC `0x68`
 - EEPROM `0x50`
+
+Auf echter Alfred-Pi-Hardware zusaetzlich bestaetigt:
+
+- EX3 `0x22` haengt hinter dem TCA9548A auf Kanal `0`
+- IMU laeuft ueber den Mux-Kanal `4`
+- Charger-Erkennung muss mit `charger_connected_voltage_v = 7.0` arbeiten
+- PCA9555-Registerzugriffe muessen wie im Original zuerst als getrennte
+  `write`-dann-`read`-Transaktion erfolgen; ein reines `writeRead`
+  (Repeated-Start zuerst) kann auf dieser Hardware ACK liefern, ohne dass LEDs
+  oder Buzzer physisch reagieren
 
 Wichtige Folge:
 
@@ -76,6 +86,7 @@ Quelle:
 | Hardware | Adresse / Pfad | Status im Code | Erwartete Wirkung |
 |---|---|---|---|
 | STM32 Alfred MCU | `driver_port` default `/dev/ttyS0` | aktiv | AT-Frames, Odometry, Sensoren, Battery |
+| TCA9548A | `0x70` | aktiv | Kanal 0 = EX3, Kanal 4 = IMU, Kanal 5 = EEPROM, Kanal 6 = ADC |
 | PCA9555 EX1 | `0x21` | aktiv | IMU-Power IO1.6, Fan IO1.7 |
 | PCA9555 EX2 | `0x20` | aktiv | Buzzer IO1.1 |
 | PCA9555 EX3 | `0x22` | aktiv | LED1..LED3 |
@@ -85,9 +96,17 @@ Quelle:
 
 | Hardware | Adresse | Status im Code | Bemerkung |
 |---|---|---|---|
-| TCA9548A | `0x70` | nicht sichtbar genutzt | keine aktive Channel-Selektion im Treiber |
 | MCP3421 ADC | `0x68` | nicht sichtbar genutzt | Batteriewerte kommen aktuell aus MCU-Frames |
 | EEPROM | `0x50` | nicht sichtbar genutzt | kein aktiver Read/Write-Pfad im Treiber |
+
+## Bestaetigte Alfred-Pi-Konfiguration
+
+- `ex3_mux_channel = 0`
+- `imu_mux_channel = 4`
+- `charger_connected_voltage_v = 7.0`
+
+Diese Werte sind nicht aus historischer Doku uebernommen, sondern auf echter
+Hardware durch Probe-Tools und Laufzeittests bestaetigt.
 
 ## Abnahme auf echter Hardware
 
