@@ -276,6 +276,12 @@ void StateEstimator::updateGps(float posE, float posN, bool isFix, bool isFloat)
 void StateEstimator::updateImu(float yaw, float roll, float pitch) {
     (void)roll; (void)pitch;
     imuActive_ = true;
+
+    // MPU6050 yaw is pure gyro integration and will drift while standing still.
+    // When the robot is effectively not moving, keep the fused heading stable
+    // instead of feeding stationary yaw drift back into the EKF.
+    if (groundSpeed_ < 0.01f) return;
+
     imuUpdate(yaw, loadNoise());
 }
 
