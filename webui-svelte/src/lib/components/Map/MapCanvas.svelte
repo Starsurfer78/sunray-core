@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte'
   import { onDestroy } from 'svelte'
   import { telemetry } from '../../stores/telemetry'
   import type { Point } from '../../stores/map'
@@ -12,9 +13,19 @@
   export let showRobot = true
   export let showZoomControls = false
 
+  const dispatch = createEventDispatcher<{ pointrejected: { tool: string } }>()
+
+  const RAD_TO_DEG = 180 / Math.PI
   const baseScale = 20
   const grid = 1
   const pointHitRadius = 10
+  const robotOuterRadiusM = 0.42
+  const robotInnerRadiusM = 0.16
+  const robotNoseStartM = 0.42
+  const robotNoseEndM = 0.82
+  const robotArrowTipM = 0.96
+  const robotArrowSideM = 0.66
+  const robotArrowHalfWidthM = 0.18
 
   let zoom = 1
   let offsetX = 0
@@ -37,21 +48,39 @@
     | { kind: 'exclusion'; exclusionIndex: number; index: number }
 
   let dragTarget: DragTarget | null = null
+  let selectedTarget: DragTarget | null = null
 
-  function worldToScreen(point: Point) {
+  function markerSizeInPx(sizeMeters: number) {
+    return Number((sizeMeters * currentScale).toFixed(2))
+  }
+
+  function worldToScreen(point: Point, scaleValue = currentScale, xOffset = offsetX, yOffset = offsetY) {
     return {
-      x: width / 2 + offsetX + point.x * currentScale,
-      y: height / 2 + offsetY - point.y * currentScale,
+      x: width / 2 + xOffset + point.x * scaleValue,
+      y: height / 2 + yOffset - point.y * scaleValue,
     }
   }
 
   function clientToSvgCoordinates(clientX: number, clientY: number, target: SVGSVGElement) {
-    const rect = target.getBoundingClientRect()
-    const scaleX = width / rect.width
-    const scaleY = height / rect.height
+    const point = target.createSVGPoint()
+    point.x = clientX
+    point.y = clientY
+    const ctm = target.getScreenCTM()
+
+    if (!ctm) {
+      const rect = target.getBoundingClientRect()
+      const scaleX = width / rect.width
+      const scaleY = height / rect.height
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
+      }
+    }
+
+    const svgPoint = point.matrixTransform(ctm.inverse())
     return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY,
+      x: svgPoint.x,
+      y: svgPoint.y,
     }
   }
 
@@ -77,14 +106,14 @@
     const cursor = clientToSvgCoordinates(clientX, clientY, target)
 
     for (let index = 0; index < $mapStore.map.dock.length; index += 1) {
-      const screen = worldToScreen($mapStore.map.dock[index])
+      const screen = worldToScreen($mapStore.map.dock[index], currentScale, offsetX, offsetY)
       if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
         return { kind: 'dock', index } as DragTarget
       }
     }
 
     for (let index = 0; index < $mapStore.map.perimeter.length; index += 1) {
-      const screen = worldToScreen($mapStore.map.perimeter[index])
+      const screen = worldToScreen($mapStore.map.perimeter[index], currentScale, offsetX, offsetY)
       if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
         return { kind: 'perimeter', index } as DragTarget
       }
@@ -93,7 +122,7 @@
     for (let exclusionIndex = 0; exclusionIndex < $mapStore.map.exclusions.length; exclusionIndex += 1) {
       const exclusion = $mapStore.map.exclusions[exclusionIndex]
       for (let index = 0; index < exclusion.length; index += 1) {
-        const screen = worldToScreen(exclusion[index])
+        const screen = worldToScreen(exclusion[index], currentScale, offsetX, offsetY)
         if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
           return { kind: 'exclusion', exclusionIndex, index } as DragTarget
         }
@@ -102,7 +131,7 @@
 
     for (const zone of $mapStore.map.zones) {
       for (let index = 0; index < zone.polygon.length; index += 1) {
-        const screen = worldToScreen(zone.polygon[index])
+        const screen = worldToScreen(zone.polygon[index], currentScale, offsetX, offsetY)
         if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
           return { kind: 'zone', zoneId: zone.id, index } as DragTarget
         }
@@ -124,6 +153,32 @@
     }
   }
 
+  function deleteTarget(target: DragTarget) {
+    if (target.kind === 'perimeter') {
+      mapStore.deletePerimeterPoint(target.index)
+    } else if (target.kind === 'dock') {
+      mapStore.deleteDockPoint(target.index)
+    } else if (target.kind === 'zone') {
+      mapStore.deleteZonePoint(target.zoneId, target.index)
+    } else if (target.kind === 'exclusion') {
+      mapStore.deleteExclusionPoint(target.exclusionIndex, target.index)
+    }
+  }
+
+  function isSelected(target: DragTarget) {
+    if (!selectedTarget || selectedTarget.kind !== target.kind) return false
+    if (target.kind === 'perimeter' || target.kind === 'dock') {
+      return selectedTarget.index === target.index
+    }
+    if (target.kind === 'zone' && selectedTarget.kind === 'zone') {
+      return selectedTarget.zoneId === target.zoneId && selectedTarget.index === target.index
+    }
+    if (target.kind === 'exclusion' && selectedTarget.kind === 'exclusion') {
+      return selectedTarget.exclusionIndex === target.exclusionIndex && selectedTarget.index === target.index
+    }
+    return false
+  }
+
   export function zoomIn() {
     zoom = Math.max(0.5, Math.min(4, Number((zoom * 1.2).toFixed(3))))
   }
@@ -139,6 +194,7 @@
     if (interactive) {
       const drag = findDragTarget(event.clientX, event.clientY, target)
       if (drag) {
+        selectedTarget = drag
         dragTarget = drag
         pointerCaptured = true
         target.setPointerCapture(event.pointerId)
@@ -191,7 +247,10 @@
       return
     }
     const target = event.currentTarget as SVGSVGElement
-    mapStore.addPoint(screenToWorld(event, target))
+    const accepted = mapStore.addPoint(screenToWorld(event, target))
+    if (!accepted) {
+      dispatch('pointrejected', { tool: $mapStore.selectedTool })
+    }
   }
 
   function handleWheel(event: WheelEvent) {
@@ -200,9 +259,9 @@
     zoom = Math.max(0.5, Math.min(4, Number((zoom * delta).toFixed(3))))
   }
 
-  function path(points: Point[]) {
+  function path(points: Point[], scaleValue = currentScale, xOffset = offsetX, yOffset = offsetY) {
     return points.map((point) => {
-      const p = worldToScreen(point)
+      const p = worldToScreen(point, scaleValue, xOffset, yOffset)
       return `${p.x},${p.y}`
     }).join(' ')
   }
@@ -259,15 +318,32 @@
     const availableHeight = Math.max(height - padding * 2, 120)
 
     const fitScale = Math.min(availableWidth / spanX, availableHeight / spanY)
-    zoom = Math.max(0.25, Math.min(6, Number((fitScale / baseScale).toFixed(3))))
+    const nextZoom = Math.max(0.25, Math.min(6, Number((fitScale / baseScale).toFixed(3))))
+    const nextScale = baseScale * nextZoom
+    zoom = nextZoom
 
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
-    offsetX = Number((-centerX * currentScale).toFixed(2))
-    offsetY = Number((centerY * currentScale).toFixed(2))
+    offsetX = Number((-centerX * nextScale).toFixed(2))
+    offsetY = Number((centerY * nextScale).toFixed(2))
   }
 
-  $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y })
+  export function deleteSelectedPoint() {
+    if (!selectedTarget) return false
+    deleteTarget(selectedTarget)
+    selectedTarget = null
+    return true
+  }
+
+  $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y }, currentScale, offsetX, offsetY)
+  $: robotHeadingDeg = -(($telemetry.heading ?? 0) * RAD_TO_DEG)
+  $: robotOuterRadius = markerSizeInPx(robotOuterRadiusM)
+  $: robotInnerRadius = markerSizeInPx(robotInnerRadiusM)
+  $: robotNoseStart = markerSizeInPx(robotNoseStartM)
+  $: robotNoseEnd = markerSizeInPx(robotNoseEndM)
+  $: robotArrowTip = markerSizeInPx(robotArrowTipM)
+  $: robotArrowSide = markerSizeInPx(robotArrowSideM)
+  $: robotArrowHalfWidth = markerSizeInPx(robotArrowHalfWidthM)
   $: mapPointCount = allMapPoints().length
   $: if (!hasAutoFit && mapPointCount > 1) {
     fitToContent()
@@ -330,61 +406,99 @@
       <line x1={width / 2} y1="0" x2={width / 2} y2={height} stroke="rgba(148,163,184,0.18)" stroke-width="1" />
 
       {#if $mapStore.map.perimeter.length > 1}
-        <polyline points={path($mapStore.map.perimeter)} fill="rgba(29, 78, 216, 0.10)" stroke="#2563eb" stroke-width="2" />
+        <polyline points={path($mapStore.map.perimeter, currentScale, offsetX, offsetY)} fill="rgba(29, 78, 216, 0.10)" stroke="#2563eb" stroke-width="2" />
       {/if}
 
-      {#each $mapStore.map.perimeter as point}
-        {@const p = worldToScreen(point)}
+      {#each $mapStore.map.perimeter as point, index}
+        {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
         <circle cx={p.x} cy={p.y} r="5" fill="#2563eb" />
+        {#if isSelected({ kind: 'perimeter', index })}
+          <circle cx={p.x} cy={p.y} r="9" class="selection-ring" />
+        {/if}
       {/each}
 
-      {#each $mapStore.map.dock as point}
-        {@const p = worldToScreen(point)}
+      {#each $mapStore.map.dock as point, index}
+        {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
         <rect x={p.x - 8} y={p.y - 8} width="16" height="16" fill="#d97706" rx="3" />
         <text x={p.x} y={p.y + 4} text-anchor="middle" class="label dock-label">D</text>
+        {#if isSelected({ kind: 'dock', index })}
+          <circle cx={p.x} cy={p.y} r="11" class="selection-ring dock-selection" />
+        {/if}
       {/each}
 
       {#if showRobot}
-        <g transform={`translate(${robotScreen.x} ${robotScreen.y}) rotate(${-($telemetry.heading ?? 0)})`}>
-          <circle r="12" fill="#0f1829" stroke="#3b82f6" stroke-width="2" />
-          <circle r="4.5" fill="#60a5fa" />
-          <line x1="0" y1="-12" x2="0" y2="-26" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" />
-          <polygon points="0,-30 -5,-21 5,-21" fill="#60a5fa" />
+        <g transform={`translate(${robotScreen.x} ${robotScreen.y}) rotate(${robotHeadingDeg})`}>
+          <circle r={robotOuterRadius} fill="#0f1829" stroke="#3b82f6" stroke-width="2" />
+          <circle r={robotInnerRadius} fill="#60a5fa" />
+          <line
+            x1="0"
+            y1={-robotNoseStart}
+            x2="0"
+            y2={-robotNoseEnd}
+            stroke="#60a5fa"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          />
+          <polygon
+            points={`0,${-robotArrowTip} ${-robotArrowHalfWidth},${-robotArrowSide} ${robotArrowHalfWidth},${-robotArrowSide}`}
+            fill="#60a5fa"
+          />
         </g>
       {/if}
 
       {#each $mapStore.map.exclusions as exclusion, exclusionIndex}
-        {#if exclusion.length > 1}
+        {#if exclusion.length === 2}
+          <polyline
+            points={path(exclusion, currentScale, offsetX, offsetY)}
+            fill="none"
+            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
+            stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
+            stroke-dasharray="5 3"
+          />
+        {:else if exclusion.length > 2}
           <polygon
-            points={path(exclusion)}
+            points={path(exclusion, currentScale, offsetX, offsetY)}
             fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(220, 38, 38, 0.16)' : 'rgba(220, 38, 38, 0.08)'}
             stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
             stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
             stroke-dasharray="5 3"
           />
         {/if}
-        {#each exclusion as point}
-          {@const p = worldToScreen(point)}
+        {#each exclusion as point, index}
+          {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
           <circle cx={p.x} cy={p.y} r="5" fill={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'} />
+          {#if isSelected({ kind: 'exclusion', exclusionIndex, index })}
+            <circle cx={p.x} cy={p.y} r="9" class="selection-ring nogo-selection" />
+          {/if}
         {/each}
         {@const exclusionCenter = centroid(exclusion)}
         {#if exclusionCenter}
-          {@const center = worldToScreen(exclusionCenter)}
+          {@const center = worldToScreen(exclusionCenter, currentScale, offsetX, offsetY)}
           <text x={center.x + 8} y={center.y - 8} class="label exclusion-label">NoGo {exclusionIndex + 1}</text>
         {/if}
       {/each}
 
       {#each $mapStore.map.zones as zone}
-        {#if zone.polygon.length > 1}
-          <polygon points={path(zone.polygon)} fill="rgba(8, 145, 178, 0.08)" stroke="#0891b2" stroke-width="1.8" />
+        {#if zone.polygon.length === 2}
+          <polyline
+            points={path(zone.polygon, currentScale, offsetX, offsetY)}
+            fill="none"
+            stroke="#0891b2"
+            stroke-width="1.8"
+          />
+        {:else if zone.polygon.length > 2}
+          <polygon points={path(zone.polygon, currentScale, offsetX, offsetY)} fill="rgba(8, 145, 178, 0.08)" stroke="#0891b2" stroke-width="1.8" />
         {/if}
-        {#each zone.polygon as point}
-          {@const p = worldToScreen(point)}
+        {#each zone.polygon as point, index}
+          {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
           <circle cx={p.x} cy={p.y} r="5" fill="#0891b2" />
+          {#if isSelected({ kind: 'zone', zoneId: zone.id, index })}
+            <circle cx={p.x} cy={p.y} r="9" class="selection-ring zone-selection" />
+          {/if}
         {/each}
         {@const zoneCenter = centroid(zone.polygon)}
         {#if zoneCenter}
-          {@const center = worldToScreen(zoneCenter)}
+          {@const center = worldToScreen(zoneCenter, currentScale, offsetX, offsetY)}
           <text x={center.x + 8} y={center.y - 8} class="label zone-label">{zone.settings.name}</text>
         {/if}
       {/each}
@@ -522,5 +636,25 @@
   .dock-label {
     fill: #0a0f1a;
     stroke: none;
+  }
+
+  .selection-ring {
+    fill: none;
+    stroke: #f8fafc;
+    stroke-width: 2;
+    stroke-dasharray: 3 2;
+    pointer-events: none;
+  }
+
+  .zone-selection {
+    stroke: #67e8f9;
+  }
+
+  .nogo-selection {
+    stroke: #fecdd3;
+  }
+
+  .dock-selection {
+    stroke: #fbbf24;
   }
 </style>

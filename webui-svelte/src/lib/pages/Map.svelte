@@ -2,13 +2,15 @@
   import { onMount } from 'svelte'
   import MapCanvas from '../components/Map/MapCanvas.svelte'
   import { getMapDocument, saveMapDocument } from '../api/rest'
-  import { mapStore, type Point, type Zone } from '../stores/map'
+  import { mapStore, type MapTool, type Point, type Zone } from '../stores/map'
 
   let busy = false
   let info = ''
   let infoTimer: ReturnType<typeof setTimeout> | null = null
   let mapCanvas: MapCanvas
   let sidebarCollapsed = false
+
+  type Segment = { a: Point; b: Point }
 
   function showInfo(msg: string) {
     info = msg
@@ -19,6 +21,55 @@
   function normalizePoints(points: Array<[number, number]> | Point[] | undefined): Point[] {
     if (!points) return []
     return points.map((p) => Array.isArray(p) ? { x: p[0], y: p[1] } : p)
+  }
+
+  function orientation(a: Point, b: Point, c: Point) {
+    return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
+  }
+
+  function onSegment(a: Point, b: Point, c: Point) {
+    return (
+      Math.min(a.x, c.x) <= b.x &&
+      b.x <= Math.max(a.x, c.x) &&
+      Math.min(a.y, c.y) <= b.y &&
+      b.y <= Math.max(a.y, c.y)
+    )
+  }
+
+  function segmentsIntersect(s1: Segment, s2: Segment) {
+    const o1 = orientation(s1.a, s1.b, s2.a)
+    const o2 = orientation(s1.a, s1.b, s2.b)
+    const o3 = orientation(s2.a, s2.b, s1.a)
+    const o4 = orientation(s2.a, s2.b, s1.b)
+
+    if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true
+    if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true
+    if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true
+    if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true
+
+    return (o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0)
+  }
+
+  function hasSelfIntersection(points: Point[]) {
+    if (points.length < 4) return false
+
+    const segments: Segment[] = points.map((point, index) => ({
+      a: point,
+      b: points[(index + 1) % points.length],
+    }))
+
+    for (let i = 0; i < segments.length; i += 1) {
+      for (let j = i + 1; j < segments.length; j += 1) {
+        const adjacent =
+          j === i + 1 ||
+          (i === 0 && j === segments.length - 1)
+
+        if (adjacent) continue
+        if (segmentsIntersect(segments[i], segments[j])) return true
+      }
+    }
+
+    return false
   }
 
   async function loadMap() {
@@ -41,6 +92,10 @@
   }
 
   async function saveMap() {
+    if (!canSaveMap) {
+      showInfo(saveHint)
+      return
+    }
     busy = true
     try {
       const payload = {
@@ -108,7 +163,7 @@
   $: activeTool = $mapStore.selectedTool
   $: dockActive = activeTool === 'dock'
   $: moveActive = activeTool === 'move'
-  $: layer = (activeTool === 'zone' || activeTool === 'nogo') ? activeTool : 'perimeter'
+  $: layer = ((activeTool === 'zone' || activeTool === 'nogo') ? activeTool : 'perimeter') as Extract<MapTool, 'perimeter' | 'zone' | 'nogo'>
 
   function setLayer(l: 'perimeter' | 'zone' | 'nogo') {
     if (l === 'zone' && $mapStore.map.zones.length === 0) mapStore.createZone()
@@ -125,12 +180,49 @@
   }
 
   function deleteActive() {
+    if (layer === 'zone') {
+      mapStore.deleteSelectedZone()
+      return
+    }
+    if (layer === 'nogo') {
+      mapStore.deleteSelectedExclusion()
+      return
+    }
     mapStore.clearActive()
   }
 
   function removeLastPoint() {
-    if (activeTool === 'move') mapStore.setTool(layer)
+    if (activeTool === 'move') {
+      if (mapCanvas?.deleteSelectedPoint()) {
+        showInfo('Punkt geloescht')
+        return
+      }
+      mapStore.setTool(layer)
+    }
+
+    if (layer === 'zone') {
+      const zone = $mapStore.map.zones.find((entry) => entry.id === $mapStore.selectedZoneId)
+      if (zone && zone.polygon.length === 0) {
+        mapStore.deleteSelectedZone()
+        showInfo('Leere Zone geloescht')
+        return
+      }
+    }
+
+    if (layer === 'nogo' && $mapStore.selectedExclusionIndex !== null) {
+      const exclusion = $mapStore.map.exclusions[$mapStore.selectedExclusionIndex] ?? []
+      if (exclusion.length === 0) {
+        mapStore.deleteSelectedExclusion()
+        showInfo('Leere NoGo-Zone geloescht')
+        return
+      }
+    }
+
     mapStore.removeLastPoint()
+  }
+
+  function handlePointRejected() {
+    showInfo('Punkt wuerde Polygon schneiden')
   }
 
   $: addBtnTitle = dockActive
@@ -143,13 +235,28 @@
 
   $: hasZones = $mapStore.map.zones.length > 0
   $: hasNogo  = $mapStore.map.exclusions.length > 0
+  $: perimeterTooSmall = $mapStore.map.perimeter.length > 0 && $mapStore.map.perimeter.length < 3
+  $: perimeterSelfIntersecting = hasSelfIntersection($mapStore.map.perimeter)
+  $: saveHint =
+    perimeterTooSmall
+      ? 'Perimeter braucht mindestens 3 Punkte'
+      : perimeterSelfIntersecting
+        ? 'Perimeter darf sich nicht selbst schneiden'
+        : ''
+  $: canSaveMap = !busy && !saveHint
 
   onMount(() => { void loadMap() })
 </script>
 
 <main class="page">
   <div class="map-stage">
-    <MapCanvas bind:this={mapCanvas} showHeader={false} showViewportActions={false} interactive={true} />
+    <MapCanvas
+      bind:this={mapCanvas}
+      showHeader={false}
+      showViewportActions={false}
+      interactive={true}
+      on:pointrejected={handlePointRejected}
+    />
 
     <!-- Bottom center: edit tools -->
     <div class="toolbar-wrap">
@@ -231,11 +338,13 @@
           <div class="sb-section">
             <span class="sb-label">Status</span>
             <div class="sb-row">
-              <span class="muted">{$mapStore.dirty ? 'Ungespeichert' : 'Synchron'}</span>
+              <span class:warn={Boolean(saveHint)} class="muted">
+                {saveHint || ($mapStore.dirty ? 'Ungespeichert' : 'Synchron')}
+              </span>
             </div>
             <div class="sb-actions">
               <button type="button" class="sb-btn" title="Neu laden" disabled={busy} on:click={loadMap}>↺ Laden</button>
-              <button type="button" class="sb-btn primary" class:unsaved={$mapStore.dirty} disabled={busy || !$mapStore.dirty} on:click={saveMap}>Speichern</button>
+              <button type="button" class="sb-btn primary" class:unsaved={$mapStore.dirty} disabled={!$mapStore.dirty || !canSaveMap} on:click={saveMap}>Speichern</button>
             </div>
           </div>
 
@@ -421,6 +530,10 @@
     color: #4ade80;
     white-space: nowrap;
     padding: 0 0.25rem;
+  }
+
+  .warn {
+    color: #fca5a5;
   }
 
   /* ── Bottom left zoom ── */
