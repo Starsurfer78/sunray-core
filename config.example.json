@@ -17,6 +17,7 @@
     "eeprom_mux_channel":   5,
     "adc_mux_channel":      6,
     "imu_i2c_addr":         "0x69",
+    "charger_connected_voltage_v": 7.0,
 
     "_c_gps":               "ZED-F9P via USB. gps_configure=true konfiguriert 5 Hz + UBX-Messages beim Start. gps_config_filter=true aktiviert Elevationsfilter fuer stabiles RTK-Signal",
     "gps_port":             "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00",

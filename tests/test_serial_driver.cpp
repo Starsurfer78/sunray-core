@@ -117,6 +117,10 @@ std::string makeSummaryResponse(float batV, float chargeV, float chargeA,
     return body + crcBuf;
 }
 
+bool chargerConnectedFromVoltage(float chargeVoltage, float threshold = 7.0f) {
+    return chargeVoltage > threshold;
+}
+
 } // anonymous namespace
 
 // ── CRC tests ────────────────────────────────────────────────────────────────
@@ -291,6 +295,16 @@ TEST_CASE("Summary frame: precise bumper fields 13+14", "[driver][summary]") {
     const auto f = csvSplit(frame);
     CHECK(std::stoi(f[13]) == 0);  // bumperLeft
     CHECK(std::stoi(f[14]) == 1);  // bumperRight
+}
+
+TEST_CASE("Charge detect: dock requires realistic charger voltage threshold", "[driver][summary][charge]") {
+    CHECK_FALSE(chargerConnectedFromVoltage(0.0f));
+    CHECK_FALSE(chargerConnectedFromVoltage(2.1f));
+    CHECK_FALSE(chargerConnectedFromVoltage(7.0f));
+    CHECK(chargerConnectedFromVoltage(7.1f));
+    CHECK(chargerConnectedFromVoltage(28.7f));
+    CHECK_FALSE(chargerConnectedFromVoltage(7.1f, 8.0f));
+    CHECK(chargerConnectedFromVoltage(8.1f, 8.0f));
 }
 
 // ── AT+V frame ───────────────────────────────────────────────────────────────

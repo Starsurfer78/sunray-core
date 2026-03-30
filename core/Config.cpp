@@ -30,6 +30,7 @@ nlohmann::json Config::defaults() {
         {"eeprom_mux_channel",  5},
         {"adc_mux_channel",     6},
         {"imu_i2c_addr",        "0x69"},
+        {"charger_connected_voltage_v", 7.0},
 
         // ── GPS ──────────────────────────────────────────────────────────────
         {"gps_port",            "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00"},

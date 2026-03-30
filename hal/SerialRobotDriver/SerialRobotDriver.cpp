@@ -15,6 +15,14 @@
 
 namespace sunray {
 
+namespace {
+
+bool chargerConnectedFromVoltage(float chargeVoltage, float threshold) {
+    return chargeVoltage > threshold;
+}
+
+} // namespace
+
 // ── Construction ──────────────────────────────────────────────────────────────
 
 SerialRobotDriver::SerialRobotDriver(std::shared_ptr<Config> config)
@@ -500,7 +508,9 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
         return;  // malformed frame — ignore
     }
 
-    battery_.chargerConnected = (battery_.chargeVoltage > 2.0f);
+    battery_.chargerConnected = chargerConnectedFromVoltage(
+        battery_.chargeVoltage,
+        config_->get<float>("charger_connected_voltage_v", 7.0f));
     mcuConnected_ = true;
     motorRxCount_++;
 }
@@ -529,7 +539,9 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
         return;
     }
 
-    battery_.chargerConnected = (battery_.chargeVoltage > 2.0f);
+    battery_.chargerConnected = chargerConnectedFromVoltage(
+        battery_.chargeVoltage,
+        config_->get<float>("charger_connected_voltage_v", 7.0f));
     summaryRxCount_++;
 }
 

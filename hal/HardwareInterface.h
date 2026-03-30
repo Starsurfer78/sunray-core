@@ -49,7 +49,7 @@ struct BatteryData {
     float chargeVoltage   = 0.0f;  ///< charger output voltage (V)
     float chargeCurrent   = 0.0f;  ///< charging current (A), 0 when not charging
     float batteryTemp     = 0.0f;  ///< battery temperature (°C), -9999 if unavailable
-    bool  chargerConnected = false; ///< true when chargeVoltage > threshold
+    bool  chargerConnected = false; ///< true when chargeVoltage exceeds dock-detect threshold
 };
 
 /// Snapshot of IMU (Inertial Measurement Unit) data.
