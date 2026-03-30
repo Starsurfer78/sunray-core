@@ -184,7 +184,8 @@ void WebSocketServer::setupHttpRoutes() {
                 std::lock_guard<std::mutex> lk(telemetryMutex_);
                 j["mcu"] = latestTelemetry_.mcu_version;
             }
-            crow::response res(200, j.dump());
+            const std::string body = j.dump();
+            crow::response res(200, body);
             res.set_header("Content-Type", "application/json");
             res.set_header("Access-Control-Allow-Origin", "*");
             return res;
@@ -196,7 +197,8 @@ void WebSocketServer::setupHttpRoutes() {
         [this, isAuthorized](const crow::request& req) -> crow::response {
             if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (!config_) return crow::response(503);
-            crow::response res(200, config_->dump());
+            const std::string body = config_->dump();
+            crow::response res(200, body);
             res.set_header("Content-Type", "application/json");
             return res;
         }
@@ -376,7 +378,8 @@ void WebSocketServer::setupHttpRoutes() {
                     });
                 }
 
-                crow::response res(200, fc.dump(2));
+                const std::string body = fc.dump(2);
+                crow::response res(200, body);
                 res.set_header("Content-Type", "application/geo+json");
                 res.set_header("Content-Disposition",
                                "attachment; filename=\"sunray-map.geojson\"");
@@ -552,7 +555,8 @@ void WebSocketServer::setupHttpRoutes() {
                 std::lock_guard<std::mutex> lk(schedCbMutex_);
                 result = schedGetCb_ ? schedGetCb_() : nlohmann::json::array();
             }
-            crow::response res(200, result.dump());
+            const std::string body = result.dump();
+            crow::response res(200, body);
             res.set_header("Content-Type", "application/json");
             return res;
         }
@@ -569,7 +573,8 @@ void WebSocketServer::setupHttpRoutes() {
                     std::lock_guard<std::mutex> lk(schedCbMutex_);
                     result = schedPutCb_ ? schedPutCb_(arr) : nlohmann::json{{"ok",false}};
                 }
-                crow::response res(200, result.dump());
+                const std::string body = result.dump();
+                crow::response res(200, body);
                 res.set_header("Content-Type", "application/json");
                 return res;
             } catch (...) {
@@ -588,8 +593,9 @@ void WebSocketServer::setupHttpRoutes() {
                 catch (...) { return crow::response(400); }
             }
             if (diagCallback_) {
-                auto res = diagCallback_(action, params);
-                return crow::response(200, res.dump());
+                auto resJson = diagCallback_(action, params);
+                const std::string body = resJson.dump();
+                return crow::response(200, body);
             }
             return crow::response(501, R"({"error":"diag callback not set"})");
         }
