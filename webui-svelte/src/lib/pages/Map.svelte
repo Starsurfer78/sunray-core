@@ -97,10 +97,13 @@
   </section>
 
   <section class="layout">
-    <MapCanvas />
+    <MapCanvas showHeader={false} />
 
     <aside class="tools">
       <div class="action-card">
+        <span class="label">Karte</span>
+        <strong>{$mapStore.dirty ? 'Ungespeichert' : 'Synchron'}</strong>
+        <span class="muted">Werkzeuge und Speichern liegen bewusst in der rechten Sidebar.</span>
         <button type="button" disabled={busy} on:click={loadMap}>Neu laden</button>
         <button type="button" disabled={busy} on:click={saveMap}>Speichern</button>
       </div>
@@ -168,6 +171,10 @@
     background: #0f1829;
     border: 1px solid #1e3a5f;
   }
+  .action-card strong {
+    color: #dbeafe;
+    font-size: 1rem;
+  }
   .action-card button {
     padding: 0.72rem 0.9rem;
     border: 1px solid #2563eb;
@@ -176,6 +183,10 @@
     color: #93c5fd;
     font-weight: 700;
     cursor: pointer;
+  }
+  .muted {
+    color: #94a3b8;
+    font-size: 0.8rem;
   }
   .action-card button:disabled {
     opacity: 0.45;

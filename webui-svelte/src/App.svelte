@@ -9,15 +9,20 @@
   import { telemetry } from './lib/stores/telemetry'
 
   type View = 'dashboard' | 'diagnostics' | 'map' | 'mission'
+  type NavItem = { id: View | null; label: string; enabled: boolean }
 
   let currentView: View = 'dashboard'
   let emergencyInfo = ''
 
-  const navItems: Array<{ id: View; label: string }> = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'map', label: 'Karte' },
-    { id: 'mission', label: 'Mission' },
-    { id: 'diagnostics', label: 'Diagnose' },
+  const navItems: NavItem[] = [
+    { id: 'dashboard', label: 'Dashboard', enabled: true },
+    { id: 'map', label: 'Karten', enabled: true },
+    { id: null, label: 'Zeitplaene', enabled: false },
+    { id: null, label: 'Verlauf', enabled: false },
+    { id: 'diagnostics', label: 'Diagnose', enabled: true },
+    { id: null, label: 'Simulator', enabled: false },
+    { id: 'mission', label: 'Mission', enabled: true },
+    { id: null, label: 'Einstellungen', enabled: false },
   ]
 
   function triggerEmergencyStop() {
@@ -71,8 +76,12 @@
         {#each navItems as item}
           <button
             type="button"
-            class:active={currentView === item.id}
-            on:click={() => currentView = item.id}
+            class:active={item.id !== null && currentView === item.id}
+            class:future={!item.enabled}
+            disabled={!item.enabled}
+            on:click={() => {
+              if (item.id) currentView = item.id
+            }}
           >
             {item.label}
           </button>
@@ -207,6 +216,15 @@
     background: #1e3a5f;
     color: #93c5fd;
     font-weight: 600;
+  }
+
+  .tabs button.future {
+    color: #607188;
+    cursor: default;
+  }
+
+  .tabs button:disabled {
+    opacity: 0.65;
   }
 
   .topbar-info {

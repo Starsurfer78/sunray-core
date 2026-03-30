@@ -121,9 +121,13 @@ Realer Hinweis aus Gartenscreenshots:
   Kurz: Topbar, Tab-Navigation, dominante Karte und rechte Sidebar an den HTML-Referenzen ausrichten.
   Datei/Pfad: `webui/design/sunray_dashboard_v5.html`
 
-- [ ] Farbsprache aus Referenz-HTML uebernehmen
+- [~] Farbsprache aus Referenz-HTML uebernehmen
   Kurz: Navy-Basis, Blau/Cyan/Rot/Amber semantisch konsistent in die neue UI uebertragen.
   Datei/Pfad: `webui/design/dashboard_reference.html`
+
+- [~] Dashboard auf Karte-plus-Rightbar umbauen
+  Kurz: Telemetrie nicht mehr als breiter Kachelblock, sondern Karte links und kompakte Info-Sidebar rechts.
+  Datei/Pfad: `webui-svelte/src/lib/pages/Dashboard.svelte`
 
 - [x] Basis-Steuerung einbauen
   Kurz: Start, Stop und Dock als einfache Buttons.

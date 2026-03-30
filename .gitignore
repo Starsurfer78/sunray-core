@@ -4,6 +4,8 @@ build_linux/
 build_clang_ninja/
 webui/node_modules/
 webui/dist/
+webui-svelte/node_modules/
+webui-svelte/dist/
 .cache/
 *.vcxproj
 *.sln
@@ -17,3 +19,6 @@ OLD_DOCS/cassandra_mission_service_analysis.md
 ALTE_DATEIEN/Sunray/
 Dashboard.png
 mapping.png
+webui/design/Dashboard_2.png
+webui/design/WebUI_1.png
+webui/design/WebUI_alt.png

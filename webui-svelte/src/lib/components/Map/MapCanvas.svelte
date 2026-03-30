@@ -6,6 +6,10 @@
 
   export let width = 900
   export let height = 620
+  export let interactive = true
+  export let showHeader = true
+  export let showViewportActions = true
+  export let showRobot = true
 
   const baseScale = 20
   const grid = 1
@@ -120,6 +124,7 @@
   }
 
   function handlePointerDown(event: PointerEvent) {
+    if (!interactive) return
     const target = event.currentTarget as SVGSVGElement
     const drag = findDragTarget(event.clientX, event.clientY, target)
     suppressClick = false
@@ -141,6 +146,7 @@
   }
 
   function handlePointerMove(event: PointerEvent) {
+    if (!interactive) return
     const target = event.currentTarget as SVGSVGElement
     if (dragTarget) {
       applyDraggedPoint(dragTarget, screenToWorldFromCoordinates(event.clientX, event.clientY, target))
@@ -156,6 +162,7 @@
   }
 
   function releasePointer(event: PointerEvent) {
+    if (!interactive) return
     const target = event.currentTarget as SVGSVGElement
     if (pointerCaptured) {
       try {
@@ -170,6 +177,7 @@
   }
 
   function handleCanvasClick(event: MouseEvent) {
+    if (!interactive) return
     if (suppressClick) {
       suppressClick = false
       return
@@ -179,6 +187,7 @@
   }
 
   function handleWheel(event: WheelEvent) {
+    if (!interactive) return
     event.preventDefault()
     const delta = event.deltaY < 0 ? 1.1 : 0.9
     zoom = Math.max(0.5, Math.min(4, Number((zoom * delta).toFixed(3))))
@@ -204,13 +213,17 @@
   }
 
   function allMapPoints() {
-    return [
+    const points = [
       ...$mapStore.map.perimeter,
       ...$mapStore.map.dock,
       ...$mapStore.map.mow,
       ...$mapStore.map.zones.flatMap((zone) => zone.polygon),
       ...$mapStore.map.exclusions.flatMap((exclusion) => exclusion),
     ]
+    if (showRobot) {
+      points.push({ x: $telemetry.x, y: $telemetry.y })
+    }
+    return points
   }
 
   function resetView() {
@@ -260,24 +273,30 @@
   })
 </script>
 
-<section class="panel">
-  <header>
-    <h2>Arbeitsraum</h2>
-    <p>Lokales Raster in Meterkoordinaten. Die Karte ist der primäre Arbeitsbereich.</p>
-  </header>
+<section class:embedded={!showHeader && !showViewportActions} class="panel">
+  {#if showHeader}
+    <header>
+      <h2>Arbeitsraum</h2>
+      <p>Lokales Raster in Meterkoordinaten.</p>
+    </header>
+  {/if}
 
-  <div class="viewport-actions">
-    <button type="button" on:click={fitToContent}>Auf Karte zoomen</button>
-    <button type="button" class="secondary" on:click={resetView}>Ansicht zentrieren</button>
-    <span class="meta">Zoom {(zoom * 100).toFixed(0)}%</span>
-  </div>
+  {#if showViewportActions}
+    <div class="viewport-actions">
+      <button type="button" on:click={fitToContent}>Auf Karte zoomen</button>
+      <button type="button" class="secondary" on:click={resetView}>Ansicht zentrieren</button>
+      <span class="meta">Zoom {(zoom * 100).toFixed(0)}%</span>
+    </div>
+  {/if}
 
   <div class="canvas-wrap">
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
     <svg
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label="Map canvas"
-      tabindex="0"
+      tabindex={interactive ? 0 : -1}
+      data-readonly={!interactive}
       on:click={handleCanvasClick}
       on:pointerdown={handlePointerDown}
       on:pointermove={handlePointerMove}
@@ -310,12 +329,14 @@
         <text x={p.x} y={p.y + 4} text-anchor="middle" class="label dock-label">D</text>
       {/each}
 
-      <g transform={`translate(${robotScreen.x} ${robotScreen.y}) rotate(${-($telemetry.heading ?? 0)})`}>
-        <circle r="12" fill="#0f1829" stroke="#3b82f6" stroke-width="2" />
-        <circle r="4.5" fill="#60a5fa" />
-        <line x1="0" y1="-12" x2="0" y2="-26" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" />
-        <polygon points="0,-30 -5,-21 5,-21" fill="#60a5fa" />
-      </g>
+      {#if showRobot}
+        <g transform={`translate(${robotScreen.x} ${robotScreen.y}) rotate(${-($telemetry.heading ?? 0)})`}>
+          <circle r="12" fill="#0f1829" stroke="#3b82f6" stroke-width="2" />
+          <circle r="4.5" fill="#60a5fa" />
+          <line x1="0" y1="-12" x2="0" y2="-26" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" />
+          <polygon points="0,-30 -5,-21 5,-21" fill="#60a5fa" />
+        </g>
+      {/if}
 
       {#each $mapStore.map.exclusions as exclusion, exclusionIndex}
         {#if exclusion.length > 1}
@@ -364,6 +385,13 @@
     border-radius: 0.9rem;
     background: #0f1829;
     border: 1px solid #1e3a5f;
+  }
+
+  .panel.embedded {
+    gap: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
   }
 
   header {
@@ -422,6 +450,14 @@
     height: auto;
     cursor: grab;
     touch-action: none;
+  }
+
+  svg[tabindex='0'] {
+    outline: none;
+  }
+
+  svg[data-readonly='true'] {
+    cursor: default;
   }
 
   .label {
