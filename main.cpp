@@ -24,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 // ── Global robot pointer for signal handler ────────────────────────────────────
 // Only stop() (atomic flag write) is called from the handler — safe.
@@ -44,6 +45,33 @@ static std::string defaultConfigPath() {
     }
 
     return "/etc/sunray/config.json";
+}
+
+static std::string resolveWebRoot() {
+    namespace fs = std::filesystem;
+
+    std::vector<fs::path> candidates;
+    candidates.emplace_back(fs::current_path() / "webui" / "dist");
+
+    const fs::path procExe = "/proc/self/exe";
+    std::error_code ec;
+    if (fs::exists(procExe, ec)) {
+        const fs::path exePath = fs::read_symlink(procExe, ec);
+        if (!ec && !exePath.empty()) {
+            const fs::path exeDir = exePath.parent_path();
+            candidates.emplace_back(exeDir / "webui" / "dist");
+            candidates.emplace_back(exeDir.parent_path() / "webui" / "dist");
+        }
+    }
+
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate / "index.html")) {
+            return fs::weakly_canonical(candidate).string();
+        }
+    }
+
+    // Fall back to the historical relative path if nothing was found yet.
+    return "webui/dist";
 }
 
 // ── main ───────────────────────────────────────────────────────────────────────
@@ -110,8 +138,8 @@ int main(int argc, char* argv[]) {
     // ── 6. WebSocket + HTTP server ─────────────────────────────────────────────
     auto wsServer = std::make_unique<sunray::WebSocketServer>(config, logger);
 
-    // Static file serving: webui/dist relative to binary location
-    wsServer->setWebRoot("webui/dist");
+    // Static file serving: resolve webui/dist from cwd and binary location.
+    wsServer->setWebRoot(resolveWebRoot());
 
     // Map file: read/written by GET/POST /api/map; reloaded into Robot on POST
     const std::string mapPath =
