@@ -67,15 +67,8 @@ static std::string readFile(const std::filesystem::path& p) {
     return { std::istreambuf_iterator<char>(f), {} };
 }
 
-static nlohmann::json defaultMapDocument() {
-    return {
-        {"perimeter",  nlohmann::json::array()},
-        {"mow",        nlohmann::json::array()},
-        {"dock",       nlohmann::json::array()},
-        {"exclusions", nlohmann::json::array()},
-        {"zones",      nlohmann::json::array()},
-    };
-}
+static constexpr const char* kDefaultMapJson =
+    R"({"perimeter":[],"mow":[],"dock":[],"exclusions":[],"zones":[]})";
 
 /// Serve a file from webRoot, guarding against path traversal.
 /// Returns 200+body on success, 404 on missing, 403 on traversal attempt.
@@ -253,7 +246,7 @@ void WebSocketServer::setupHttpRoutes() {
                 if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
                 if (mapPath_.empty()) return crow::response(404);
 
-                std::string body = defaultMapDocument().dump();
+                std::string body = kDefaultMapJson;
                 namespace fs = std::filesystem;
                 std::error_code ec;
                 if (!fs::exists(mapPath_, ec) || ec) {
