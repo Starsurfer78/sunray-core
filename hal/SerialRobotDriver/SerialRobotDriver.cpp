@@ -513,6 +513,19 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
         config_->get<float>("charger_connected_voltage_v", 7.0f));
     mcuConnected_ = true;
     motorRxCount_++;
+    if (serialDebug_) {
+        std::cerr << "[SRD] M parsed"
+                  << " ticksL=" << rawTicksLeft_
+                  << " ticksR=" << rawTicksRight_
+                  << " ticksM=" << rawTicksMow_
+                  << " chgV=" << battery_.chargeVoltage
+                  << " charger=" << (battery_.chargerConnected ? 1 : 0)
+                  << " stop=" << (sensors_.stopButton ? 1 : 0)
+                  << " lift=" << (sensors_.lift ? 1 : 0)
+                  << " bumpL=" << (sensors_.bumperLeft ? 1 : 0)
+                  << " bumpR=" << (sensors_.bumperRight ? 1 : 0)
+                  << '\n';
+    }
 }
 
 void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
@@ -543,6 +556,19 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
         battery_.chargeVoltage,
         config_->get<float>("charger_connected_voltage_v", 7.0f));
     summaryRxCount_++;
+    if (serialDebug_) {
+        std::cerr << "[SRD] S parsed"
+                  << " batV=" << battery_.voltage
+                  << " chgV=" << battery_.chargeVoltage
+                  << " chgA=" << battery_.chargeCurrent
+                  << " charger=" << (battery_.chargerConnected ? 1 : 0)
+                  << " rain=" << (sensors_.rain ? 1 : 0)
+                  << " lift=" << (sensors_.lift ? 1 : 0)
+                  << " fault=" << (sensors_.motorFault ? 1 : 0)
+                  << " bumpL=" << (sensors_.bumperLeft ? 1 : 0)
+                  << " bumpR=" << (sensors_.bumperRight ? 1 : 0)
+                  << '\n';
+    }
 }
 
 void SerialRobotDriver::parseVersionFrame(const std::string& frame) {
