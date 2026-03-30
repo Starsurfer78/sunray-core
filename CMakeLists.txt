@@ -118,6 +118,14 @@ target_link_libraries(ex3_led_probe PRIVATE
     sunray_platform
 )
 
+add_executable(ex2_buzzer_probe
+    tools/ex2_buzzer_probe.cpp
+)
+
+target_link_libraries(ex2_buzzer_probe PRIVATE
+    sunray_platform
+)
+
 add_executable(pca9555_probe
     tools/pca9555_probe.cpp
 )
