@@ -35,6 +35,7 @@
 
 #include <atomic>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -184,6 +185,7 @@ private:
 
     std::atomic<bool> running_{false};
     std::thread       serverThread_;
+    std::future<void> crowFuture_;
 
     std::string webRoot_;   ///< path to webui/dist (empty = no static serving)
 

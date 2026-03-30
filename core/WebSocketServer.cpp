@@ -663,8 +663,10 @@ void WebSocketServer::start() {
     // Silence Crow's stdout chatter
     impl_->app.loglevel(crow::LogLevel::Warning);
 
-    // Start Crow async (returns immediately; runs in its own thread pool)
-    impl_->app.port(port).run_async();
+    // Start Crow async and keep the returned handle alive for the full server
+    // lifetime. Dropping it immediately can leave the port listening without a
+    // responsive HTTP loop on some deployments.
+    crowFuture_ = impl_->app.port(port).run_async();
 
     running_.store(true);
     logger_->info(TAG, "WebSocket server started on port " + std::to_string(port)
@@ -722,6 +724,7 @@ void WebSocketServer::stop() {
     if (!running_.load()) return;
     running_.store(false);
     if (serverThread_.joinable()) serverThread_.join();
+    if (crowFuture_.valid()) crowFuture_.wait();
 }
 
 // ── Data feed ─────────────────────────────────────────────────────────────────
