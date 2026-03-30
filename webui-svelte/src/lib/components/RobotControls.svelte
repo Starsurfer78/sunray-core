@@ -12,7 +12,6 @@
 <section class="panel">
   <header>
     <h2>Steuerung</h2>
-    <p>Schnellzugriff fuer Mission, Stopp und Docking.</p>
   </header>
 
   <div class="actions">
@@ -32,37 +31,31 @@
 <style>
   .panel {
     display: grid;
-    gap: 1rem;
-    padding: 1rem;
-    border-radius: 0.9rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
+    gap: 0.7rem;
   }
 
   header {
     display: grid;
-    gap: 0.25rem;
   }
 
-  h2,
-  p {
+  h2 {
     margin: 0;
-  }
-
-  p {
-    color: #64748b;
-    font-size: 0.84rem;
+    font-size: 0.78rem;
+    line-height: 1;
+    color: #7a8da8;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .actions {
     display: flex;
-    gap: 0.8rem;
+    gap: 0.6rem;
     flex-wrap: wrap;
   }
 
   button {
-    min-width: 7rem;
-    padding: 0.8rem 1rem;
+    min-width: 6rem;
+    padding: 0.72rem 0.9rem;
     border-radius: 0.6rem;
     cursor: pointer;
     font-weight: 700;

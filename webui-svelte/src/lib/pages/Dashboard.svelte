@@ -62,14 +62,14 @@
 
 <style>
   .page {
-    min-height: calc(100vh - 9.5rem);
+    min-height: calc(100vh - 8rem);
   }
 
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 280px;
     gap: 0;
-    min-height: calc(100vh - 9.5rem);
+    min-height: calc(100vh - 8rem);
     border: 1px solid #1e3a5f;
     border-radius: 0.95rem;
     overflow: hidden;
@@ -82,7 +82,7 @@
 
   .map-stage {
     position: relative;
-    min-height: calc(100vh - 9.5rem);
+    min-height: calc(100vh - 8rem);
     padding: 0;
     background: #070d18;
   }
@@ -140,7 +140,7 @@
     }
 
     .map-stage {
-      min-height: 520px;
+      min-height: 460px;
     }
   }
 </style>

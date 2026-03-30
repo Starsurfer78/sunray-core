@@ -1,628 +1,669 @@
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sunray Dashboard – Neues Layout</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunray Dashboard – Neues Layout</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-    .sr-app { 
-      display: flex; 
-      flex-direction: column; 
-      height: 100vh; 
-      background: #0a0f1a !important; 
-      color: #e2e8f0 !important; 
-    }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
 
-    /* --- TOPBAR --- */
-    .sr-topbar {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 10px 20px;
-      background: #0f1829 !important;
-      border-bottom: 1px solid #1e3a5f;
-      flex-shrink: 0;
-    }
+        .sr-app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: #0a0f1a !important;
+            color: #e2e8f0 !important;
+        }
 
-    .sr-logo {
-      font-size: 16px;
-      font-weight: 600;
-      color: #60a5fa !important;
-      flex-shrink: 0;
-    }
+        /* --- TOPBAR --- */
+        .sr-topbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 20px;
+            background: #0f1829 !important;
+            border-bottom: 1px solid #1e3a5f;
+            flex-shrink: 0;
+        }
 
-    .sr-pills {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex: 0;
-    }
+        .sr-logo {
+            font-size: 16px;
+            font-weight: 600;
+            color: #60a5fa !important;
+            flex-shrink: 0;
+        }
 
-    .sr-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-weight: 500;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
+        .sr-pills {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 0;
+        }
 
-    .sr-pill-conn { background: #052e16 !important; color: #4ade80 !important; border: 1px solid #166534; }
-    .sr-pill-op { background: #0c1a3a !important; color: #93c5fd !important; border: 1px solid #1e40af; }
-    .sr-pill-bat { background: #1e1b30 !important; color: #c4b5fd !important; border: 1px solid #312e81; }
-    .sr-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        .sr-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 500;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
 
-    .sr-spacer {
-      flex: 1;
-    }
+        .sr-pill-conn {
+            background: #052e16 !important;
+            color: #4ade80 !important;
+            border: 1px solid #166534;
+        }
 
-    .sr-notaus {
-      background: #450a0a !important;
-      border: 1.5px solid #dc2626 !important;
-      color: #fca5a5 !important;
-      border-radius: 7px;
-      padding: 7px 16px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      flex-shrink: 0;
-    }
+        .sr-pill-op {
+            background: #0c1a3a !important;
+            color: #93c5fd !important;
+            border: 1px solid #1e40af;
+        }
 
-    .sr-divider {
-      width: 1px;
-      height: 24px;
-      background: #1e3a5f;
-      flex-shrink: 0;
-    }
+        .sr-pill-bat {
+            background: #1e1b30 !important;
+            color: #c4b5fd !important;
+            border: 1px solid #312e81;
+        }
 
-    .sr-nav {
-      display: flex;
-      gap: 1px;
-      background: #060c17 !important;
-      border-radius: 7px;
-      padding: 2px;
-      border: 1px solid #1e3a5f;
-      flex-shrink: 0;
-    }
+        .sr-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+        }
 
-    .sr-navbtn {
-      font-size: 12px;
-      padding: 6px 13px;
-      border-radius: 5px;
-      border: none;
-      cursor: pointer;
-      background: transparent !important;
-      color: #e2e8f0 !important;
-      white-space: nowrap;
-      transition: all 0.2s;
-    }
+        .sr-spacer {
+            flex: 1;
+        }
 
-    .sr-navbtn.active {
-      background: #1e3a5f !important;
-      color: #93c5fd !important;
-      font-weight: 500;
-    }
+        .sr-notaus {
+            background: #450a0a !important;
+            border: 1.5px solid #dc2626 !important;
+            color: #fca5a5 !important;
+            border-radius: 7px;
+            padding: 7px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
 
-    /* --- MAIN CONTENT --- */
-    .sr-main {
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-      gap: 0;
-    }
+        .sr-divider {
+            width: 1px;
+            height: 24px;
+            background: #1e3a5f;
+            flex-shrink: 0;
+        }
 
-    .sr-maparea {
-      flex: 1;
-      position: relative;
-      background: #070d18 !important;
-      overflow: hidden;
-    }
+        .sr-nav {
+            display: flex;
+            gap: 1px;
+            background: #060c17 !important;
+            border-radius: 7px;
+            padding: 2px;
+            border: 1px solid #1e3a5f;
+            flex-shrink: 0;
+        }
 
-    .sr-canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
+        .sr-navbtn {
+            font-size: 12px;
+            padding: 6px 13px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            background: transparent !important;
+            color: #e2e8f0 !important;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
 
-    .sr-mbadge {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      background: rgba(15, 24, 41, 0.92);
-      border: 1px solid #1e3a5f;
-      border-radius: 7px;
-      padding: 8px 12px;
-      font-size: 11px;
-      color: #60a5fa !important;
-    }
+        .sr-navbtn.active {
+            background: #1e3a5f !important;
+            color: #93c5fd !important;
+            font-weight: 500;
+        }
 
-    .sr-mctrl {
-      position: absolute;
-      bottom: 16px;
-      left: 16px;
-      display: flex;
-      gap: 6px;
-    }
+        /* --- MAIN CONTENT --- */
+        .sr-main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            gap: 0;
+        }
 
-    .sr-mcb {
-      background: #0f1829 !important;
-      border: 1px solid #1e3a5f;
-      color: #60a5fa !important;
-      border-radius: 6px;
-      padding: 6px 11px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
+        .sr-maparea {
+            flex: 1;
+            position: relative;
+            background: #070d18 !important;
+            overflow: hidden;
+        }
 
-    .sr-mcb:hover {
-      background: #1e3a5f !important;
-    }
+        .sr-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
 
-    /* --- RECHTER SIDEBAR --- */
-    .sr-sidebar {
-      width: 280px;
-      background: #0a1020 !important;
-      border-left: 1px solid #1e3a5f;
-      display: flex;
-      flex-direction: column;
-      flex-shrink: 0;
-      overflow-y: auto;
-    }
+        .sr-mbadge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: rgba(15, 24, 41, 0.92);
+            border: 1px solid #1e3a5f;
+            border-radius: 7px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #60a5fa !important;
+        }
 
-    .sr-section {
-      padding: 13px 16px;
-      border-bottom: 1px solid #0f1829;
-    }
+        .sr-mctrl {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            display: flex;
+            gap: 6px;
+        }
 
-    .sr-section:last-child {
-      border-bottom: none;
-    }
+        .sr-mcb {
+            background: #0f1829 !important;
+            border: 1px solid #1e3a5f;
+            color: #60a5fa !important;
+            border-radius: 6px;
+            padding: 6px 11px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
 
-    .sr-sectionlbl {
-      font-size: 10px;
-      font-weight: 600;
-      color: #475569 !important;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-      margin-bottom: 10px;
-    }
+        .sr-mcb:hover {
+            background: #1e3a5f !important;
+        }
 
-    .sr-statusbig {
-      font-size: 22px;
-      font-weight: 600;
-      color: #60a5fa !important;
-      margin-bottom: 3px;
-    }
+        /* --- RECHTER SIDEBAR --- */
+        .sr-sidebar {
+            width: 280px;
+            background: #0a1020 !important;
+            border-left: 1px solid #1e3a5f;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
 
-    .sr-statussub {
-      font-size: 12px;
-      color: #64748b !important;
-      margin-bottom: 6px;
-    }
+        .sr-section {
+            padding: 13px 16px;
+            border-bottom: 1px solid #0f1829;
+        }
 
-    .sr-statuspos {
-      font-family: "Courier New", monospace;
-      font-size: 11px;
-      color: #64748b !important;
-    }
+        .sr-section:last-child {
+            border-bottom: none;
+        }
 
-    .sr-gps {
-      background: #0f1829 !important;
-      border-radius: 7px;
-      padding: 10px 11px;
-      border: 1px solid #1e3a5f;
-    }
+        .sr-sectionlbl {
+            font-size: 10px;
+            font-weight: 600;
+            color: #475569 !important;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            margin-bottom: 10px;
+        }
 
-    .sr-gps-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 9px;
-    }
+        .sr-statusbig {
+            font-size: 22px;
+            font-weight: 600;
+            color: #60a5fa !important;
+            margin-bottom: 3px;
+        }
 
-    .sr-fix {
-      font-size: 13px;
-      font-weight: 500;
-      color: #4ade80 !important;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
+        .sr-statussub {
+            font-size: 12px;
+            color: #64748b !important;
+            margin-bottom: 6px;
+        }
 
-    .sr-fixdot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #4ade80;
-    }
+        .sr-statuspos {
+            font-family: "Courier New", monospace;
+            font-size: 11px;
+            color: #64748b !important;
+        }
 
-    .sr-sol {
-      font-size: 10px;
-      color: #475569 !important;
-      font-family: monospace;
-      background: #0a1020;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
+        .sr-gps {
+            background: #0f1829 !important;
+            border-radius: 7px;
+            padding: 10px 11px;
+            border: 1px solid #1e3a5f;
+        }
 
-    .sr-satrow {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 7px;
-      margin-bottom: 8px;
-    }
+        .sr-gps-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 9px;
+        }
 
-    .sr-sat {
-      background: #070d18 !important;
-      border-radius: 5px;
-      padding: 8px 9px;
-      border: 1px solid #1e3a5f;
-    }
+        .sr-fix {
+            font-size: 13px;
+            font-weight: 500;
+            color: #4ade80 !important;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
 
-    .sr-satlbl {
-      font-size: 10px;
-      color: #64748b !important;
-      margin-bottom: 3px;
-    }
+        .sr-fixdot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #4ade80;
+        }
 
-    .sr-satval {
-      font-size: 18px;
-      font-weight: 600;
-      color: #60a5fa !important;
-      font-family: monospace;
-    }
+        .sr-sol {
+            font-size: 10px;
+            color: #475569 !important;
+            font-family: monospace;
+            background: #0a1020;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
 
-    .sr-satsub {
-      font-size: 10px;
-      color: #475569 !important;
-    }
+        .sr-satrow {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 7px;
+            margin-bottom: 8px;
+        }
 
-    .sr-coords {
-      font-size: 10px;
-      color: #475569 !important;
-      font-family: monospace;
-      line-height: 1.7;
-    }
+        .sr-sat {
+            background: #070d18 !important;
+            border-radius: 5px;
+            padding: 8px 9px;
+            border: 1px solid #1e3a5f;
+        }
 
-    .sr-grid2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 7px;
-    }
+        .sr-satlbl {
+            font-size: 10px;
+            color: #64748b !important;
+            margin-bottom: 3px;
+        }
 
-    .sr-card {
-      background: #0f1829 !important;
-      border-radius: 6px;
-      padding: 9px 11px;
-      border: 1px solid #1a2a40;
-    }
+        .sr-satval {
+            font-size: 18px;
+            font-weight: 600;
+            color: #60a5fa !important;
+            font-family: monospace;
+        }
 
-    .sr-cardlbl {
-      font-size: 10px;
-      color: #475569 !important;
-      margin-bottom: 4px;
-    }
+        .sr-satsub {
+            font-size: 10px;
+            color: #475569 !important;
+        }
 
-    .sr-cardval {
-      font-size: 16px;
-      font-weight: 600;
-      color: #60a5fa !important;
-    }
+        .sr-coords {
+            font-size: 10px;
+            color: #475569 !important;
+            font-family: monospace;
+            line-height: 1.7;
+        }
 
-    .sr-bar {
-      height: 4px;
-      background: #0a1020;
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 6px;
-    }
+        .sr-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 7px;
+        }
 
-    .sr-barfill {
-      height: 100%;
-      width: 72%;
-      background: #2563eb;
-      border-radius: 2px;
-    }
+        .sr-card {
+            background: #0f1829 !important;
+            border-radius: 6px;
+            padding: 9px 11px;
+            border: 1px solid #1a2a40;
+        }
 
-    .sr-sensgrid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5px;
-    }
+        .sr-cardlbl {
+            font-size: 10px;
+            color: #475569 !important;
+            margin-bottom: 4px;
+        }
 
-    .sr-sensitem {
-      background: #0f1829 !important;
-      border-radius: 5px;
-      padding: 7px 8px;
-      font-size: 11px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: #94a3b8 !important;
-      border: 1px solid #1a2a40;
-    }
+        .sr-cardval {
+            font-size: 16px;
+            font-weight: 600;
+            color: #60a5fa !important;
+        }
 
-    .sr-sensdot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #4ade80;
-      border: 1.5px solid #166534;
-      flex-shrink: 0;
-    }
+        .sr-bar {
+            height: 4px;
+            background: #0a1020;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
 
-    .sr-covrow {
-      display: flex;
-      justify-content: space-between;
-      font-size: 12px;
-      margin-bottom: 7px;
-      color: #64748b !important;
-    }
+        .sr-barfill {
+            height: 100%;
+            width: 72%;
+            background: #2563eb;
+            border-radius: 2px;
+        }
 
-    .sr-covval {
-      color: #22d3ee !important;
-      font-weight: 600;
-    }
+        .sr-sensgrid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+        }
 
-    .sr-covbar {
-      height: 4px;
-      background: #0a1020;
-      border-radius: 2px;
-      overflow: hidden;
-    }
+        .sr-sensitem {
+            background: #0f1829 !important;
+            border-radius: 5px;
+            padding: 7px 8px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #94a3b8 !important;
+            border: 1px solid #1a2a40;
+        }
 
-    .sr-covfill {
-      height: 100%;
-      width: 34%;
-      background: #0891b2;
-      border-radius: 2px;
-    }
+        .sr-sensdot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #4ade80;
+            border: 1.5px solid #166534;
+            flex-shrink: 0;
+        }
 
-    .sr-ctrlrow {
-      display: flex;
-      gap: 6px;
-    }
+        .sr-covrow {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 7px;
+            color: #64748b !important;
+        }
 
-    .sr-ctrlbtn {
-      flex: 1;
-      padding: 9px 0;
-      border-radius: 7px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      text-align: center;
-      border: 1px solid;
-      transition: all 0.2s;
-    }
+        .sr-covval {
+            color: #22d3ee !important;
+            font-weight: 600;
+        }
 
-    .cb-start {
-      background: #0c1a3a !important;
-      border-color: #2563eb;
-      color: #93c5fd !important;
-    }
+        .sr-covbar {
+            height: 4px;
+            background: #0a1020;
+            border-radius: 2px;
+            overflow: hidden;
+        }
 
-    .cb-pause {
-      background: #0f1829 !important;
-      border-color: #1e3a5f;
-      color: #64748b !important;
-    }
+        .sr-covfill {
+            height: 100%;
+            width: 34%;
+            background: #0891b2;
+            border-radius: 2px;
+        }
 
-    .cb-dock {
-      background: #1c1200 !important;
-      border-color: #d97706;
-      color: #fbbf24 !important;
-    }
+        .sr-ctrlrow {
+            display: flex;
+            gap: 6px;
+        }
 
-    .sr-schedule {
-      font-size: 11px;
-      color: #64748b !important;
-      padding: 6px 0;
-      border-bottom: 1px solid #0f1829;
-      display: flex;
-      justify-content: space-between;
-    }
+        .sr-ctrlbtn {
+            flex: 1;
+            padding: 9px 0;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            border: 1px solid;
+            transition: all 0.2s;
+        }
 
-    .sr-schedule:last-child {
-      border-bottom: none;
-    }
+        .cb-start {
+            background: #0c1a3a !important;
+            border-color: #2563eb;
+            color: #93c5fd !important;
+        }
 
-    .sr-scheduletime {
-      color: #60a5fa !important;
-      font-family: monospace;
-    }
+        .cb-pause {
+            background: #0f1829 !important;
+            border-color: #1e3a5f;
+            color: #64748b !important;
+        }
 
-    /* Scrollbar */
-    .sr-sidebar::-webkit-scrollbar {
-      width: 6px;
-    }
-    .sr-sidebar::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .sr-sidebar::-webkit-scrollbar-thumb {
-      background: #1e3a5f;
-      border-radius: 3px;
-    }
-    .sr-sidebar::-webkit-scrollbar-thumb:hover {
-      background: #2a5a8f;
-    }
-  </style>
+        .cb-dock {
+            background: #1c1200 !important;
+            border-color: #d97706;
+            color: #fbbf24 !important;
+        }
+
+        .sr-schedule {
+            font-size: 11px;
+            color: #64748b !important;
+            padding: 6px 0;
+            border-bottom: 1px solid #0f1829;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .sr-schedule:last-child {
+            border-bottom: none;
+        }
+
+        .sr-scheduletime {
+            color: #60a5fa !important;
+            font-family: monospace;
+        }
+
+        /* Scrollbar */
+        .sr-sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sr-sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .sr-sidebar::-webkit-scrollbar-thumb {
+            background: #1e3a5f;
+            border-radius: 3px;
+        }
+
+        .sr-sidebar::-webkit-scrollbar-thumb:hover {
+            background: #2a5a8f;
+        }
+    </style>
 </head>
+
 <body>
-  <div class="sr-app">
-    <!-- TOPBAR -->
-    <div class="sr-topbar">
-      <div class="sr-logo">Sunray</div>
-      
-      <div class="sr-pills">
-        <span class="sr-pill sr-pill-conn">
-          <span class="sr-dot"></span>Verbunden
-        </span>
-        <span class="sr-pill sr-pill-op">Mähend</span>
-        <span class="sr-pill sr-pill-bat">23.4 V · 72%</span>
-      </div>
+    <div class="sr-app">
+        <!-- TOPBAR -->
+        <div class="sr-topbar">
+            <div class="sr-logo">Sunray</div>
 
-      <div class="sr-spacer"></div>
+            <div class="sr-pills">
+                <span class="sr-pill sr-pill-conn">
+                    <span class="sr-dot"></span>Verbunden
+                </span>
+                <span class="sr-pill sr-pill-op">Mähend</span>
+                <span class="sr-pill sr-pill-bat">23.4 V · 72%</span>
+            </div>
 
-      <button class="sr-notaus">NOTAUS</button>
+            <div class="sr-spacer"></div>
 
-      <div class="sr-divider"></div>
+            <button class="sr-notaus">NOTAUS</button>
 
-      <div class="sr-nav">
-        <button class="sr-navbtn active">Dashboard</button>
-        <button class="sr-navbtn">Karten</button>
-        <button class="sr-navbtn">Zeitpläne</button>
-        <button class="sr-navbtn">Verlauf</button>
-        <button class="sr-navbtn">Diagnose</button>
-        <button class="sr-navbtn">Simulator</button>
-        <button class="sr-navbtn">Einstellungen</button>
-      </div>
+            <div class="sr-divider"></div>
+
+            <div class="sr-nav">
+                <button class="sr-navbtn active">Dashboard</button>
+                <button class="sr-navbtn">Karten</button>
+                <button class="sr-navbtn">Zeitpläne</button>
+                <button class="sr-navbtn">Verlauf</button>
+                <button class="sr-navbtn">Diagnose</button>
+                <button class="sr-navbtn">Simulator</button>
+                <button class="sr-navbtn">Einstellungen</button>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div class="sr-main">
+            <!-- KARTENBEREICH -->
+            <div class="sr-maparea">
+                <svg class="sr-canvas" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+                    <defs>
+                        <pattern id="grid5" width="30" height="30" patternUnits="userSpaceOnUse">
+                            <path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5" />
+                        </pattern>
+                    </defs>
+                    <rect width="800" height="600" fill="url(#grid5)" />
+
+                    <!-- Perimeter -->
+                    <polygon fill="#1d4ed808" stroke="#2563eb" stroke-width="1.8"
+                        points="100,100 680,100 680,500 360,520 100,500" />
+
+                    <!-- Mähzonen -->
+                    <rect x="100" y="100" width="580" height="180" fill="#0891b215" opacity="0.4" />
+
+                    <!-- NoGo-Zone -->
+                    <polygon fill="#dc262612" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="5 3"
+                        points="250,220 350,220 350,320 250,320" />
+
+                    <!-- Dock -->
+                    <g transform="translate(130,520)">
+                        <rect x="-16" y="-14" width="32" height="28" rx="4" fill="#d97706" />
+                        <text x="0" y="7" text-anchor="middle" font-size="14" fill="#0a0f1a" font-weight="700">D</text>
+                    </g>
+
+                    <!-- Roboter -->
+                    <g transform="translate(380,300)">
+                        <circle r="14" fill="#0f1829" stroke="#3b82f6" stroke-width="2.5" />
+                        <circle r="5" fill="#60a5fa" />
+                        <line x1="0" y1="-14" x2="0" y2="-30" stroke="#60a5fa" stroke-width="3"
+                            stroke-linecap="round" />
+                        <polygon points="0,-35 -6,-24 6,-24" fill="#60a5fa" />
+                    </g>
+                </svg>
+
+                <div class="sr-mbadge">Hauptgarten · 53.6421°N 9.1382°E</div>
+                <div class="sr-mctrl">
+                    <button class="sr-mcb">+</button>
+                    <button class="sr-mcb">−</button>
+                    <button class="sr-mcb">⊙</button>
+                </div>
+            </div>
+
+            <!-- RECHTER SIDEBAR -->
+            <div class="sr-sidebar">
+                <!-- Status -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">Status</div>
+                    <div class="sr-statusbig">Mähend</div>
+                    <div class="sr-statussub">Zone 1 — Hauptfläche</div>
+                    <div class="sr-statuspos">X 12.34 m · Y 5.67 m · 092°</div>
+                </div>
+
+                <!-- GPS -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">GPS</div>
+                    <div class="sr-gps">
+                        <div class="sr-gps-top">
+                            <div class="sr-fix">
+                                <span class="sr-fixdot"></span>RTK-Fix
+                            </div>
+                            <span class="sr-sol">sol: 4</span>
+                        </div>
+                        <div class="sr-satrow">
+                            <div class="sr-sat">
+                                <div class="sr-satlbl">Rover</div>
+                                <div class="sr-satval">14</div>
+                                <div class="sr-satsub">Satelliten</div>
+                            </div>
+                            <div class="sr-sat">
+                                <div class="sr-satlbl">Base</div>
+                                <div class="sr-satval">12</div>
+                                <div class="sr-satsub">Satelliten</div>
+                            </div>
+                        </div>
+                        <div class="sr-coords">48.50012345°N<br />8.12345678°E</div>
+                    </div>
+                </div>
+
+                <!-- Akku -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">Akku</div>
+                    <div class="sr-grid2">
+                        <div class="sr-card">
+                            <div class="sr-cardlbl">Spannung</div>
+                            <div class="sr-cardval">23.4 V</div>
+                            <div class="sr-bar">
+                                <div class="sr-barfill"></div>
+                            </div>
+                        </div>
+                        <div class="sr-card">
+                            <div class="sr-cardlbl">Laden</div>
+                            <div class="sr-cardval" style="color: #fbbf24 !important;">0.0 V</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sensoren -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">Sensoren</div>
+                    <div class="sr-sensgrid">
+                        <div class="sr-sensitem"><span class="sr-sensdot"></span>Bumper L</div>
+                        <div class="sr-sensitem"><span class="sr-sensdot"></span>Bumper R</div>
+                        <div class="sr-sensitem"><span class="sr-sensdot"></span>Lift</div>
+                        <div class="sr-sensitem"><span class="sr-sensdot"></span>Motor</div>
+                    </div>
+                </div>
+
+                <!-- Coverage -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">Coverage</div>
+                    <div class="sr-covrow">
+                        <span>Gemäht heute</span>
+                        <span class="sr-covval">34%</span>
+                    </div>
+                    <div class="sr-covbar">
+                        <div class="sr-covfill"></div>
+                    </div>
+                </div>
+
+                <!-- Steuerung -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">Steuerung</div>
+                    <div class="sr-ctrlrow">
+                        <button class="sr-ctrlbtn cb-start">Start</button>
+                        <button class="sr-ctrlbtn cb-pause">Pause</button>
+                    </div>
+                    <div style="margin-top: 6px;">
+                        <button class="sr-ctrlbtn cb-dock" style="width: 100%;">Dock</button>
+                    </div>
+                </div>
+
+                <!-- Nächste Starts -->
+                <div class="sr-section">
+                    <div class="sr-sectionlbl">Nächste Starts</div>
+                    <div class="sr-schedule"><span>Mo, Di, Fr</span><span class="sr-scheduletime">09:00</span></div>
+                    <div class="sr-schedule"><span>Sa</span><span class="sr-scheduletime">08:00</span></div>
+                    <div class="sr-schedule"><span>Mo</span><span class="sr-scheduletime">14:00</span></div>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <!-- MAIN CONTENT -->
-    <div class="sr-main">
-      <!-- KARTENBEREICH -->
-      <div class="sr-maparea">
-        <svg class="sr-canvas" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
-          <defs>
-            <pattern id="grid5" width="30" height="30" patternUnits="userSpaceOnUse">
-              <path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5"/>
-            </pattern>
-          </defs>
-          <rect width="800" height="600" fill="url(#grid5)"/>
-          
-          <!-- Perimeter -->
-          <polygon fill="#1d4ed808" stroke="#2563eb" stroke-width="1.8" points="100,100 680,100 680,500 360,520 100,500"/>
-          
-          <!-- Mähzonen -->
-          <rect x="100" y="100" width="580" height="180" fill="#0891b215" opacity="0.4"/>
-          
-          <!-- NoGo-Zone -->
-          <polygon fill="#dc262612" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="5 3" points="250,220 350,220 350,320 250,320"/>
-          
-          <!-- Dock -->
-          <g transform="translate(130,520)">
-            <rect x="-16" y="-14" width="32" height="28" rx="4" fill="#d97706"/>
-            <text x="0" y="7" text-anchor="middle" font-size="14" fill="#0a0f1a" font-weight="700">D</text>
-          </g>
-          
-          <!-- Roboter -->
-          <g transform="translate(380,300)">
-            <circle r="14" fill="#0f1829" stroke="#3b82f6" stroke-width="2.5"/>
-            <circle r="5" fill="#60a5fa"/>
-            <line x1="0" y1="-14" x2="0" y2="-30" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
-            <polygon points="0,-35 -6,-24 6,-24" fill="#60a5fa"/>
-          </g>
-        </svg>
-
-        <div class="sr-mbadge">Hauptgarten · 53.6421°N 9.1382°E</div>
-        <div class="sr-mctrl">
-          <button class="sr-mcb">+</button>
-          <button class="sr-mcb">−</button>
-          <button class="sr-mcb">⊙</button>
-        </div>
-      </div>
-
-      <!-- RECHTER SIDEBAR -->
-      <div class="sr-sidebar">
-        <!-- Status -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">Status</div>
-          <div class="sr-statusbig">Mähend</div>
-          <div class="sr-statussub">Zone 1 — Hauptfläche</div>
-          <div class="sr-statuspos">X 12.34 m · Y 5.67 m · 092°</div>
-        </div>
-
-        <!-- GPS -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">GPS</div>
-          <div class="sr-gps">
-            <div class="sr-gps-top">
-              <div class="sr-fix">
-                <span class="sr-fixdot"></span>RTK-Fix
-              </div>
-              <span class="sr-sol">sol: 4</span>
-            </div>
-            <div class="sr-satrow">
-              <div class="sr-sat">
-                <div class="sr-satlbl">Rover</div>
-                <div class="sr-satval">14</div>
-                <div class="sr-satsub">Satelliten</div>
-              </div>
-              <div class="sr-sat">
-                <div class="sr-satlbl">Base</div>
-                <div class="sr-satval">12</div>
-                <div class="sr-satsub">Satelliten</div>
-              </div>
-            </div>
-            <div class="sr-coords">48.50012345°N<br/>8.12345678°E</div>
-          </div>
-        </div>
-
-        <!-- Akku -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">Akku</div>
-          <div class="sr-grid2">
-            <div class="sr-card">
-              <div class="sr-cardlbl">Spannung</div>
-              <div class="sr-cardval">23.4 V</div>
-              <div class="sr-bar"><div class="sr-barfill"></div></div>
-            </div>
-            <div class="sr-card">
-              <div class="sr-cardlbl">Laden</div>
-              <div class="sr-cardval" style="color: #fbbf24 !important;">0.0 V</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sensoren -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">Sensoren</div>
-          <div class="sr-sensgrid">
-            <div class="sr-sensitem"><span class="sr-sensdot"></span>Bumper L</div>
-            <div class="sr-sensitem"><span class="sr-sensdot"></span>Bumper R</div>
-            <div class="sr-sensitem"><span class="sr-sensdot"></span>Lift</div>
-            <div class="sr-sensitem"><span class="sr-sensdot"></span>Motor</div>
-          </div>
-        </div>
-
-        <!-- Coverage -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">Coverage</div>
-          <div class="sr-covrow">
-            <span>Gemäht heute</span>
-            <span class="sr-covval">34%</span>
-          </div>
-          <div class="sr-covbar"><div class="sr-covfill"></div></div>
-        </div>
-
-        <!-- Steuerung -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">Steuerung</div>
-          <div class="sr-ctrlrow">
-            <button class="sr-ctrlbtn cb-start">Start</button>
-            <button class="sr-ctrlbtn cb-pause">Pause</button>
-          </div>
-          <div style="margin-top: 6px;">
-            <button class="sr-ctrlbtn cb-dock" style="width: 100%;">Dock</button>
-          </div>
-        </div>
-
-        <!-- Nächste Starts -->
-        <div class="sr-section">
-          <div class="sr-sectionlbl">Nächste Starts</div>
-          <div class="sr-schedule"><span>Mo, Di, Fr</span><span class="sr-scheduletime">09:00</span></div>
-          <div class="sr-schedule"><span>Sa</span><span class="sr-scheduletime">08:00</span></div>
-          <div class="sr-schedule"><span>Mo</span><span class="sr-scheduletime">14:00</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
 </body>
+
 </html>

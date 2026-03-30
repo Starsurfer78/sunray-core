@@ -2,7 +2,7 @@
   import RobotControls from '../RobotControls.svelte'
   import { gpsQuality, batteryPercent, telemetry } from '../../stores/telemetry'
 
-  const boolLabel = (value: boolean) => value ? 'Aktiv' : 'Aus'
+  const sensorStateClass = (value: boolean) => value ? 'hot' : 'idle'
 </script>
 
 <aside class="sidebar">
@@ -41,15 +41,16 @@
       <div class="metric">
         <span class="metric-label">Spannung</span>
         <strong>{$telemetry.battery_v.toFixed(1)} V</strong>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Ladung</span>
-        <strong>{$batteryPercent}%</strong>
+        <div class="battery-bar" aria-label={`Ladestand ${$batteryPercent}%`}>
+          <span class="battery-fill" style={`width:${Math.max(0, Math.min(100, $batteryPercent))}%`}></span>
+        </div>
       </div>
       <div class="metric">
         <span class="metric-label">Dock</span>
         <strong>{$telemetry.charge_v.toFixed(1)} V</strong>
       </div>
+    </div>
+    <div class="metrics single-row">
       <div class="metric">
         <span class="metric-label">Ladestrom</span>
         <strong>{$telemetry.charge_a.toFixed(2)} A</strong>
@@ -62,19 +63,27 @@
     <div class="sensor-grid">
       <div class="sensor">
         <span>Bumper L</span>
-        <strong class:ok={$telemetry.bumper_l}>{boolLabel($telemetry.bumper_l)}</strong>
+        <strong class={sensorStateClass($telemetry.bumper_l)}>
+          <span class="sensor-dot"></span>
+        </strong>
       </div>
       <div class="sensor">
         <span>Bumper R</span>
-        <strong class:ok={$telemetry.bumper_r}>{boolLabel($telemetry.bumper_r)}</strong>
+        <strong class={sensorStateClass($telemetry.bumper_r)}>
+          <span class="sensor-dot"></span>
+        </strong>
       </div>
       <div class="sensor">
         <span>Lift</span>
-        <strong class:ok={$telemetry.lift}>{boolLabel($telemetry.lift)}</strong>
+        <strong class={sensorStateClass($telemetry.lift)}>
+          <span class="sensor-dot"></span>
+        </strong>
       </div>
       <div class="sensor">
         <span>Motor</span>
-        <strong class:ok={$telemetry.motor_err}>{boolLabel($telemetry.motor_err)}</strong>
+        <strong class={sensorStateClass($telemetry.motor_err)}>
+          <span class="sensor-dot"></span>
+        </strong>
       </div>
     </div>
   </section>
@@ -93,8 +102,8 @@
 
   .panel {
     display: grid;
-    gap: 0.75rem;
-    padding: 1rem;
+    gap: 0.65rem;
+    padding: 0.85rem 0.95rem;
     border-bottom: 1px solid #0f1829;
   }
 
@@ -109,7 +118,7 @@
   .section-title,
   .metric-label {
     color: #7a8da8;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
@@ -120,30 +129,30 @@
 
   strong {
     color: #dbeafe;
-    font-size: 1rem;
+    font-size: 0.95rem;
   }
 
   .panel-head strong {
-    font-size: 1.6rem;
+    font-size: 1.35rem;
     color: #60a5fa;
   }
 
   .muted,
   .sensor span {
     color: #94a3b8;
-    font-size: 0.8rem;
+    font-size: 0.74rem;
   }
 
   .status-pos {
     color: #64748b;
     font-family: 'Courier New', monospace;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
   }
 
   .gps-card {
     display: grid;
-    gap: 0.75rem;
-    padding: 0.75rem;
+    gap: 0.65rem;
+    padding: 0.68rem;
     border-radius: 0.7rem;
     background: #0f1829;
     border: 1px solid #1e3a5f;
@@ -174,24 +183,62 @@
   .sensor-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    gap: 0.55rem;
+  }
+
+  .metrics.single-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
   }
 
   .metric,
   .sensor {
-    padding: 0.75rem;
-    border-radius: 0.7rem;
+    padding: 0.62rem 0.68rem;
+    border-radius: 0.62rem;
     background: #0a1020;
     border: 1px solid #1a2a40;
   }
 
   .sensor strong {
-    color: #93c5fd;
-    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    color: #64748b;
+    font-size: 0.82rem;
   }
 
-  .sensor strong.ok {
-    color: #34d399;
+  .sensor strong.hot {
+    color: #ef4444;
+  }
+
+  .sensor strong.idle {
+    color: #22c55e;
+  }
+
+  .sensor-dot {
+    width: 0.58rem;
+    height: 0.58rem;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04);
+  }
+
+  .battery-bar {
+    margin-top: 0.28rem;
+    width: 100%;
+    height: 0.38rem;
+    border-radius: 999px;
+    background: #08101c;
+    border: 1px solid #16253d;
+    overflow: hidden;
+  }
+
+  .battery-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #1d4ed8 0%, #22c55e 100%);
   }
 
   @media (max-width: 980px) {
