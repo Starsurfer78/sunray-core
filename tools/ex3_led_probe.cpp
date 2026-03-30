@@ -59,7 +59,12 @@ int main(int argc, char** argv) {
     const char* busPath = (argc > 1) ? argv[1] : "/dev/i2c-1";
     const uint8_t addr = 0x22;
     const uint8_t muxAddr = 0x70;
-    const uint8_t ex3Channel = 1;
+    const int channelArg = (argc > 2) ? std::atoi(argv[2]) : 1;
+    if (channelArg < 0 || channelArg > 7) {
+        std::cerr << "ERROR: mux channel must be in range 0..7\n";
+        return 1;
+    }
+    const uint8_t ex3Channel = static_cast<uint8_t>(channelArg);
 
     try {
         sunray::platform::I2C bus(busPath);
