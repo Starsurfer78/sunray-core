@@ -591,20 +591,38 @@ void WebSocketServer::setupHttpRoutes() {
     );
 
     // ── POST /api/diag/<action> ───────────────────────────────────────────────
+    // Void-return async handler: the blocking robot op runs in a detached thread
+    // so the ASIO I/O thread is never stalled. Without this, motor/drive/IMU tests
+    // (5–30 s) freeze all WebSocket I/O and disconnect the browser.
     CROW_ROUTE(app, "/api/diag/<string>").methods(crow::HTTPMethod::POST)(
-        [this, isAuthorized](const crow::request& req, const std::string& action) -> crow::response {
-            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+        [this, isAuthorized](const crow::request& req, crow::response& res, const std::string& action) {
+            if (!isAuthorized(req)) {
+                res = crow::response(401, R"({"error":"unauthorized"})");
+                res.end();
+                return;
+            }
             nlohmann::json params;
             if (!req.body.empty()) {
                 try { params = nlohmann::json::parse(req.body); }
-                catch (...) { return crow::response(400); }
+                catch (...) { res = crow::response(400); res.end(); return; }
             }
-            if (diagCallback_) {
-                auto resJson = diagCallback_(action, params);
-                const std::string body = resJson.dump();
-                return crow::response(200, body);
+            DiagCallback diagCb;
+            {
+                std::lock_guard<std::mutex> lk(diagCbMutex_);
+                diagCb = diagCallback_;
             }
-            return crow::response(501, R"({"error":"diag callback not set"})");
+            if (!diagCb) {
+                res = crow::response(501, R"({"error":"diag callback not set"})");
+                res.end();
+                return;
+            }
+            // Run blocking robot operation in a detached thread; ASIO thread returns immediately.
+            std::thread([diagCb = std::move(diagCb), action, params, &res]() mutable {
+                auto resJson = diagCb(action, params);
+                res.code = 200;
+                res.body = resJson.dump();
+                res.end();
+            }).detach();
         }
     );
 
@@ -676,12 +694,14 @@ void WebSocketServer::start() {
     // Silence Crow's stdout chatter
     impl_->app.loglevel(crow::LogLevel::Warning);
 
-    // Start Crow on its own async task and keep the returned handle alive for
-    // the full server lifetime. Prefer the simple single-threaded run-path
-    // here; on Alfred's Pi this has proven more robust than Crow's
-    // multithreaded websocket runtime.
+    // Start Crow on its own async task. concurrency(3) = 2 worker threads +
+    // 1 accept thread. One worker may block on a long diag HTTP handler while
+    // the other keeps WebSocket I/O alive. send_text() routes through
+    // asio::post() so cross-thread posting is safe.
     crowFuture_ = std::async(std::launch::async, [this, port]() {
-        impl_->app.bindaddr("0.0.0.0").port(static_cast<uint16_t>(port)).run();
+        impl_->app.bindaddr("0.0.0.0").port(static_cast<uint16_t>(port))
+                  .concurrency(3)
+                  .run();
     });
 
     running_.store(true);

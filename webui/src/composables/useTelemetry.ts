@@ -88,13 +88,17 @@ function connect() {
     } catch { /* ignore malformed */ }
   }
 
-  ws.onclose = ws.onerror = () => {
+  // onerror always fires before onclose — guard so only the first call acts.
+  const handleDisconnect = () => {
+    if (ws === null) return
     connected.value = false
     ws = null
     if (refCount > 0) {
       reconnTimer = setTimeout(connect, 3000)
     }
   }
+  ws.onclose = handleDisconnect
+  ws.onerror = handleDisconnect
 }
 
 function disconnect() {
