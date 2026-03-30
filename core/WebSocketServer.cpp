@@ -617,10 +617,20 @@ void WebSocketServer::setupHttpRoutes() {
                 return;
             }
             // Run blocking robot operation in a detached thread; ASIO thread returns immediately.
+            // try/catch is mandatory: an uncaught exception in a detached thread calls
+            // std::terminate() and crashes the process.
             std::thread([diagCb = std::move(diagCb), action, params, &res]() mutable {
-                auto resJson = diagCb(action, params);
-                res.code = 200;
-                res.body = resJson.dump();
+                try {
+                    auto resJson = diagCb(action, params);
+                    res.code = 200;
+                    res.body = resJson.dump();
+                } catch (const std::exception& e) {
+                    res.code = 500;
+                    res.body = std::string(R"({"ok":false,"error":")") + e.what() + "\"}";
+                } catch (...) {
+                    res.code = 500;
+                    res.body = R"({"ok":false,"error":"unknown error"})";
+                }
                 res.end();
             }).detach();
         }
@@ -694,14 +704,12 @@ void WebSocketServer::start() {
     // Silence Crow's stdout chatter
     impl_->app.loglevel(crow::LogLevel::Warning);
 
-    // Start Crow on its own async task. concurrency(3) = 2 worker threads +
-    // 1 accept thread. One worker may block on a long diag HTTP handler while
-    // the other keeps WebSocket I/O alive. send_text() routes through
-    // asio::post() so cross-thread posting is safe.
+    // Start Crow on its own async task and keep the returned handle alive for
+    // the full server lifetime. Prefer the simple single-threaded run-path
+    // here; on Alfred's Pi this has proven more robust than Crow's
+    // multithreaded websocket runtime.
     crowFuture_ = std::async(std::launch::async, [this, port]() {
-        impl_->app.bindaddr("0.0.0.0").port(static_cast<uint16_t>(port))
-                  .concurrency(3)
-                  .run();
+        impl_->app.bindaddr("0.0.0.0").port(static_cast<uint16_t>(port)).run();
     });
 
     running_.store(true);
