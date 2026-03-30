@@ -704,15 +704,6 @@ void WebSocketServer::start() {
                 }
             }
 
-            std::vector<std::string> logMsgs;
-            {
-                std::lock_guard<std::mutex> lk(logMutex_);
-                while (!logQueue_.empty()) {
-                    logMsgs.push_back(std::move(logQueue_.front()));
-                    logQueue_.pop();
-                }
-            }
-
             // Single connection snapshot, then send everything without lock
             std::vector<crow::websocket::connection*> snap;
             {
@@ -723,8 +714,6 @@ void WebSocketServer::start() {
             for (auto* c : snap) {
                 for (const auto& nm : nmeaMsgs)
                     try { c->send_text(nm); } catch (...) {}
-                for (const auto& lm : logMsgs)
-                    try { c->send_text(lm); } catch (...) {}
                 try { c->send_text(telMsg); }
                 catch (...) { /* connection may have closed between snapshot and send */ }
             }
@@ -759,16 +748,6 @@ void WebSocketServer::broadcastNmea(const std::string& line) {
     j["line"] = line;
     std::lock_guard<std::mutex> lk(nmeaMutex_);
     nmeaQueue_.push(j.dump());
-}
-
-void WebSocketServer::broadcastLog(const std::string& line) {
-    if (!running_.load()) return;
-
-    nlohmann::json j;
-    j["type"] = "log";
-    j["text"] = line;
-    std::lock_guard<std::mutex> lk(logMutex_);
-    logQueue_.push(j.dump());
 }
 
 // ── JSON serialization ────────────────────────────────────────────────────────
