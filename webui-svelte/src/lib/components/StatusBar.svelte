@@ -7,8 +7,9 @@
   const formatNumber = (value: number | string | null | undefined, digits = 1) =>
     typeof value === 'number' ? value.toFixed(digits) : '---'
 
+  $: isChargingState = $telemetry.op === 'Charge' || $telemetry.state_phase === 'charging'
   $: chargeStateLabel =
-    $telemetry.charge_a > 0.05
+    isChargingState && $telemetry.charge_a > 0.05
       ? `Laedt ${formatNumber($telemetry.charge_a, 2)} A`
       : $telemetry.charge_v >= 7
         ? `Dockkontakt ${formatNumber($telemetry.charge_v)} V`
