@@ -664,11 +664,11 @@ void WebSocketServer::start() {
     impl_->app.loglevel(crow::LogLevel::Warning);
 
     // Start Crow on its own async task and keep the returned handle alive for
-    // the full server lifetime. Use the explicit multithreaded run-path here;
-    // it has proven more reliable on Pi deployments than delegating to
-    // run_async() directly.
+    // the full server lifetime. Prefer the simple single-threaded run-path
+    // here; on Alfred's Pi this has proven more robust than Crow's
+    // multithreaded websocket runtime.
     crowFuture_ = std::async(std::launch::async, [this, port]() {
-        impl_->app.bindaddr("0.0.0.0").port(static_cast<uint16_t>(port)).multithreaded().run();
+        impl_->app.bindaddr("0.0.0.0").port(static_cast<uint16_t>(port)).run();
     });
 
     running_.store(true);
