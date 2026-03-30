@@ -178,7 +178,7 @@ nlohmann::json Config::defaults() {
 
         // ── Sonstiges ────────────────────────────────────────────────────────
         {"rain_delay_min",      60},
-        {"map_path",            "/etc/sunray/map.json"},
+        {"map_path",            "/etc/sunray-core/map.json"},
     };
 }
 

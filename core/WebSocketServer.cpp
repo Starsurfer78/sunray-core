@@ -249,22 +249,23 @@ void WebSocketServer::setupHttpRoutes() {
     // ── GET /api/map ───────────────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/map")(
         [this, isAuthorized](const crow::request& req) -> crow::response {
-            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
-            if (mapPath_.empty()) return crow::response(404);
-            std::string body = defaultMapDocument().dump();
             try {
+                if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+                if (mapPath_.empty()) return crow::response(404);
+
+                std::string body = defaultMapDocument().dump();
                 namespace fs = std::filesystem;
                 std::error_code ec;
                 if (!fs::exists(mapPath_, ec) || ec) {
-                    logger_->warn(TAG, "GET /api/map: map file missing — using empty map");
+                    logger_->warn(TAG, "GET /api/map: map file missing at " + mapPath_ + " — using empty map");
                 } else if (!fs::is_regular_file(mapPath_, ec) || ec) {
-                    logger_->warn(TAG, "GET /api/map: map path is not a regular file — using empty map");
+                    logger_->warn(TAG, "GET /api/map: map path is not a regular file: " + mapPath_ + " — using empty map");
                 } else {
                     const auto size = fs::file_size(mapPath_, ec);
                     if (ec) {
-                        logger_->warn(TAG, "GET /api/map: cannot stat map file — using empty map");
+                        logger_->warn(TAG, "GET /api/map: cannot stat map file " + mapPath_ + " — using empty map");
                     } else if (size > 2 * 1024 * 1024) {
-                        logger_->warn(TAG, "GET /api/map: map file too large (" + std::to_string(size) + " bytes) — using empty map");
+                        logger_->warn(TAG, "GET /api/map: map file too large (" + std::to_string(size) + " bytes) at " + mapPath_ + " — using empty map");
                     } else {
                         const std::string raw = readFile(mapPath_);
                         if (!raw.empty()) {
@@ -272,13 +273,17 @@ void WebSocketServer::setupHttpRoutes() {
                         }
                     }
                 }
+                crow::response res(200, body);
+                res.set_header("Content-Type", "application/json");
+                res.set_header("Access-Control-Allow-Origin", "*");
+                return res;
             } catch (const std::exception& e) {
-                logger_->warn(TAG, std::string("GET /api/map fallback to empty map: ") + e.what());
+                logger_->error(TAG, std::string("GET /api/map failed for path '") + mapPath_ + "': " + e.what());
+                return crow::response(500, R"({"error":"map read failed"})");
+            } catch (...) {
+                logger_->error(TAG, std::string("GET /api/map failed for path '") + mapPath_ + "': unknown error");
+                return crow::response(500, R"({"error":"map read failed"})");
             }
-            crow::response res(200, body);
-            res.set_header("Content-Type", "application/json");
-            res.set_header("Access-Control-Allow-Origin", "*");
-            return res;
         }
     );
 
