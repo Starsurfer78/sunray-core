@@ -251,36 +251,30 @@ void WebSocketServer::setupHttpRoutes() {
         [this, isAuthorized](const crow::request& req) -> crow::response {
             if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             if (mapPath_.empty()) return crow::response(404);
-            nlohmann::json mapJson = defaultMapDocument();
+            std::string body = defaultMapDocument().dump();
             try {
                 namespace fs = std::filesystem;
                 std::error_code ec;
-                if (fs::exists(mapPath_, ec) && !ec) {
+                if (!fs::exists(mapPath_, ec) || ec) {
+                    logger_->warn(TAG, "GET /api/map: map file missing — using empty map");
+                } else if (!fs::is_regular_file(mapPath_, ec) || ec) {
+                    logger_->warn(TAG, "GET /api/map: map path is not a regular file — using empty map");
+                } else {
                     const auto size = fs::file_size(mapPath_, ec);
-                    if (!ec && size > 2 * 1024 * 1024) {
+                    if (ec) {
+                        logger_->warn(TAG, "GET /api/map: cannot stat map file — using empty map");
+                    } else if (size > 2 * 1024 * 1024) {
                         logger_->warn(TAG, "GET /api/map: map file too large (" + std::to_string(size) + " bytes) — using empty map");
                     } else {
-                        const std::string body = readFile(mapPath_);
-                        if (!body.empty()) {
-                            auto parsed = nlohmann::json::parse(body);
-                            if (parsed.is_object()) {
-                                mapJson = std::move(parsed);
-                            } else {
-                                logger_->warn(TAG, "GET /api/map: map file root is not an object — using empty map");
-                            }
+                        const std::string raw = readFile(mapPath_);
+                        if (!raw.empty()) {
+                            body = raw;
                         }
                     }
                 }
             } catch (const std::exception& e) {
-                logger_->warn(TAG, std::string("GET /api/map: invalid map file — using empty map: ") + e.what());
+                logger_->warn(TAG, std::string("GET /api/map fallback to empty map: ") + e.what());
             }
-            if (!mapJson.contains("perimeter")  || !mapJson["perimeter"].is_array())  mapJson["perimeter"]  = nlohmann::json::array();
-            if (!mapJson.contains("mow")        || !mapJson["mow"].is_array())        mapJson["mow"]        = nlohmann::json::array();
-            if (!mapJson.contains("dock")       || !mapJson["dock"].is_array())       mapJson["dock"]       = nlohmann::json::array();
-            if (!mapJson.contains("exclusions") || !mapJson["exclusions"].is_array()) mapJson["exclusions"] = nlohmann::json::array();
-            if (!mapJson.contains("zones")      || !mapJson["zones"].is_array())      mapJson["zones"]      = nlohmann::json::array();
-
-            const std::string body = mapJson.dump();
             crow::response res(200, body);
             res.set_header("Content-Type", "application/json");
             res.set_header("Access-Control-Allow-Origin", "*");
