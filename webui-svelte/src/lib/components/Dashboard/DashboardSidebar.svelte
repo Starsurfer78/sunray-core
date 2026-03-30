@@ -11,30 +11,26 @@
       <span class="label">Status</span>
       <strong>{$telemetry.op}</strong>
       <span class="muted">Phase {$telemetry.state_phase || 'idle'}</span>
-    </div>
-
-    <div class="metrics two-col">
-      <div class="metric">
-        <span class="metric-label">Position</span>
-        <strong>{$telemetry.x.toFixed(2)} / {$telemetry.y.toFixed(2)} m</strong>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Heading</span>
-        <strong>{(($telemetry.heading * 180) / Math.PI).toFixed(1)} deg</strong>
-      </div>
+      <span class="status-pos">X {$telemetry.x.toFixed(2)} m · Y {$telemetry.y.toFixed(2)} m</span>
     </div>
   </section>
 
   <section class="panel">
     <div class="section-title">GPS</div>
-    <div class="metrics two-col">
-      <div class="metric">
-        <span class="metric-label">Loesung</span>
-        <strong>{$gpsQuality}</strong>
+    <div class="gps-card">
+      <div class="gps-head">
+        <strong class="gps-fix">{$gpsQuality}</strong>
+        <span class="gps-sol">acc {$telemetry.gps_acc.toFixed(2)}</span>
       </div>
-      <div class="metric">
-        <span class="metric-label">Genauigkeit</span>
-        <strong>{$telemetry.gps_acc.toFixed(2)} m</strong>
+      <div class="metrics two-col">
+        <div class="metric">
+          <span class="metric-label">Heading</span>
+          <strong>{(($telemetry.heading * 180) / Math.PI).toFixed(1)} deg</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">EKF</span>
+          <strong>{$telemetry.ekf_health}</strong>
+        </div>
       </div>
     </div>
   </section>
@@ -89,17 +85,17 @@
 <style>
   .sidebar {
     display: grid;
-    gap: 0.85rem;
+    gap: 0;
     align-content: start;
+    background: #0a1020;
+    border-left: 1px solid #1e3a5f;
   }
 
   .panel {
     display: grid;
     gap: 0.75rem;
-    padding: 0.9rem;
-    border-radius: 0.8rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
+    padding: 1rem;
+    border-bottom: 1px solid #0f1829;
   }
 
   .panel-head,
@@ -127,10 +123,51 @@
     font-size: 1rem;
   }
 
+  .panel-head strong {
+    font-size: 1.6rem;
+    color: #60a5fa;
+  }
+
   .muted,
   .sensor span {
     color: #94a3b8;
     font-size: 0.8rem;
+  }
+
+  .status-pos {
+    color: #64748b;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+  }
+
+  .gps-card {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 0.7rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+  }
+
+  .gps-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .gps-fix {
+    color: #4ade80;
+    font-size: 0.95rem;
+  }
+
+  .gps-sol {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-family: 'Courier New', monospace;
+    background: #0a1020;
+    border-radius: 0.35rem;
+    padding: 0.18rem 0.42rem;
   }
 
   .metrics.two-col,

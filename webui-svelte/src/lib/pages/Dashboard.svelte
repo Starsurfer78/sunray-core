@@ -38,27 +38,21 @@
 </script>
 
 <main class="page">
-  <section class="title-row">
-    <div class="title-copy">
-      <span class="eyebrow">Dashboard</span>
-      <h1>Betriebsueberblick</h1>
-    </div>
-    <div class="dashboard-meta">
-      <div class="meta-pill">
-        <span class="meta-label">Status</span>
-        <strong>{$telemetry.op}</strong>
-      </div>
-      <div class="meta-pill">
-        <span class="meta-label">Karte</span>
-        <strong>{mapStatus}</strong>
-      </div>
-    </div>
-  </section>
-
   <section class="layout">
     <div class="main-column">
       <div class="map-stage">
+        <div class="map-badge">
+          <span class="map-badge-label">Hauptgarten</span>
+          <strong>{$telemetry.x.toFixed(2)} / {$telemetry.y.toFixed(2)} m</strong>
+        </div>
+
         <MapCanvas showHeader={false} showViewportActions={false} interactive={false} height={680} />
+
+        <div class="map-controls">
+          <button type="button">+</button>
+          <button type="button">-</button>
+          <button type="button">◎</button>
+        </div>
       </div>
     </div>
 
@@ -68,69 +62,18 @@
 
 <style>
   .page {
-    display: grid;
-    gap: 1rem;
+    min-height: calc(100vh - 9.5rem);
   }
-
-  .title-row {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-
-  .title-copy {
-    display: grid;
-    gap: 0.1rem;
-  }
-
-  .dashboard-meta {
-    display: flex;
-    gap: 0.65rem;
-    flex-wrap: wrap;
-  }
-
-  .meta-pill {
-    display: grid;
-    gap: 0.15rem;
-    min-width: 8.5rem;
-    padding: 0.75rem 0.9rem;
-    border-radius: 0.8rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
-  }
-
-  .meta-label {
-    color: #7a8da8;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .meta-pill strong {
-    color: #dbeafe;
-    font-size: 0.95rem;
-  }
-
-  .eyebrow {
-    display: inline-block;
-    margin-bottom: 0.35rem;
-    color: #60a5fa;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.72rem;
-  }
-
-  h1 { margin: 0; }
-
-  h1 { font-size: 1.7rem; line-height: 1.05; }
 
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.9fr) 320px;
-    gap: 1rem;
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 0;
+    min-height: calc(100vh - 9.5rem);
+    border: 1px solid #1e3a5f;
+    border-radius: 0.95rem;
+    overflow: hidden;
+    background: #08101c;
   }
 
   .main-column {
@@ -138,12 +81,62 @@
   }
 
   .map-stage {
-    min-height: 680px;
+    position: relative;
+    min-height: calc(100vh - 9.5rem);
+    padding: 0;
+    background: #070d18;
+  }
+
+  .map-badge {
+    position: absolute;
+    top: 0.9rem;
+    left: 0.9rem;
+    z-index: 2;
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 0.7rem;
+    background: rgba(15, 24, 41, 0.92);
+    border: 1px solid #1e3a5f;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  }
+
+  .map-badge-label {
+    color: #60a5fa;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .map-badge strong {
+    color: #dbeafe;
+    font-size: 0.88rem;
+  }
+
+  .map-controls {
+    position: absolute;
+    left: 0.9rem;
+    bottom: 0.9rem;
+    z-index: 2;
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .map-controls button {
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: rgba(15, 24, 41, 0.96);
+    color: #60a5fa;
+    font-weight: 700;
+    cursor: default;
   }
 
   @media (max-width: 900px) {
     .layout {
       grid-template-columns: 1fr;
+      min-height: auto;
     }
 
     .map-stage {
