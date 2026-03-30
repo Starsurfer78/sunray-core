@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <iomanip>
 #include <iostream>
 
 namespace {
@@ -13,14 +14,42 @@ bool readReg(sunray::platform::I2C& bus, uint8_t addr, uint8_t reg, uint8_t& val
     return bus.writeRead(addr, &reg, 1, &value, 1);
 }
 
+void printValueOrErr(bool ok, uint8_t value) {
+    if (!ok) {
+        std::cout << "ERR";
+        return;
+    }
+    std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0')
+              << unsigned(value) << std::dec;
+}
+
 void dumpRegs(sunray::platform::I2C& bus, uint8_t addr) {
     for (uint8_t reg : {uint8_t(0x00), uint8_t(0x01), uint8_t(0x02), uint8_t(0x03), uint8_t(0x06), uint8_t(0x07)}) {
         uint8_t value = 0;
         const bool ok = readReg(bus, addr, reg, value);
-        std::cout << "  reg 0x" << std::hex << int(reg)
-                  << ": " << (ok ? "0x" : "ERR");
-        if (ok) std::cout << int(value);
-        std::cout << std::dec << "\n";
+        std::cout << "  reg 0x" << std::hex << int(reg) << std::dec << ": ";
+        printValueOrErr(ok, value);
+        std::cout << "\n";
+    }
+}
+
+bool probeEx3Presence(sunray::platform::I2C& bus, uint8_t addr, uint8_t& value) {
+    return readReg(bus, addr, 0x06, value);
+}
+
+void scanMuxChannels(sunray::platform::I2cMux& mux, sunray::platform::I2C& bus, uint8_t addr) {
+    std::cout << "Mux channel scan for 0x22 via reg 0x06:\n";
+    for (uint8_t channel = 0; channel < 8; ++channel) {
+        const bool selectOk = mux.selectChannel(channel);
+        uint8_t value = 0;
+        const bool probeOk = selectOk && probeEx3Presence(bus, addr, value);
+        std::cout << "  ch " << unsigned(channel) << ": ";
+        if (!selectOk) {
+            std::cout << "select FAIL";
+        } else {
+            printValueOrErr(probeOk, value);
+        }
+        std::cout << "\n";
     }
 }
 
@@ -29,20 +58,38 @@ void dumpRegs(sunray::platform::I2C& bus, uint8_t addr) {
 int main(int argc, char** argv) {
     const char* busPath = (argc > 1) ? argv[1] : "/dev/i2c-1";
     const uint8_t addr = 0x22;
+    const uint8_t muxAddr = 0x70;
+    const uint8_t ex3Channel = 1;
 
     try {
         sunray::platform::I2C bus(busPath);
-
-        sunray::platform::I2cMux mux(bus, 0x70);
-        if (!mux.selectChannel(1)) {
-            std::cerr << "WARN: TCA9548A mux channel select failed\n";
-        }
-
-        sunray::platform::PortExpander ex3(bus, addr);
+        sunray::platform::I2cMux mux(bus, muxAddr);
 
         std::cout << "== EX3 LED Probe ==\n";
         std::cout << "Bus:     " << busPath << "\n";
+        std::cout << "Mux:     0x70\n";
+        std::cout << "Channel: " << unsigned(ex3Channel) << "\n";
         std::cout << "Addr:    0x22\n";
+
+        uint8_t mask = 0;
+        const bool maskBeforeOk = mux.getEnabledMask(mask);
+        std::cout << "Mux mask before select: ";
+        printValueOrErr(maskBeforeOk, mask);
+        std::cout << "\n";
+
+        if (!mux.selectChannel(ex3Channel)) {
+            std::cerr << "WARN: TCA9548A mux channel select failed\n";
+        }
+
+        const bool maskAfterOk = mux.getEnabledMask(mask);
+        std::cout << "Mux mask after select:  ";
+        printValueOrErr(maskAfterOk, mask);
+        std::cout << "\n";
+
+        scanMuxChannels(mux, bus, addr);
+        mux.selectChannel(ex3Channel);
+
+        sunray::platform::PortExpander ex3(bus, addr);
         std::cout << "Before:\n";
         dumpRegs(bus, addr);
 
