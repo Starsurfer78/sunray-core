@@ -14,16 +14,15 @@ PortExpander::PortExpander(I2C& bus, uint8_t addr)
 // ── Private register helpers ──────────────────────────────────────────────────
 
 bool PortExpander::readReg(uint8_t reg, uint8_t& val) {
-    // Prefer a repeated-start transaction, but fall back to the same
-    // write-then-read sequence used by the original Alfred code if the device
-    // or adapter does not answer to I2C_RDWR for this register access.
-    if (bus_.writeRead(addr_, &reg, 1, &val, 1)) {
+    // Match the original Alfred implementation first: register-select write
+    // followed by a separate read transaction. Some PCA9555 paths appear to
+    // ACK repeated-start reads without driving the attached outputs correctly.
+    if (bus_.write(addr_, &reg, 1) && bus_.read(addr_, &val, 1)) {
         return true;
     }
-    if (!bus_.write(addr_, &reg, 1)) {
-        return false;
-    }
-    return bus_.read(addr_, &val, 1);
+
+    // Fallback for adapters/devices that prefer I2C_RDWR repeated-start.
+    return bus_.writeRead(addr_, &reg, 1, &val, 1);
 }
 
 bool PortExpander::writeReg(uint8_t reg, uint8_t val) {
