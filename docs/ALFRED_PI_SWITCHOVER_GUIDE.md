@@ -6,6 +6,14 @@ Ziel dieser Anleitung ist ein sicherer, nachvollziehbarer erster Test von
 `sunray-core` auf echter Alfred-Hardware, ohne den aktuell laufenden
 Originalstand unkontrolliert zu verlieren.
 
+Wichtig fuer die WebUI auf dem Pi:
+
+- `webui/dist` muss gebaut sein (`cd ~/sunray-core/webui && npm install && npm run build`)
+- fuer den aktuellen Frontend-Stack wird `Node.js >= 20` benoetigt
+- wenn `api_token` in `/etc/sunray-core/config.json` gesetzt ist, muss derselbe
+  Wert in der WebUI oben in der Topbar unter `API-Token` gespeichert werden,
+  sonst bleiben geschuetzte Bereiche wie `Einstellungen` leer
+
 Die Anleitung folgt vier Schritten:
 
 1. Originalstand dokumentieren

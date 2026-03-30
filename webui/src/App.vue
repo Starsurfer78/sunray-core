@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { routes } from './router/index'
 import { useTelemetry } from './composables/useTelemetry'
@@ -22,6 +22,15 @@ const opLabel = computed(() => {
   }
   return labels[telemetry.value.op] ?? telemetry.value.op
 })
+
+const apiToken = ref(localStorage.getItem('sunray_api_token') ?? '')
+
+function saveApiToken() {
+  const value = apiToken.value.trim()
+  if (value) localStorage.setItem('sunray_api_token', value)
+  else localStorage.removeItem('sunray_api_token')
+  window.location.reload()
+}
 </script>
 
 <template>
@@ -38,6 +47,17 @@ const opLabel = computed(() => {
       </span>
 
       <button class="sr-notaus" @click="sendCmd('stop')">NOTAUS</button>
+      <label class="sr-token">
+        <span class="sr-token-label">API-Token</span>
+        <input
+          v-model="apiToken"
+          class="sr-token-input"
+          type="password"
+          placeholder="z. B. change-me-before-release"
+          @keyup.enter="saveApiToken"
+        >
+        <button class="sr-token-btn" @click="saveApiToken">Speichern</button>
+      </label>
       <span class="sr-div"></span>
 
       <nav class="sr-nav">
@@ -130,6 +150,45 @@ const opLabel = computed(() => {
   margin-left: auto;
 }
 
+.sr-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8 !important;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.sr-token-label {
+  white-space: nowrap;
+}
+
+.sr-token-input {
+  width: 190px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #1e3a5f;
+  background: #08111f !important;
+  color: #e2e8f0 !important;
+}
+
+.sr-token-input::placeholder {
+  color: #475569 !important;
+}
+
+.sr-token-btn {
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid #1e3a5f;
+  background: #0f1829 !important;
+  color: #93c5fd !important;
+  cursor: pointer;
+}
+
+.sr-token-btn:hover {
+  border-color: #3b82f6;
+}
+
 .sr-div {
   width: 1px;
   height: 22px;
@@ -190,5 +249,16 @@ const opLabel = computed(() => {
   overflow: auto;
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 1280px) {
+  .sr-top {
+    flex-wrap: wrap;
+  }
+
+  .sr-token {
+    order: 2;
+    width: 100%;
+  }
 }
 </style>

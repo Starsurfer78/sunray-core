@@ -24,6 +24,8 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <vector>
 
 // ── Global robot pointer for signal handler ────────────────────────────────────
@@ -33,6 +35,49 @@ static sunray::Robot* g_robot = nullptr;
 static void signalHandler(int) {
     if (g_robot) g_robot->stop();
 }
+
+namespace {
+
+class WebUiLogger final : public sunray::Logger {
+public:
+    explicit WebUiLogger(std::shared_ptr<sunray::Logger> sink)
+        : sink_(std::move(sink)) {}
+
+    void attachWebSocketServer(sunray::WebSocketServer* wsServer) {
+        std::lock_guard<std::mutex> lk(mutex_);
+        wsServer_ = wsServer;
+    }
+
+    void log(sunray::LogLevel level, const std::string& module, const std::string& msg) override {
+        if (sink_) sink_->log(level, module, msg);
+
+        sunray::WebSocketServer* wsServer = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(mutex_);
+            wsServer = wsServer_;
+        }
+        if (!wsServer) return;
+
+        const char* tag = "INFO ";
+        switch (level) {
+            case sunray::LogLevel::DEBUG: tag = "DEBUG"; break;
+            case sunray::LogLevel::INFO:  tag = "INFO "; break;
+            case sunray::LogLevel::WARN:  tag = "WARN "; break;
+            case sunray::LogLevel::ERROR: tag = "ERROR"; break;
+        }
+
+        std::ostringstream line;
+        line << "[" << tag << "] " << module << " " << msg;
+        wsServer->broadcastLog(line.str());
+    }
+
+private:
+    std::shared_ptr<sunray::Logger> sink_;
+    std::mutex mutex_;
+    sunray::WebSocketServer* wsServer_ = nullptr;
+};
+
+} // namespace
 
 static std::string defaultConfigPath() {
     if (const char* env = std::getenv("CONFIG_PATH"); env && *env) {
@@ -94,7 +139,8 @@ int main(int argc, char* argv[]) {
     const auto configDir = config->path().parent_path();
 
     // ── 2. Logger ──────────────────────────────────────────────────────────────
-    auto logger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::INFO);
+    auto loggerSink = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::INFO);
+    auto logger = std::make_shared<WebUiLogger>(loggerSink);
     logger->info("main", std::string("sunray-core starting")
                          + (simMode ? " [SIMULATION]" : " [Alfred]")
                          + " — config: " + configPath);
@@ -243,6 +289,7 @@ int main(int argc, char* argv[]) {
     }
 
     wsServer->start();
+    logger->attachWebSocketServer(wsServer.get());
     robot.setWebSocketServer(wsServer.get());
 
     // ── 7. MQTT client (optional — enabled via mqtt_enabled=true in config) ───

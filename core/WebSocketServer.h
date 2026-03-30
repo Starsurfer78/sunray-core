@@ -136,6 +136,11 @@ public:
     /// Thread-safe: may be called from any thread.
     void broadcastNmea(const std::string& line);
 
+    /// Broadcast a human-readable log line to all connected WebSocket clients.
+    /// Sends {"type":"log","text":"<line>"} via the regular push thread.
+    /// Thread-safe: may be called from any thread.
+    void broadcastLog(const std::string& line);
+
     // ── Command registration ──────────────────────────────────────────────────
 
     /// Register the callback invoked on each incoming WebSocket command.
@@ -198,6 +203,10 @@ private:
     // (BUG-005: prevents concurrent send_text() calls from Robot + push threads)
     std::mutex               nmeaMutex_;
     std::queue<std::string>  nmeaQueue_;
+
+    // Log queue: broadcastLog() enqueues here; only serverThread_ dequeues+sends.
+    std::mutex               logMutex_;
+    std::queue<std::string>  logQueue_;
 
     // WebSocket command callback
     std::mutex      cmdMutex_;

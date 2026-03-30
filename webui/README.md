@@ -44,6 +44,11 @@ npm run build
 
 Der Dev-Server läuft auf `http://localhost:5173` und proxyt `/api/*` und `/ws/*` automatisch nach `http://localhost:8765` (Crow C++ Backend).
 
+Wenn im Backend `api_token` gesetzt ist, muss derselbe Wert in der WebUI in
+der Topbar unter `API-Token` gespeichert werden. Erst dann liefern
+geschuetzte Endpunkte wie `/api/config` Inhalte, und WebSocket-Kommandos sind
+autorisiert.
+
 ---
 
 ## Projektstruktur

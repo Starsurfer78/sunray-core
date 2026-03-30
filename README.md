@@ -233,6 +233,9 @@ Wichtige Schluessel:
 - `driver_port`: UART zur MCU
 - `gps_port`: GPS-Empfaenger
 - `api_token`: Pflicht fuer schreibende REST-/WS-Zugriffe
+  In der WebUI kann der Wert oben in der Topbar als `API-Token` hinterlegt
+  werden. Ohne passendes Token bleiben geschuetzte Bereiche wie
+  `Einstellungen` leer bzw. liefern `401`.
 - `map_path`: Pfad zur Karten-Datei
 - `mqtt_enabled`: optionaler MQTT-Betrieb
 - `enable_mow_motor`: fuer Trockenlauf auf `false` moeglich
