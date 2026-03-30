@@ -156,7 +156,7 @@ void WebSocketServer::onMapReload(MapReloadCallback cb) {
 void WebSocketServer::setupHttpRoutes() {
     auto& app = impl_->app;
     const std::string apiToken = config_ ? config_->get<std::string>("api_token", "") : "";
-    auto isAuthorized = [&](const crow::request& req) -> bool {
+    auto isAuthorized = [apiToken](const crow::request& req) -> bool {
         return isHttpAuthorizedForToken(apiToken,
                                         req.get_header_value("X-Api-Token"),
                                         req.get_header_value("Authorization"));
