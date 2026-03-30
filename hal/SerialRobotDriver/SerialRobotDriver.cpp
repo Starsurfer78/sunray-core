@@ -11,11 +11,15 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 #include <vector>
 
 namespace sunray {
 
 namespace {
+
+constexpr auto kStartupLedHold = std::chrono::milliseconds(300);
+constexpr auto kStartupBuzzerPulse = std::chrono::milliseconds(120);
 
 bool chargerConnectedFromVoltage(float chargeVoltage, float threshold) {
     return chargeVoltage > threshold;
@@ -113,6 +117,12 @@ bool SerialRobotDriver::init() {
     if (!ledOk) {
         std::cerr << "[SRD] LED panel not responding — assuming not installed\n";
     }
+    if (config_->get<bool>("buzzer_enabled", true)) {
+        setBuzzer(true);
+        std::this_thread::sleep_for(kStartupBuzzerPulse);
+        setBuzzer(false);
+    }
+    std::this_thread::sleep_for(kStartupLedHold);
 
     // ── Initial battery data default (safe fallback if MCU not yet connected) ─
     battery_.voltage = 28.0f;  // prevents immediate shutdown on startup
