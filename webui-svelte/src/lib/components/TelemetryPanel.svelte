@@ -1,6 +1,8 @@
 <script lang="ts">
   import { gpsQuality, telemetry } from '../stores/telemetry'
 
+  const RAD_TO_DEG = 180 / Math.PI
+
   const cards = [
     { label: 'Bumper links', key: 'bumper_l' },
     { label: 'Bumper rechts', key: 'bumper_r' },
@@ -19,7 +21,9 @@
     <article class="card wide">
       <span class="label">Position lokal</span>
       <strong>{$telemetry.x.toFixed(2)} m / {$telemetry.y.toFixed(2)} m</strong>
-      <span class="muted">Heading {$telemetry.heading.toFixed(1)} deg</span>
+      <span class="muted">
+        Pose {(($telemetry.heading * RAD_TO_DEG)).toFixed(1)} deg · {$telemetry.ekf_health}
+      </span>
     </article>
 
     <article class="card">
