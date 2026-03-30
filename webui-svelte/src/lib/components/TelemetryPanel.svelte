@@ -12,14 +12,14 @@
 <section class="panel">
   <header>
     <h2>Live-Telemetrie</h2>
-    <p>Basisdaten fuer den ersten lauffaehigen Dashboard-Wurf.</p>
+    <p>Kompakte Betriebsdaten fuer Status, Sensoren und Lage.</p>
   </header>
 
   <div class="grid">
     <article class="card wide">
       <span class="label">Position lokal</span>
       <strong>{$telemetry.x.toFixed(2)} m / {$telemetry.y.toFixed(2)} m</strong>
-      <span class="muted">Heading {$telemetry.heading.toFixed(2)} rad</span>
+      <span class="muted">Heading {$telemetry.heading.toFixed(1)} deg</span>
     </article>
 
     <article class="card">
@@ -53,10 +53,10 @@
   .panel {
     display: grid;
     gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    padding: 1rem;
+    border-radius: 0.9rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header {
@@ -70,7 +70,8 @@
   }
 
   p {
-    color: #9db3ab;
+    color: #64748b;
+    font-size: 0.84rem;
   }
 
   .grid {
@@ -82,10 +83,10 @@
   .card {
     display: grid;
     gap: 0.25rem;
-    padding: 0.95rem;
-    border-radius: 0.9rem;
-    background: rgba(24, 38, 34, 0.8);
-    border: 1px solid rgba(152, 187, 170, 0.12);
+    padding: 0.9rem;
+    border-radius: 0.7rem;
+    background: #0a1020;
+    border: 1px solid #1a2a40;
   }
 
   .wide {
@@ -93,17 +94,20 @@
   }
 
   .label {
-    color: #9db3ab;
-    font-size: 0.9rem;
+    color: #64748b;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .muted {
-    color: #7f9890;
-    font-size: 0.9rem;
+    color: #64748b;
+    font-size: 0.78rem;
   }
 
   strong {
-    font-size: 1.05rem;
+    font-size: 1rem;
+    color: #60a5fa;
   }
 
   @media (max-width: 720px) {

@@ -12,6 +12,11 @@ Regel:
 - pro Task eine knappe Beschreibung
 - pro Task den wichtigsten Datei- oder Pfadbezug angeben
 
+Design-Referenzen:
+
+- `webui/design/dashboard_reference.html`
+- `webui/design/sunray_dashboard_v5.html`
+
 ## Sinnvolle Reihenfolge
 
 Bereits erledigt:
@@ -39,6 +44,14 @@ Realer Hinweis aus Gartenscreenshots:
 - Dashboard und Mapping sollten funktional getrennte Modi bleiben.
 - Die Karte ist ein metrischer Arbeitsraum fuer Robotikdaten, kein GIS.
 - Aktives Werkzeug muss im Editor immer klar sichtbar sein.
+- Status, Modus und Akku sollten auf allen Seiten sichtbar sein.
+- NOTAUS sollte global erreichbar sein.
+- Die Karte sollte im Mapping-Modus die primaere Flaeche bleiben; eine rechte
+  Sidebar ist sinnvoller als eine breite linke Hauptsidebar.
+- Hohe Informationsdichte ist fuer diese Art UI sinnvoller als grosse Hero-
+  Sektionen.
+- Dunkles Navy-Layout, semantische Kartenfarben und kompakte Status-Pills aus
+  den alten HTML-Referenzen beibehalten.
 
 ## Status
 
@@ -83,6 +96,26 @@ Realer Hinweis aus Gartenscreenshots:
 - [x] Statusleiste bauen
   Kurz: Verbindung, Zustand, Batterie kompakt anzeigen.
   Datei/Pfad: `webui-svelte/src/lib/components/StatusBar.svelte`
+
+- [~] Globalen Topbar-Layout-Umbau machen
+  Kurz: feste Topbar mit Status-Pills und horizontalen Tabs statt linker Hauptsidebar.
+  Datei/Pfad: `webui-svelte/src/App.svelte`
+
+- [x] Globalen NOTAUS-Platzhalter einbauen
+  Kurz: roter globaler Button im Topbar, spaeter mit echter Backend-Aktion verdrahten.
+  Datei/Pfad: `webui-svelte/src/App.svelte`
+
+- [x] Status-Pills seitenuebergreifend machen
+  Kurz: Verbindung, Modus, Akku und Laden auf allen Seiten sichtbar halten.
+  Datei/Pfad: `webui-svelte/src/lib/components/StatusBar.svelte`
+
+- [~] Altes Dashboard-Layout als Svelte-Referenz uebernehmen
+  Kurz: Topbar, Tab-Navigation, dominante Karte und rechte Sidebar an den HTML-Referenzen ausrichten.
+  Datei/Pfad: `webui/design/sunray_dashboard_v5.html`
+
+- [ ] Farbsprache aus Referenz-HTML uebernehmen
+  Kurz: Navy-Basis, Blau/Cyan/Rot/Amber semantisch konsistent in die neue UI uebertragen.
+  Datei/Pfad: `webui/design/dashboard_reference.html`
 
 - [x] Basis-Steuerung einbauen
   Kurz: Start, Stop und Dock als einfache Buttons.
@@ -134,6 +167,10 @@ Realer Hinweis aus Gartenscreenshots:
   Kurz: einfacher Arbeitsraum fuer Perimeter, Dock und Zonen.
   Datei/Pfad: `webui-svelte/src/lib/pages/Map.svelte`
 
+- [~] Kartenlayout auf dominante Arbeitsflaeche umbauen
+  Kurz: Karte gross, Werkzeuge und Details in rechte Sidebar verschieben.
+  Datei/Pfad: `webui-svelte/src/lib/pages/Map.svelte`
+
 - [x] Karten-REST anbinden
   Kurz: Karte laden und speichern.
   Datei/Pfad: `webui-svelte/src/lib/api/rest.ts`
@@ -173,6 +210,46 @@ Realer Hinweis aus Gartenscreenshots:
 - [x] NoGo-Zonen-UX fuer viele Hindernisse pruefen
   Kurz: Auswahl und Bearbeitung mit 10+ NoGo-Zonen praktikabel machen.
   Datei/Pfad: `webui-svelte/src/lib/components/Map/NoGoZoneTool.svelte`
+
+- [ ] Dock-Pfad-Werkzeug bauen
+  Kurz: zusaetzlich zum Dockpunkt einen echten Dock-Pfad anlegen und bearbeiten.
+  Datei/Pfad: `webui-svelte/src/lib/components/Map/DockPathTool.svelte`
+
+- [ ] Zonen-Eigenschaften erweitern
+  Kurz: Name, Streifenbreite, Geschwindigkeit und Muster pro Zone bearbeiten.
+  Datei/Pfad: `webui-svelte/src/lib/components/Map/ZoneTool.svelte`
+
+- [ ] Zonen-Reihenfolge bearbeiten
+  Kurz: Zonen im UI hoch und runter verschieben koennen.
+  Datei/Pfad: `webui-svelte/src/lib/components/Map/ZoneTool.svelte`
+
+- [ ] Punkt-auf-Kante-einfuegen bauen
+  Kurz: neuen Punkt gezielt in eine bestehende Perimeter-, Zonen- oder NoGo-Kante einfuegen.
+  Datei/Pfad: `webui-svelte/src/lib/components/Map/MapCanvas.svelte`
+
+- [ ] Gezieltes Punkt-Loeschen bauen
+  Kurz: nicht nur den letzten Punkt, sondern beliebige nahe Punkte loeschen koennen.
+  Datei/Pfad: `webui-svelte/src/lib/components/Map/MapCanvas.svelte`
+
+- [ ] Mähpfad-Vorschau vorbereiten
+  Kurz: Mow-Path berechnen, anzeigen, uebernehmen oder verwerfen koennen.
+  Datei/Pfad: `webui-svelte/src/lib/pages/Map.svelte`
+
+- [ ] GeoJSON Import/Export ergaenzen
+  Kurz: Karten als GeoJSON exportieren und wieder importieren koennen.
+  Datei/Pfad: `webui-svelte/src/lib/api/rest.ts`
+
+- [ ] Positionsmodus absolut/relativ abbilden
+  Kurz: Cassandra-Bezug aufnehmen; Ursprung und Kartenausrichtung passend zu RTK-Base/relativem Mapping fuehren.
+  Datei/Pfad: `webui-svelte/src/lib/pages/Map.svelte`
+
+- [ ] Obstacle-Punkte / Auto-Obstacles fachlich klaeren
+  Kurz: klaeren, ob manuelle/persistente Obstacle-Punkte und auto-detected Hindernisse als eigenes Konzept neben NoGo-Zonen in V1 oder spaeter sichtbar sein muessen.
+  Datei/Pfad: `docs/SVELTE_WEBUI_CONCEPT.md`
+
+- [ ] Karten-Editor-Komfort nachziehen
+  Kurz: Undo/Abbrechen, aktives Werkzeug klar halten und spaeter Snapping ergaenzen.
+  Datei/Pfad: `webui-svelte/src/lib/components/Map/MapCanvas.svelte`
 
 ## 7. Schnittstellen
 

@@ -1,29 +1,21 @@
 <script lang="ts">
-  import StatusBar from '../components/StatusBar.svelte'
   import RobotControls from '../components/RobotControls.svelte'
   import TelemetryPanel from '../components/TelemetryPanel.svelte'
   import { telemetry } from '../stores/telemetry'
 </script>
 
 <main class="page">
-  <section class="hero">
+  <section class="head">
     <div>
-      <span class="eyebrow">Sunray Alfred</span>
-      <h1>Dashboard MVP</h1>
-      <p>
-        Erster robuster Ueberblick fuer Verbindung, Live-Telemetrie und
-        Basis-Steuerung. Diagnose, Karte und Mission folgen als naechste
-        Bausteine.
-      </p>
+      <span class="eyebrow">Dashboard</span>
+      <h1>Betriebsueberblick</h1>
     </div>
-    <div class="hero-card">
+    <div class="state-card">
       <span class="label">Aktiver Zustand</span>
       <strong>{$telemetry.op}</strong>
       <span class="muted">Phase {$telemetry.state_phase || 'idle'}</span>
     </div>
   </section>
-
-  <StatusBar />
 
   <section class="content">
     <TelemetryPanel />
@@ -34,64 +26,56 @@
 <style>
   .page {
     display: grid;
-    gap: 1.2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 1.4rem;
+    gap: 1rem;
   }
 
-  .hero {
+  .head {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(0, 1fr) 260px;
     gap: 1rem;
-    align-items: stretch;
+    align-items: start;
   }
 
   .eyebrow {
     display: inline-block;
-    margin-bottom: 0.6rem;
-    color: #a4cc8c;
+    margin-bottom: 0.35rem;
+    color: #60a5fa;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.8rem;
+    font-size: 0.72rem;
   }
 
-  h1,
-  p {
-    margin: 0;
-  }
+  h1 { margin: 0; }
 
   h1 {
-    font-size: clamp(2rem, 4vw, 3.5rem);
-    line-height: 1;
-    margin-bottom: 0.6rem;
+    font-size: clamp(1.4rem, 2vw, 1.9rem);
+    line-height: 1.05;
   }
 
-  p {
-    max-width: 56rem;
-    color: #a5bab4;
-  }
-
-  .hero-card {
+  .state-card {
     display: grid;
-    gap: 0.35rem;
-    padding: 1.2rem;
-    border-radius: 1rem;
-    background:
-      linear-gradient(160deg, rgba(116, 154, 93, 0.26), rgba(23, 37, 33, 0.9));
-    border: 1px solid rgba(188, 221, 153, 0.2);
+    gap: 0.25rem;
+    padding: 0.95rem 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
-  .hero-card strong {
-    font-size: 2rem;
+  .state-card strong {
+    font-size: 1.3rem;
+    color: #93c5fd;
   }
 
   .label {
-    color: #b8cdbf;
+    color: #7a8da8;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .muted {
-    color: #89a099;
+    color: #94a3b8;
+    font-size: 0.82rem;
   }
 
   .content {
@@ -102,7 +86,7 @@
   }
 
   @media (max-width: 900px) {
-    .hero,
+    .head,
     .content {
       grid-template-columns: 1fr;
     }

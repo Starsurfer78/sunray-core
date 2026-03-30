@@ -68,37 +68,37 @@
     display: grid;
     gap: 0.9rem;
     padding: 1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
   header, .actions { display: grid; gap: 0.6rem; }
   h2, p { margin: 0; }
-  p, .meta { color: #9db3ab; }
+  p, .meta { color: #64748b; font-size: 0.84rem; }
   button {
     padding: 0.75rem 0.9rem;
-    border: 0;
-    border-radius: 0.8rem;
-    background: #87b7e8;
-    color: #07110f;
+    border: 1px solid #0891b2;
+    border-radius: 0.6rem;
+    background: #082f49;
+    color: #67e8f9;
     font-weight: 700;
     cursor: pointer;
   }
   button.active {
-    outline: 2px solid rgba(230, 246, 255, 0.7);
-    outline-offset: 1px;
+    box-shadow: inset 0 0 0 1px #67e8f9;
   }
   label {
     display: grid;
     gap: 0.35rem;
-    color: #c8d9d2;
+    color: #cbd5e1;
+    font-size: 0.84rem;
   }
   select, input {
     width: 100%;
     padding: 0.7rem 0.8rem;
-    border: 1px solid rgba(152, 187, 170, 0.2);
-    border-radius: 0.8rem;
-    background: rgba(24, 38, 34, 0.85);
+    border: 1px solid #1a2a40;
+    border-radius: 0.6rem;
+    background: #0a1020;
     color: #dce8e8;
   }
 </style>

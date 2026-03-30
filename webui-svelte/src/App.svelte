@@ -4,17 +4,27 @@
   import Dashboard from './lib/pages/Dashboard.svelte'
   import Map from './lib/pages/Map.svelte'
   import Mission from './lib/pages/Mission.svelte'
+  import StatusBar from './lib/components/StatusBar.svelte'
   import { startTelemetry, stopTelemetry } from './lib/api/websocket'
 
   type View = 'dashboard' | 'diagnostics' | 'map' | 'mission'
+
   let currentView: View = 'dashboard'
+  let emergencyInfo = ''
 
   const navItems: Array<{ id: View; label: string }> = [
     { id: 'dashboard', label: 'Dashboard' },
-    { id: 'diagnostics', label: 'Diagnose' },
     { id: 'map', label: 'Karte' },
     { id: 'mission', label: 'Mission' },
+    { id: 'diagnostics', label: 'Diagnose' },
   ]
+
+  function triggerEmergencyStop() {
+    emergencyInfo = 'NOTAUS ist aktuell noch ein Platzhalter'
+    window.setTimeout(() => {
+      if (emergencyInfo === 'NOTAUS ist aktuell noch ein Platzhalter') emergencyInfo = ''
+    }, 2600)
+  }
 
   onMount(() => {
     startTelemetry()
@@ -22,25 +32,39 @@
   })
 </script>
 
-<main class="shell">
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="eyebrow">Alfred</span>
-      <strong>WebUI Svelte MVP</strong>
+<main class="app-shell">
+  <header class="topbar">
+    <div class="topbar-main">
+      <div class="brand">
+        <span class="brand-mark">Alfred</span>
+        <span class="brand-sub">Sunray</span>
+      </div>
+
+      <StatusBar compact />
+
+      <button type="button" class="emergency" on:click={triggerEmergencyStop}>
+        NOTAUS
+      </button>
     </div>
 
-    <nav>
-      {#each navItems as item}
-        <button
-          type="button"
-          class:active={currentView === item.id}
-          on:click={() => currentView = item.id}
-        >
-          {item.label}
-        </button>
-      {/each}
-    </nav>
-  </aside>
+    <div class="topbar-nav">
+      <nav class="tabs" aria-label="Hauptnavigation">
+        {#each navItems as item}
+          <button
+            type="button"
+            class:active={currentView === item.id}
+            on:click={() => currentView = item.id}
+          >
+            {item.label}
+          </button>
+        {/each}
+      </nav>
+
+      {#if emergencyInfo}
+        <span class="topbar-info">{emergencyInfo}</span>
+      {/if}
+    </div>
+  </header>
 
   <section class="view">
     {#if currentView === 'dashboard'}
@@ -56,71 +80,126 @@
 </main>
 
 <style>
-  .shell {
-    display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
-    min-height: 100vh;
+  :global(body) {
+    margin: 0;
+    background: #0a0f1a;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   }
 
-  .sidebar {
+  .app-shell {
+    min-height: 100vh;
     display: grid;
-    align-content: start;
-    gap: 1.4rem;
-    padding: 1.3rem;
-    border-right: 1px solid rgba(155, 190, 172, 0.12);
-    background: rgba(9, 16, 14, 0.76);
-    backdrop-filter: blur(14px);
+    grid-template-rows: auto minmax(0, 1fr);
+    background:
+      radial-gradient(circle at top, rgba(30, 58, 95, 0.38), transparent 34%),
+      #0a0f1a;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: grid;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem 0.7rem;
+    background: rgba(10, 15, 26, 0.96);
+    border-bottom: 1px solid #1e3a5f;
+    backdrop-filter: blur(10px);
+  }
+
+  .topbar-main {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    min-width: 0;
   }
 
   .brand {
     display: grid;
-    gap: 0.35rem;
+    gap: 0.05rem;
+    flex-shrink: 0;
   }
 
-  .eyebrow {
-    color: #9fc892;
+  .brand-mark {
+    color: #60a5fa;
+    font-size: 0.98rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .brand-sub {
+    color: #7a8da8;
+    font-size: 0.7rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.8rem;
+    letter-spacing: 0.14em;
   }
 
-  nav {
-    display: grid;
-    gap: 0.55rem;
-  }
-
-  nav button {
-    text-align: left;
-    padding: 0.85rem 0.95rem;
-    border: 1px solid rgba(155, 190, 172, 0.12);
-    border-radius: 0.9rem;
-    background: rgba(17, 28, 25, 0.75);
-    color: #dce8e8;
+  .emergency {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 0.5rem 0.95rem;
+    border-radius: 0.5rem;
+    border: 1.5px solid #dc2626;
+    background: #450a0a;
+    color: #fca5a5;
+    font-weight: 700;
     cursor: pointer;
   }
 
-  nav button.active {
-    border-color: rgba(196, 218, 120, 0.28);
-    background: rgba(75, 97, 47, 0.38);
-    color: #e3efb8;
+  .topbar-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    min-width: 0;
+  }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem;
+    padding: 0.15rem;
+    border: 1px solid #1e3a5f;
+    border-radius: 0.5rem;
+    background: #060c17;
+  }
+
+  .tabs button {
+    border: 0;
+    border-radius: 0.38rem;
+    padding: 0.45rem 0.78rem;
+    background: transparent;
+    color: #d7e4f2;
+    font-size: 0.84rem;
+    cursor: pointer;
+  }
+
+  .tabs button.active {
+    background: #1e3a5f;
+    color: #93c5fd;
+    font-weight: 600;
+  }
+
+  .topbar-info {
+    color: #94a3b8;
+    font-size: 0.78rem;
+    white-space: nowrap;
   }
 
   .view {
     min-width: 0;
+    padding: 1rem;
   }
 
   @media (max-width: 900px) {
-    .shell {
-      grid-template-columns: 1fr;
+    .topbar-main,
+    .topbar-nav {
+      align-items: start;
+      flex-direction: column;
     }
 
-    .sidebar {
-      border-right: 0;
-      border-bottom: 1px solid rgba(155, 190, 172, 0.12);
-    }
-
-    nav {
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    .emergency {
+      margin-left: 0;
     }
   }
 </style>

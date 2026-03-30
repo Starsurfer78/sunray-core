@@ -81,14 +81,10 @@
 </script>
 
 <main class="page">
-  <section class="hero">
+  <section class="head">
     <div>
       <span class="eyebrow">Karte</span>
       <h1>Perimeter, Dock und Zonen</h1>
-      <p>
-        Der Karten-MVP nutzt nur ein lokales Gitter. Kein OpenStreetMap, kein
-        Satellitenlayer, nur die Arbeitsflaeche fuer Alfred.
-      </p>
     </div>
     <div class="status-card">
       <span class="label">Status</span>
@@ -103,15 +99,14 @@
     </div>
   </section>
 
-  <div class="top-actions">
-    <button type="button" disabled={busy} on:click={loadMap}>Neu laden</button>
-    <button type="button" disabled={busy} on:click={saveMap}>Speichern</button>
-  </div>
-
   <section class="layout">
     <MapCanvas />
 
     <aside class="tools">
+      <div class="action-card">
+        <button type="button" disabled={busy} on:click={loadMap}>Neu laden</button>
+        <button type="button" disabled={busy} on:click={saveMap}>Speichern</button>
+      </div>
       <PerimeterTool />
       <DockTool />
       <ZoneTool />
@@ -123,61 +118,47 @@
 <style>
   .page {
     display: grid;
-    gap: 1.2rem;
-  }
-  .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
     gap: 1rem;
+  }
+  .head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: 1rem;
+    align-items: start;
   }
   .eyebrow {
     display: inline-block;
-    margin-bottom: 0.6rem;
-    color: #8cc1f0;
+    margin-bottom: 0.35rem;
+    color: #60a5fa;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.8rem;
+    font-size: 0.72rem;
   }
-  h1, p { margin: 0; }
+  h1 { margin: 0; }
   h1 {
-    font-size: clamp(2rem, 4vw, 3.2rem);
-    line-height: 1;
-    margin-bottom: 0.6rem;
+    font-size: clamp(1.4rem, 2vw, 1.9rem);
+    line-height: 1.05;
   }
-  p { color: #a5bab4; }
   .status-card {
     display: grid;
-    gap: 0.35rem;
-    padding: 1.2rem;
-    border-radius: 1rem;
-    background: linear-gradient(160deg, rgba(86, 128, 178, 0.3), rgba(23, 37, 33, 0.9));
-    border: 1px solid rgba(143, 192, 240, 0.2);
+    gap: 0.25rem;
+    padding: 0.95rem 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
-  .label { color: #d0d6b2; }
-  .muted { color: #93a59e; }
-  .ok { color: #a8e2a1; }
-  .error { color: #f1aaaa; }
-  .top-actions {
-    display: flex;
-    gap: 0.8rem;
-    flex-wrap: wrap;
+  .label {
+    color: #7a8da8;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
-  .top-actions button {
-    padding: 0.8rem 1rem;
-    border: 0;
-    border-radius: 0.9rem;
-    background: #7db8ea;
-    color: #07110f;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  .top-actions button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
+  .muted { color: #94a3b8; font-size: 0.82rem; }
+  .ok { color: #a8e2a1; font-size: 0.82rem; }
+  .error { color: #f1aaaa; font-size: 0.82rem; }
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+    grid-template-columns: minmax(0, 1.9fr) 320px;
     gap: 1rem;
     align-items: start;
   }
@@ -185,8 +166,29 @@
     display: grid;
     gap: 1rem;
   }
+  .action-card {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0.9rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+  }
+  .action-card button {
+    padding: 0.72rem 0.9rem;
+    border: 1px solid #2563eb;
+    border-radius: 0.6rem;
+    background: #0c1a3a;
+    color: #93c5fd;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .action-card button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
   @media (max-width: 980px) {
-    .hero, .layout {
+    .head, .layout {
       grid-template-columns: 1fr;
     }
   }

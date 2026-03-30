@@ -8,14 +8,10 @@
 </script>
 
 <main class="page">
-  <section class="hero">
+  <section class="head">
     <div>
       <span class="eyebrow">Diagnose</span>
       <h1>Hardware und Kalibrierung</h1>
-      <p>
-        Erste Diagnoseansicht fuer Sensoren, IMU und Motor-Tests. Tick-Messung
-        und Richtungsvalidierung bauen darauf auf.
-      </p>
     </div>
 
     <div class="result-card">
@@ -45,61 +41,61 @@
 <style>
   .page {
     display: grid;
-    gap: 1.2rem;
+    gap: 1rem;
   }
 
-  .hero {
+  .head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 300px;
     gap: 1rem;
+    align-items: start;
   }
 
   .eyebrow {
     display: inline-block;
-    margin-bottom: 0.6rem;
-    color: #f0c67f;
+    margin-bottom: 0.35rem;
+    color: #fbbf24;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.8rem;
+    font-size: 0.72rem;
   }
 
-  h1, p {
-    margin: 0;
-  }
+  h1 { margin: 0; }
 
   h1 {
-    font-size: clamp(2rem, 4vw, 3.2rem);
-    line-height: 1;
-    margin-bottom: 0.6rem;
-  }
-
-  p {
-    color: #a5bab4;
+    font-size: clamp(1.4rem, 2vw, 1.9rem);
+    line-height: 1.05;
   }
 
   .result-card {
     display: grid;
-    gap: 0.35rem;
-    padding: 1.2rem;
-    border-radius: 1rem;
-    background: linear-gradient(160deg, rgba(170, 133, 82, 0.3), rgba(23, 37, 33, 0.9));
-    border: 1px solid rgba(221, 191, 140, 0.2);
+    gap: 0.25rem;
+    padding: 0.95rem 1rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   .label {
-    color: #d0d6b2;
+    color: #7a8da8;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .muted {
-    color: #93a59e;
+    color: #94a3b8;
+    font-size: 0.82rem;
   }
 
   .ok {
     color: #a8e2a1;
+    font-size: 0.82rem;
   }
 
   .error {
     color: #f1aaaa;
+    font-size: 0.82rem;
   }
 
   .content {
@@ -116,7 +112,7 @@
   }
 
   @media (max-width: 900px) {
-    .hero,
+    .head,
     .content {
       grid-template-columns: 1fr;
     }

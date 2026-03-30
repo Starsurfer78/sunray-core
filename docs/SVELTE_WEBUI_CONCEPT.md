@@ -2,6 +2,11 @@
 
 Stand: 2026-03-30
 
+Design-Referenzen:
+
+- `webui/design/dashboard_reference.html`
+- `webui/design/sunray_dashboard_v5.html`
+
 ## Ziel
 
 Eine neue WebUI auf Basis von `Svelte + Vite`, die auf dem Pi robust läuft,
@@ -26,6 +31,9 @@ kontrollierten Neustart mit kleinerem, robusterem Scope ermoeglichen.
 - Canvas oder SVG statt schwerer Kartenframeworks
 - keine Hintergrundkarte wie OpenStreetMap; ein einfaches lokales Gitter reicht
 - Diagnose und Karteneditor getrennt denken
+- Status, Modus und Akku sollen seitenuebergreifend sichtbar bleiben
+- NOTAUS soll global erreichbar sein
+- keine breite linke Hauptsidebar; der Arbeitsraum hat Vorrang
 
 ## Ableitungen aus echten Screens
 
@@ -35,6 +43,8 @@ fachliche Leitplanken:
 - Die WebUI braucht zwei klar getrennte Modi:
   - Betriebsansicht fuer Status, Telemetrie und Steuerung
   - Mapping-/Editoransicht fuer Perimeter, Dock, Zonen und NoGo-Zonen
+- Die Navigation sollte eher ueber eine feste Topbar mit Tabs laufen als ueber
+  eine breite linke Sidebar.
 - Der Karteneditor arbeitet sinnvoll in lokalen Meterkoordinaten, nicht in
   Lat/Lon. Sichtbare Skala und Gitter sind wichtiger als eine Hintergrundkarte.
 - Der Roboter sollte auf der Karte nicht nur als Punkt, sondern spaeter auch
@@ -50,6 +60,62 @@ fachliche Leitplanken:
   nicht testbar.
 - Die Karte ist kein GIS-System, sondern ein Arbeitsraum fuer Robotikdaten:
   Perimeter, Dock, Zonen, NoGo-Zonen, Roboterposition und spaeter Fahrpfad.
+- Im Mapping-Modus muss die Karte die dominante Flaeche sein; Werkzeuge und
+  Details gehoeren in eine kompakte rechte Sidebar.
+- Die Informationsdichte darf hoch sein. Grosse Hero-Sektionen oder dekorative
+  Header sind fuer diese Art Robotik-UI nicht hilfreich.
+
+## Layout-Richtung
+
+Funktional sollte die neue Svelte-WebUI die Staerken der alten Oberflaeche
+uebernehmen:
+
+- feste Topbar mit:
+  - Roboternamen
+  - Verbindungsstatus
+  - Betriebsmodus
+  - Akku-/Ladestatus
+  - NOTAUS
+- horizontale Tabs in der Topbar
+- keine linke Hauptsidebar
+- beim Karten-Tab:
+  - Karte als primaere Arbeitsflaeche
+  - Werkzeuge, Zonen und Details rechts
+- beim Dashboard-Tab:
+  - kompakte Status- und Telemetrie-Bloecke
+  - kleine Karte optional als Nebenansicht
+
+Wichtige konkrete Design-Signale aus den Referenzen:
+
+- dunkles Navy-Layout statt hellem Marketing-Look
+- kompakte Topbar mit Status-Pills
+- NOTAUS visuell klar und immer rechts erreichbar
+- horizontale Tabs statt linker Hauptnavigation
+- Karte als primaere Flaeche
+- rechte Sidebar fuer kontextabhaengige Inhalte
+- semantische Farben:
+  - Blau fuer Perimeter
+  - Cyan fuer Mow-/Fahrpfad
+  - Rot gestrichelt fuer Exclusions
+  - Amber fuer Dock
+- GPS mit Rover- und Base-Satelliten getrennt
+- Roboter-Marker mit Richtungspfeil statt nur Punkt
+- hohe Informationsdichte, wenig Leerraum
+
+Skizze:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Alfred   verbunden   [Charge/Mow/etc.]   Akku   [NOTAUS]                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Dashboard | Karte | Mission | Diagnose                                     │
+├───────────────────────────────────────┬─────────────────────────────────────┤
+│                                       │                                     │
+│ Karte / Canvas / Arbeitsflaeche       │ Seitenspezifische Sidebar           │
+│                                       │ Werkzeuge, Zonen, Details           │
+│                                       │                                     │
+└───────────────────────────────────────┴─────────────────────────────────────┘
+```
 
 ## Backend-Rolle
 
@@ -227,6 +293,18 @@ Phase 2:
 - Hindernisse
 - Zoneneinstellungen
 - Reihenfolge
+- Positionsmodus absolut/relativ
+
+Hinweis zum Positionsmodus:
+
+- In CaSSAndRA entspricht das eher einem Positionsmodus als einem simplen
+  "GPS-Ursprung setzen".
+- `absolut` und `relativ` sollten in der neuen WebUI als bewusster Modus
+  modelliert werden.
+- Die absolute Variante wird sehr wahrscheinlich durch die RTK-Base-Station
+  bzw. deren Weltbezug bestimmt.
+- Die relative Variante ist eher ein lokaler Kartenarbeitsraum fuer Mapping und
+  Korrektur.
 
 Phase 3:
 

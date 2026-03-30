@@ -39,24 +39,23 @@
     display: grid;
     gap: 0.9rem;
     padding: 1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
   header, .actions { display: grid; gap: 0.6rem; }
   h2, p { margin: 0; }
-  p, .meta { color: #9db3ab; }
+  p, .meta { color: #64748b; font-size: 0.84rem; }
   button {
     padding: 0.75rem 0.9rem;
-    border: 0;
-    border-radius: 0.8rem;
-    background: #9ecf80;
-    color: #07110f;
+    border: 1px solid #2563eb;
+    border-radius: 0.6rem;
+    background: #0c1a3a;
+    color: #93c5fd;
     font-weight: 700;
     cursor: pointer;
   }
   button.active {
-    outline: 2px solid rgba(230, 246, 255, 0.7);
-    outline-offset: 1px;
+    box-shadow: inset 0 0 0 1px #93c5fd;
   }
 </style>

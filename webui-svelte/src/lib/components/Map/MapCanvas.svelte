@@ -263,7 +263,7 @@
 <section class="panel">
   <header>
     <h2>Arbeitsraum</h2>
-    <p>Lokales Gitter in Meterkoordinaten. Klicks setzen Punkte fuer das aktuell aktive Werkzeug.</p>
+    <p>Lokales Raster in Meterkoordinaten. Die Karte ist der primäre Arbeitsbereich.</p>
   </header>
 
   <div class="viewport-actions">
@@ -287,42 +287,49 @@
     >
       <defs>
         <pattern id="grid" width={scale() * grid} height={scale() * grid} patternUnits="userSpaceOnUse" x={offsetX} y={offsetY}>
-          <path d={`M ${scale() * grid} 0 L 0 0 0 ${scale() * grid}`} fill="none" stroke="rgba(140,170,150,0.15)" stroke-width="1" />
+          <path d={`M ${scale() * grid} 0 L 0 0 0 ${scale() * grid}`} fill="none" stroke="rgba(30,58,95,0.45)" stroke-width="1" />
         </pattern>
       </defs>
 
       <rect x="0" y="0" width={width} height={height} fill="url(#grid)" />
-      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(220,232,232,0.2)" stroke-width="1" />
-      <line x1={width / 2} y1="0" x2={width / 2} y2={height} stroke="rgba(220,232,232,0.2)" stroke-width="1" />
+      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(148,163,184,0.18)" stroke-width="1" />
+      <line x1={width / 2} y1="0" x2={width / 2} y2={height} stroke="rgba(148,163,184,0.18)" stroke-width="1" />
 
       {#if $mapStore.map.perimeter.length > 1}
-        <polyline points={path($mapStore.map.perimeter)} fill="rgba(143, 207, 114, 0.14)" stroke="#8fcf72" stroke-width="2" />
+        <polyline points={path($mapStore.map.perimeter)} fill="rgba(29, 78, 216, 0.10)" stroke="#2563eb" stroke-width="2" />
       {/if}
 
       {#each $mapStore.map.perimeter as point}
         {@const p = worldToScreen(point)}
-        <circle cx={p.x} cy={p.y} r="5" fill="#8fcf72" />
+        <circle cx={p.x} cy={p.y} r="5" fill="#2563eb" />
       {/each}
 
       {#each $mapStore.map.dock as point}
         {@const p = worldToScreen(point)}
-        <rect x={p.x - 6} y={p.y - 6} width="12" height="12" fill="#e1c57e" rx="2" />
+        <rect x={p.x - 8} y={p.y - 8} width="16" height="16" fill="#d97706" rx="3" />
+        <text x={p.x} y={p.y + 4} text-anchor="middle" class="label dock-label">D</text>
       {/each}
 
-      <circle cx={robotScreen.x} cy={robotScreen.y} r="7" fill="#f2f6f1" stroke="#0c1513" stroke-width="2" />
+      <g transform={`translate(${robotScreen.x} ${robotScreen.y}) rotate(${-($telemetry.heading ?? 0)})`}>
+        <circle r="12" fill="#0f1829" stroke="#3b82f6" stroke-width="2" />
+        <circle r="4.5" fill="#60a5fa" />
+        <line x1="0" y1="-12" x2="0" y2="-26" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" />
+        <polygon points="0,-30 -5,-21 5,-21" fill="#60a5fa" />
+      </g>
 
       {#each $mapStore.map.exclusions as exclusion, exclusionIndex}
         {#if exclusion.length > 1}
           <polygon
             points={path(exclusion)}
-            fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(224, 123, 141, 0.24)' : 'rgba(224, 123, 141, 0.14)'}
-            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#f1b3bf' : '#de8899'}
+            fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(220, 38, 38, 0.16)' : 'rgba(220, 38, 38, 0.08)'}
+            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
             stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
+            stroke-dasharray="5 3"
           />
         {/if}
         {#each exclusion as point}
           {@const p = worldToScreen(point)}
-          <circle cx={p.x} cy={p.y} r="5" fill={$mapStore.selectedExclusionIndex === exclusionIndex ? '#f1b3bf' : '#de8899'} />
+          <circle cx={p.x} cy={p.y} r="5" fill={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'} />
         {/each}
         {@const exclusionCenter = centroid(exclusion)}
         {#if exclusionCenter}
@@ -333,11 +340,11 @@
 
       {#each $mapStore.map.zones as zone}
         {#if zone.polygon.length > 1}
-          <polygon points={path(zone.polygon)} fill="rgba(124, 181, 240, 0.12)" stroke="#86b8ea" stroke-width="2" />
+          <polygon points={path(zone.polygon)} fill="rgba(8, 145, 178, 0.08)" stroke="#0891b2" stroke-width="1.8" />
         {/if}
         {#each zone.polygon as point}
           {@const p = worldToScreen(point)}
-          <circle cx={p.x} cy={p.y} r="5" fill="#86b8ea" />
+          <circle cx={p.x} cy={p.y} r="5" fill="#0891b2" />
         {/each}
         {@const zoneCenter = centroid(zone.polygon)}
         {#if zoneCenter}
@@ -353,10 +360,10 @@
   .panel {
     display: grid;
     gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    padding: 1rem;
+    border-radius: 0.9rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header {
@@ -373,23 +380,23 @@
 
   .viewport-actions button {
     padding: 0.65rem 0.9rem;
-    border: 0;
-    border-radius: 0.8rem;
-    background: #90c6ea;
-    color: #07110f;
+    border: 1px solid #1e3a5f;
+    border-radius: 0.45rem;
+    background: #0a1020;
+    color: #60a5fa;
     font-weight: 700;
     cursor: pointer;
   }
 
   .viewport-actions button.secondary {
-    background: rgba(148, 173, 161, 0.18);
-    color: #dce8e8;
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    background: #0f1829;
+    color: #94a3b8;
+    border: 1px solid #1e3a5f;
   }
 
   .meta {
-    color: #9db3ab;
-    font-size: 0.92rem;
+    color: #64748b;
+    font-size: 0.8rem;
   }
 
   h2,
@@ -398,14 +405,15 @@
   }
 
   p {
-    color: #9db3ab;
+    color: #64748b;
+    font-size: 0.84rem;
   }
 
   .canvas-wrap {
     overflow: hidden;
-    border-radius: 1rem;
-    border: 1px solid rgba(152, 187, 170, 0.14);
-    background: linear-gradient(180deg, rgba(12, 24, 21, 0.92), rgba(16, 30, 26, 0.96));
+    border-radius: 0.8rem;
+    border: 1px solid #1e3a5f;
+    background: #070d18;
   }
 
   svg {
@@ -426,10 +434,15 @@
   }
 
   .zone-label {
-    fill: #bfe0ff;
+    fill: #67e8f9;
   }
 
   .exclusion-label {
-    fill: #ffd7df;
+    fill: #fecdd3;
+  }
+
+  .dock-label {
+    fill: #0a0f1a;
+    stroke: none;
   }
 </style>

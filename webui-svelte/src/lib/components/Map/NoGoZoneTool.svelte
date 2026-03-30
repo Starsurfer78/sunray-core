@@ -77,9 +77,9 @@
     display: grid;
     gap: 0.9rem;
     padding: 1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header,
@@ -95,35 +95,36 @@
 
   p,
   .meta {
-    color: #9db3ab;
+    color: #64748b;
+    font-size: 0.84rem;
   }
 
   button {
     padding: 0.75rem 0.9rem;
-    border: 0;
-    border-radius: 0.8rem;
-    background: #d69aa5;
-    color: #07110f;
+    border: 1px solid #dc2626;
+    border-radius: 0.6rem;
+    background: #450a0a;
+    color: #fca5a5;
     font-weight: 700;
     cursor: pointer;
   }
   button.active {
-    outline: 2px solid rgba(230, 246, 255, 0.7);
-    outline-offset: 1px;
+    box-shadow: inset 0 0 0 1px #fecdd3;
   }
 
   label {
     display: grid;
     gap: 0.35rem;
-    color: #c8d9d2;
+    color: #cbd5e1;
+    font-size: 0.84rem;
   }
 
   select {
     width: 100%;
     padding: 0.7rem 0.8rem;
-    border: 1px solid rgba(152, 187, 170, 0.2);
-    border-radius: 0.8rem;
-    background: rgba(24, 38, 34, 0.85);
+    border: 1px solid #1a2a40;
+    border-radius: 0.6rem;
+    background: #0a1020;
     color: #dce8e8;
   }
 
@@ -141,18 +142,18 @@
     justify-content: space-between;
     gap: 0.8rem;
     padding: 0.7rem 0.8rem;
-    border-radius: 0.8rem;
-    background: rgba(24, 38, 34, 0.8);
-    border: 1px solid rgba(152, 187, 170, 0.12);
+    border-radius: 0.6rem;
+    background: #0a1020;
+    border: 1px solid #1a2a40;
     color: #dce8e8;
   }
 
   .list-item small {
-    color: #9db3ab;
+    color: #64748b;
   }
 
   .list-item.selected {
-    border-color: rgba(255, 223, 229, 0.6);
-    background: rgba(214, 154, 165, 0.18);
+    border-color: #dc2626;
+    background: rgba(220, 38, 38, 0.12);
   }
 </style>
