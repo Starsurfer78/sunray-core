@@ -594,6 +594,12 @@ void WebSocketServer::setupHttpRoutes() {
     // Void-return async handler: the blocking robot op runs in a detached thread
     // so the ASIO I/O thread is never stalled. Without this, motor/drive/IMU tests
     // (5–30 s) freeze all WebSocket I/O and disconnect the browser.
+    //
+    // V1 rule for the new Svelte WebUI:
+    // - REST may start a diag action
+    // - REST must not block until the full robot action is complete
+    // - long-running diag work must stay off the ASIO thread
+    // - websocket telemetry must continue to flow while diagnostics are active
     CROW_ROUTE(app, "/api/diag/<string>").methods(crow::HTTPMethod::POST)(
         [this, isAuthorized](const crow::request& req, crow::response& res, const std::string& action) {
             if (!isAuthorized(req)) {

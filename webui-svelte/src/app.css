@@ -1,0 +1,31 @@
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  line-height: 1.4;
+  font-weight: 400;
+  color: #dce8e8;
+  background:
+    radial-gradient(circle at top left, rgba(50, 80, 68, 0.35), transparent 30%),
+    linear-gradient(180deg, #0d1715 0%, #111d1a 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
