@@ -1,4 +1,5 @@
 #include "platform/I2C.h"
+#include "platform/I2cMux.h"
 #include "platform/PortExpander.h"
 
 #include <cstdint>
@@ -31,6 +32,12 @@ int main(int argc, char** argv) {
 
     try {
         sunray::platform::I2C bus(busPath);
+
+        sunray::platform::I2cMux mux(bus, 0x70);
+        if (!mux.selectChannel(1)) {
+            std::cerr << "WARN: TCA9548A mux channel select failed\n";
+        }
+
         sunray::platform::PortExpander ex3(bus, addr);
 
         std::cout << "== EX3 LED Probe ==\n";

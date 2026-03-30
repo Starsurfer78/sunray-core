@@ -134,6 +134,10 @@ void SerialRobotDriver::run() {
 
     // 50 Hz — IMU update
     if (imu_ && now >= nextImuMs_) {
+        if (mux_) {
+            const int ch = config_->get<int>("imu_mux_channel", 4);
+            mux_->selectChannel(static_cast<uint8_t>(ch));
+        }
         const float dt = (lastImuMs_ == 0) ? 0.02f : (now - lastImuMs_) / 1000.0f;
         imu_->update(dt);
         lastImuMs_ = now;
@@ -546,6 +550,10 @@ void SerialRobotDriver::setFanPower(bool on) {
 
 bool SerialRobotDriver::writeLed(LedId id, LedState state) {
     if (!ex3_) return false;
+    if (mux_) {
+        const int ch = config_->get<int>("ex3_mux_channel", 1);
+        mux_->selectChannel(static_cast<uint8_t>(ch));
+    }
     uint8_t gPin, rPin;
     switch (id) {
         case LedId::LED_1: gPin = 0; rPin = 1; break;  // WiFi  (bottom)

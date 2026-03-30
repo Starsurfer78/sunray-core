@@ -27,4 +27,9 @@ bool I2cMux::enableChannel(uint8_t channel) {
     return setEnabledMask(mask);
 }
 
+bool I2cMux::selectChannel(uint8_t channel) {
+    if (channel > 7) return false;
+    return setEnabledMask(static_cast<uint8_t>(1u << channel));
+}
+
 } // namespace sunray::platform

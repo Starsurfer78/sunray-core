@@ -13,7 +13,8 @@ public:
 
     bool getEnabledMask(uint8_t& mask);
     bool setEnabledMask(uint8_t mask);
-    bool enableChannel(uint8_t channel);
+    bool enableChannel(uint8_t channel);   // additive: keeps other channels active
+    bool selectChannel(uint8_t channel);   // exclusive: disables all other channels
 
 private:
     I2C&    bus_;
