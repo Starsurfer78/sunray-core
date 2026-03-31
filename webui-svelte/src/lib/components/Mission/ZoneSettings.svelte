@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte'
   import { missionStore, type Mission } from '../../stores/missions'
   import type { Zone } from '../../stores/map'
 
   export let mission: Mission
   export let zone: Zone | null = null
+  export let color: string = '#a855f7'
+
+  const dispatch = createEventDispatcher<{ close: void }>()
 
   function effectiveValue<K extends keyof Zone['settings']>(key: K): Zone['settings'][K] | null {
     if (!zone) return null
@@ -23,165 +27,309 @@
     if (!zone) return
     missionStore.clearMissionZoneOverride(mission.id, zone.id)
   }
+
+  $: edgeMowing = (effectiveValue('edgeMowing') ?? true) as boolean
+  $: currentAngle = (effectiveValue('angle') ?? 0) as number
 </script>
 
 {#if zone}
-  <section class="settings-shell">
-    <div class="header">
-      <div>
-        <span class="label">Zonen-Einstellungen</span>
-        <strong>{zone.settings.name}</strong>
-      </div>
-      <button type="button" class="reset-btn" on:click={clearOverrides}>Reset</button>
+  <div class="ms-settings">
+    <div class="ms-set-header">
+      <span class="ms-set-zone-dot" style="background:{color}"></span>
+      <span class="ms-set-title">{zone.settings.name}</span>
+      <span class="ms-set-hint">Änderungen gelten für diese Zone in der aktuellen Mission</span>
+      <button type="button" class="ms-set-close" on:click={() => dispatch('close')}>✕</button>
     </div>
+    <div class="ms-set-body">
 
-    <div class="fields">
-      <label>
-        <span>Schnittbreite</span>
+      <div class="ms-set-field">
+        <span class="ms-set-lbl">Schnittbreite</span>
         <input
+          class="ms-set-in"
           type="number"
           min="0.05"
           max="1"
           step="0.01"
+          style="width:76px"
           value={effectiveValue('stripWidth') ?? 0.18}
-          on:input={(event) => updateOverride('stripWidth', Number((event.currentTarget as HTMLInputElement).value))}
+          on:input={(e) => updateOverride('stripWidth', Number((e.currentTarget as HTMLInputElement).value))}
         />
-      </label>
+      </div>
 
-      <label class="angle-field">
-        <span>Winkel</span>
-        <div class="angle-row">
+      <div class="ms-set-vdiv"></div>
+
+      <div class="ms-set-field">
+        <span class="ms-set-lbl">Winkel</span>
+        <div class="ms-ang-row">
           <input
             type="range"
             min="0"
             max="179"
-            value={effectiveValue('angle') ?? 0}
-            on:input={(event) => updateOverride('angle', Number((event.currentTarget as HTMLInputElement).value))}
+            value={currentAngle}
+            on:input={(e) => updateOverride('angle', Number((e.currentTarget as HTMLInputElement).value))}
           />
-          <strong>{effectiveValue('angle') ?? 0}°</strong>
+          <span class="ms-ang-val">{currentAngle}°</span>
         </div>
-      </label>
+      </div>
 
-      <label>
-        <span>Muster</span>
+      <div class="ms-set-vdiv"></div>
+
+      <div class="ms-set-field">
+        <span class="ms-set-lbl">Muster</span>
         <select
+          class="ms-set-in"
           value={effectiveValue('pattern') ?? 'stripe'}
-          on:change={(event) => updateOverride('pattern', (event.currentTarget as HTMLSelectElement).value as 'stripe' | 'spiral')}
+          on:change={(e) => updateOverride('pattern', (e.currentTarget as HTMLSelectElement).value as 'stripe' | 'spiral')}
         >
           <option value="stripe">Streifen</option>
           <option value="spiral">Spirale</option>
         </select>
-      </label>
+      </div>
 
-      <label class="toggle-field">
-        <span>Randmaehen</span>
-        <input
-          type="checkbox"
-          checked={effectiveValue('edgeMowing') ?? true}
-          on:change={(event) => updateOverride('edgeMowing', (event.currentTarget as HTMLInputElement).checked)}
-        />
-      </label>
+      <div class="ms-set-vdiv"></div>
 
-      <label>
-        <span>Randbahnen</span>
+      <div class="ms-set-field">
+        <span class="ms-set-lbl">Randmähen</span>
+        <div class="ms-toggle-row">
+          <label class="ms-toggle">
+            <input
+              type="checkbox"
+              checked={edgeMowing}
+              on:change={(e) => updateOverride('edgeMowing', (e.currentTarget as HTMLInputElement).checked)}
+            />
+            <span class="ms-toggle-slider"></span>
+          </label>
+          <span class="ms-toggle-lbl">{edgeMowing ? 'An' : 'Aus'}</span>
+        </div>
+      </div>
+
+      <div class="ms-set-field">
+        <span class="ms-set-lbl">Randbahnen</span>
         <input
+          class="ms-set-in"
           type="number"
           min="1"
           max="5"
           step="1"
-          disabled={!(effectiveValue('edgeMowing') ?? true)}
+          style="width:60px"
+          disabled={!edgeMowing}
           value={effectiveValue('edgeRounds') ?? 1}
-          on:input={(event) => updateOverride('edgeRounds', Number((event.currentTarget as HTMLInputElement).value))}
+          on:input={(e) => updateOverride('edgeRounds', Number((e.currentTarget as HTMLInputElement).value))}
         />
-      </label>
+      </div>
 
-      <label>
-        <span>Geschwindigkeit</span>
+      <div class="ms-set-vdiv"></div>
+
+      <div class="ms-set-field">
+        <span class="ms-set-lbl">Geschwindigkeit</span>
         <input
+          class="ms-set-in"
           type="number"
           min="0.1"
           max="3"
           step="0.1"
+          style="width:76px"
           value={effectiveValue('speed') ?? 1}
-          on:input={(event) => updateOverride('speed', Number((event.currentTarget as HTMLInputElement).value))}
+          on:input={(e) => updateOverride('speed', Number((e.currentTarget as HTMLInputElement).value))}
         />
-      </label>
+      </div>
+
+      <div class="ms-set-vdiv"></div>
+
+      <div class="ms-set-field ms-set-reset-wrap">
+        <button type="button" class="ms-set-reset" on:click={clearOverrides}>Reset</button>
+      </div>
+
     </div>
-  </section>
+  </div>
 {/if}
 
 <style>
-  .settings-shell {
-    display: grid;
-    gap: 0.9rem;
-    padding: 0.95rem 1rem;
-    border-radius: 0.8rem;
+  .ms-settings {
+    flex-shrink: 0;
+    background: #0a1020;
+    border-top: 1px solid #1e3a5f;
+    height: 108px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .ms-set-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border-bottom: 1px solid #1e3a5f;
+    flex-shrink: 0;
+  }
+
+  .ms-set-zone-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .ms-set-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: #e2e8f0;
+    flex: 1;
+  }
+
+  .ms-set-hint {
+    font-size: 11px;
+    color: #475569;
+  }
+
+  .ms-set-close {
+    background: transparent;
+    border: none;
+    color: #475569;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 2px;
+    line-height: 1;
+  }
+
+  .ms-set-close:hover { color: #94a3b8; }
+
+  .ms-set-body {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 14px;
+    overflow-x: auto;
+    flex: 1;
+  }
+
+  .ms-set-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
+  .ms-set-reset-wrap {
+    justify-content: flex-end;
+    align-self: flex-end;
+    margin-left: auto;
+  }
+
+  .ms-set-lbl {
+    font-size: 10px;
+    color: #475569;
+    white-space: nowrap;
+  }
+
+  .ms-set-in {
     background: #0f1829;
     border: 1px solid #1e3a5f;
-  }
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-  .label {
-    display: block;
-    margin-bottom: 0.2rem;
-    color: #7a8da8;
-    font-size: 0.76rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .reset-btn {
-    padding: 0.45rem 0.75rem;
-    border-radius: 0.6rem;
-    border: 1px solid #1e3a5f;
-    background: #0a1020;
-    color: #93c5fd;
-    cursor: pointer;
-  }
-  .fields {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0.8rem;
-    align-items: end;
-  }
-  label {
-    display: grid;
-    gap: 0.35rem;
-    color: #94a3b8;
-    font-size: 0.76rem;
-  }
-  input, select {
-    width: 100%;
-    padding: 0.45rem 0.65rem;
-    border: 1px solid #1e3a5f;
-    border-radius: 0.6rem;
-    background: #0a1020;
     color: #e2e8f0;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 12px;
+    width: 80px;
   }
-  .angle-field {
-    grid-column: span 2;
+
+  .ms-set-in:focus { outline: none; border-color: #2563eb; }
+  select.ms-set-in { width: 94px; }
+  .ms-set-in:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .ms-set-vdiv {
+    width: 1px;
+    height: 46px;
+    background: #1e3a5f;
+    flex-shrink: 0;
   }
-  .angle-row {
+
+  .ms-ang-row {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 5px;
+    width: 130px;
   }
-  .angle-row input[type='range'] {
+
+  .ms-ang-row input[type='range'] {
+    flex: 1;
+    accent-color: #60a5fa;
+    height: 3px;
+    cursor: pointer;
     padding: 0;
   }
-  .toggle-field input {
-    width: auto;
-    justify-self: start;
+
+  .ms-ang-val {
+    font-size: 11px;
+    color: #60a5fa;
+    font-family: monospace;
+    width: 30px;
+    text-align: right;
+    flex-shrink: 0;
   }
-  @media (max-width: 1100px) {
-    .fields {
-      grid-template-columns: 1fr 1fr;
-    }
-    .angle-field {
-      grid-column: span 2;
-    }
+
+  .ms-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
   }
+
+  .ms-toggle {
+    position: relative;
+    width: 30px;
+    height: 17px;
+    flex-shrink: 0;
+  }
+
+  .ms-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .ms-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #1e3a5f;
+    border-radius: 17px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+
+  .ms-toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 11px;
+    width: 11px;
+    left: 3px;
+    top: 3px;
+    background: #475569;
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+
+  .ms-toggle input:checked + .ms-toggle-slider { background: #2563eb; }
+
+  .ms-toggle input:checked + .ms-toggle-slider::before {
+    transform: translateX(13px);
+    background: #e2e8f0;
+  }
+
+  .ms-toggle-lbl {
+    font-size: 12px;
+    color: #94a3b8;
+  }
+
+  .ms-set-reset {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid #1e3a5f;
+    background: #0f1829;
+    color: #60a5fa;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .ms-set-reset:hover { border-color: #2563eb; }
 </style>

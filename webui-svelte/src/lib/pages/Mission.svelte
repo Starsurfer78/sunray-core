@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { get } from 'svelte/store'
-  import { onMount } from 'svelte'
-  import PathPreview from '../components/Mission/PathPreview.svelte'
-  import ZoneSettings from '../components/Mission/ZoneSettings.svelte'
-  import MissionControls from '../components/Mission/MissionControls.svelte'
+  import { get } from "svelte/store";
+  import { onMount } from "svelte";
+  import PathPreview from "../components/Mission/PathPreview.svelte";
+  import ZoneSettings from "../components/Mission/ZoneSettings.svelte";
+  import PageLayout from "../components/PageLayout.svelte";
   import {
     createMissionDocument,
     deleteMissionDocument,
@@ -12,26 +12,36 @@
     updateMissionDocument,
     type MapZone,
     type MissionDocument,
-  } from '../api/rest'
-  import { mapStore, type Point, type Zone } from '../stores/map'
-  import { missionStore, type Mission } from '../stores/missions'
+  } from "../api/rest";
+  import { mapStore, type Point, type Zone } from "../stores/map";
+  import { missionStore, type Mission } from "../stores/missions";
+  import { sendCmd } from "../api/websocket";
 
-  const weekDays = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
+  const weekDays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const zoneColors = [
+    "#a855f7",
+    "#22d3ee",
+    "#22c55e",
+    "#f59e0b",
+    "#f97316",
+    "#38bdf8",
+  ];
 
-  let info = ''
-  let error = ''
-  let busy = false
-  let backendOnline = false
-  let selectedZoneId: string | null = null
-  let lastZoneSignature = ''
+  let info = "";
+  let error = "";
+  let busy = false;
+  let backendOnline = false;
+  let selectedZoneId: string | null = null;
+  let sidebarCollapsed = false;
+  let lastZoneSignature = "";
 
-  function normalizePoints(points: Array<[number, number]> | Point[] | undefined): Point[] {
-    if (!points) return []
+  function normalizePoints(
+    points: Array<[number, number]> | Point[] | undefined,
+  ): Point[] {
+    if (!points) return [];
     return points.map((point) =>
-      Array.isArray(point)
-        ? { x: point[0], y: point[1] }
-        : point,
-    )
+      Array.isArray(point) ? { x: point[0], y: point[1] } : point,
+    );
   }
 
   function normalizeZone(zone: MapZone, index: number): Zone {
@@ -46,9 +56,9 @@
         edgeMowing: zone.settings.edgeMowing ?? true,
         edgeRounds: zone.settings.edgeRounds ?? 1,
         speed: zone.settings.speed ?? 1.0,
-        pattern: zone.settings.pattern ?? 'stripe',
+        pattern: zone.settings.pattern ?? "stripe",
       },
-    }
+    };
   }
 
   function normalizeMission(doc: MissionDocument): Mission {
@@ -58,544 +68,868 @@
       zoneIds: doc.zoneIds ?? [],
       overrides: doc.overrides ?? {},
       schedule: doc.schedule,
-    }
+    };
   }
 
   async function ensureZonesLoaded() {
-    if ($mapStore.map.zones.length > 0) return
-
-    busy = true
-    error = ''
+    if ($mapStore.map.zones.length > 0) return;
+    busy = true;
+    error = "";
     try {
-      const map = await getMapDocument()
+      const map = await getMapDocument();
       mapStore.load({
         perimeter: normalizePoints(map.perimeter),
         dock: normalizePoints(map.dock),
         mow: normalizePoints(map.mow),
-        exclusions: (map.exclusions ?? []).map((exclusion) => normalizePoints(exclusion as Array<[number, number]>)),
-        zones: (map.zones ?? []).map((zone, index) => normalizeZone(zone, index)),
-      })
-      info = 'Zonen aus Karte geladen'
+        exclusions: (map.exclusions ?? []).map((exclusion) =>
+          normalizePoints(exclusion as Array<[number, number]>),
+        ),
+        zones: (map.zones ?? []).map((zone, index) =>
+          normalizeZone(zone, index),
+        ),
+      });
+      info = "Zonen aus Karte geladen";
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Zonen konnten nicht geladen werden'
+      error =
+        err instanceof Error
+          ? err.message
+          : "Zonen konnten nicht geladen werden";
     } finally {
-      busy = false
+      busy = false;
     }
   }
 
   async function loadMissionsFromBackend() {
     try {
-      const missions = await getMissions()
-      missionStore.replaceAll(missions.map((mission) => normalizeMission(mission)), $mapStore.map.zones)
-      backendOnline = true
-      if (missions.length > 0) info = 'Missionen vom Server geladen'
+      const missions = await getMissions();
+      missionStore.replaceAll(
+        missions.map((mission) => normalizeMission(mission)),
+        $mapStore.map.zones,
+      );
+      backendOnline = true;
+      if (missions.length > 0) info = "Missionen vom Server geladen";
     } catch {
-      backendOnline = false
-      info = 'Missionen lokal geladen'
+      backendOnline = false;
+      info = "Missionen lokal geladen";
     }
   }
 
   async function saveCurrentMission() {
-    if (!selectedMission) return
+    if (!selectedMission) return;
     try {
-      await updateMissionDocument(selectedMission.id, selectedMission)
-      backendOnline = true
-      info = `Mission "${selectedMission.name}" gespeichert`
-      error = ''
+      await updateMissionDocument(selectedMission.id, selectedMission);
+      backendOnline = true;
+      info = `Mission "${selectedMission.name}" gespeichert`;
+      error = "";
     } catch (err) {
-      backendOnline = false
-      error = err instanceof Error ? err.message : 'Mission konnte nicht gespeichert werden'
+      backendOnline = false;
+      error =
+        err instanceof Error
+          ? err.message
+          : "Mission konnte nicht gespeichert werden";
     }
   }
 
   async function createMission() {
-    const missionId = missionStore.createMission($mapStore.map.zones)
-    const created = get(missionStore).missions.find((mission) => mission.id === missionId)
-    if (!created) return
+    const missionId = missionStore.createMission($mapStore.map.zones);
+    const created = get(missionStore).missions.find(
+      (mission) => mission.id === missionId,
+    );
+    if (!created) return;
     if (backendOnline) {
       try {
-        await createMissionDocument(created)
-        info = 'Neue Mission angelegt'
-        error = ''
+        await createMissionDocument(created);
+        info = "Neue Mission angelegt";
+        error = "";
       } catch (err) {
-        backendOnline = false
-        error = err instanceof Error ? err.message : 'Neue Mission konnte nicht am Server angelegt werden'
+        backendOnline = false;
+        error =
+          err instanceof Error
+            ? err.message
+            : "Neue Mission konnte nicht am Server angelegt werden";
       }
     } else {
-      info = 'Neue Mission lokal angelegt'
+      info = "Neue Mission lokal angelegt";
     }
   }
 
   async function deleteMission(missionId: string) {
-    missionStore.deleteMission(missionId)
+    missionStore.deleteMission(missionId);
     if (backendOnline) {
       try {
-        await deleteMissionDocument(missionId)
-        info = 'Mission geloescht'
-        error = ''
+        await deleteMissionDocument(missionId);
+        info = "Mission gelöscht";
+        error = "";
       } catch (err) {
-        backendOnline = false
-        error = err instanceof Error ? err.message : 'Mission konnte nicht geloescht werden'
+        backendOnline = false;
+        error =
+          err instanceof Error
+            ? err.message
+            : "Mission konnte nicht gelöscht werden";
       }
     } else {
-      info = 'Mission lokal geloescht'
+      info = "Mission lokal gelöscht";
     }
   }
 
   function updateMissionName(missionId: string, event: Event) {
-    missionStore.renameMission(missionId, (event.currentTarget as HTMLInputElement).value)
+    missionStore.renameMission(
+      missionId,
+      (event.currentTarget as HTMLInputElement).value,
+    );
   }
 
   function toggleDay(missionId: string, day: number) {
-    missionStore.toggleMissionDay(missionId, day)
+    missionStore.toggleMissionDay(missionId, day);
   }
 
-  function updateScheduleField<K extends 'startTime' | 'endTime' | 'rainDelayMinutes' | 'enabled'>(
+  function updateScheduleField<
+    K extends "startTime" | "endTime" | "rainDelayMinutes" | "enabled",
+  >(
     missionId: string,
     key: K,
-    value: K extends 'enabled' ? boolean : K extends 'rainDelayMinutes' ? number : string,
+    value: K extends "enabled"
+      ? boolean
+      : K extends "rainDelayMinutes"
+        ? number
+        : string,
   ) {
-    missionStore.updateMissionSchedule(missionId, { [key]: value })
+    missionStore.updateMissionSchedule(missionId, { [key]: value });
   }
 
   function zoneName(zoneId: string): string {
-    return $mapStore.map.zones.find((zone) => zone.id === zoneId)?.settings.name ?? zoneId
+    return (
+      $mapStore.map.zones.find((z) => z.id === zoneId)?.settings.name ?? zoneId
+    );
+  }
+
+  function zoneColor(zoneId: string): string {
+    if (!selectedMission) return zoneColors[0];
+    const index = selectedMission.zoneIds.indexOf(zoneId);
+    return zoneColors[index % zoneColors.length] ?? zoneColors[0];
   }
 
   function addZoneToMission() {
-    if (!selectedMission) return
-    const nextZone = $mapStore.map.zones.find((zone) => !selectedMission.zoneIds.includes(zone.id))
-    if (!nextZone) return
-    missionStore.setMissionZoneIds(selectedMission.id, [...selectedMission.zoneIds, nextZone.id], $mapStore.map.zones)
-    selectedZoneId = nextZone.id
+    if (!selectedMission) return;
+    const nextZone = $mapStore.map.zones.find(
+      (z) => !selectedMission.zoneIds.includes(z.id),
+    );
+    if (!nextZone) return;
+    missionStore.setMissionZoneIds(
+      selectedMission.id,
+      [...selectedMission.zoneIds, nextZone.id],
+      $mapStore.map.zones,
+    );
+    selectedZoneId = nextZone.id;
   }
 
   function removeZoneFromMission(zoneId: string) {
-    if (!selectedMission) return
+    if (!selectedMission) return;
     missionStore.setMissionZoneIds(
       selectedMission.id,
       selectedMission.zoneIds.filter((entry) => entry !== zoneId),
       $mapStore.map.zones,
-    )
-    if (selectedZoneId === zoneId) selectedZoneId = selectedMission.zoneIds.find((entry) => entry !== zoneId) ?? null
+    );
+    if (selectedZoneId === zoneId) {
+      selectedZoneId =
+        selectedMission.zoneIds.find((entry) => entry !== zoneId) ?? null;
+    }
+  }
+
+  function startMission(missionId: string) {
+    sendCmd("start", { missionId });
+  }
+
+  function scheduleSummary(mission: Mission): string {
+    if (!mission.schedule?.days || mission.schedule.days.length === 0)
+      return "Manuell";
+    const labels = mission.schedule.days.map((d) => weekDays[d]).join(", ");
+    return `${labels} · ${mission.schedule.startTime ?? ""}`;
   }
 
   $: {
-    const zoneSignature = $mapStore.map.zones.map((zone) => `${zone.id}:${zone.order}`).join('|')
+    const zoneSignature = $mapStore.map.zones
+      .map((z) => `${z.id}:${z.order}`)
+      .join("|");
     if (zoneSignature !== lastZoneSignature) {
-      lastZoneSignature = zoneSignature
-      missionStore.syncZones($mapStore.map.zones)
+      lastZoneSignature = zoneSignature;
+      missionStore.syncZones($mapStore.map.zones);
       if ($mapStore.map.zones.length > 0) {
-        missionStore.ensureSeedMission($mapStore.map.zones)
+        missionStore.ensureSeedMission($mapStore.map.zones);
       }
     }
   }
 
   $: selectedMission =
-    $missionStore.missions.find((mission) => mission.id === $missionStore.selectedMissionId) ?? null
+    $missionStore.missions.find(
+      (m) => m.id === $missionStore.selectedMissionId,
+    ) ?? null;
 
-  $: if (selectedMission && (!selectedZoneId || !selectedMission.zoneIds.includes(selectedZoneId))) {
-    selectedZoneId = selectedMission.zoneIds[0] ?? null
+  $: if (
+    selectedMission &&
+    (!selectedZoneId || !selectedMission.zoneIds.includes(selectedZoneId))
+  ) {
+    selectedZoneId = selectedMission.zoneIds[0] ?? null;
   }
 
-  $: selectedZone =
-    selectedZoneId
-      ? $mapStore.map.zones.find((zone) => zone.id === selectedZoneId) ?? null
-      : null
+  $: selectedZone = selectedZoneId
+    ? ($mapStore.map.zones.find((z) => z.id === selectedZoneId) ?? null)
+    : null;
+
+  $: selectedZoneColor =
+    selectedMission && selectedZoneId
+      ? (zoneColors[
+          selectedMission.zoneIds.indexOf(selectedZoneId) % zoneColors.length
+        ] ?? zoneColors[0])
+      : zoneColors[0];
 
   onMount(async () => {
-    await ensureZonesLoaded()
-    await loadMissionsFromBackend()
-  })
+    await ensureZonesLoaded();
+    await loadMissionsFromBackend();
+  });
 </script>
 
-<main class="page">
-  <section class="head">
-    <div>
-      <span class="eyebrow">Missionen</span>
-      <h1>Missionen planen, Zonen gruppieren und Abläufe vorbereiten</h1>
-    </div>
-    <div class="status-card">
-      <span class="label">Status</span>
-      <strong>{busy ? 'Lade Zonen' : 'Bereit'}</strong>
-      <span class={backendOnline ? 'ok' : 'muted'}>
-        {backendOnline ? 'Backend-Speicherung aktiv' : 'Nur lokale Browser-Speicherung aktiv'}
-      </span>
-      {#if error}
-        <span class="error">{error}</span>
-      {:else if info}
-        <span class="ok">{info}</span>
-      {/if}
-    </div>
-  </section>
-
-  <section class="layout">
-    <div class="workspace">
+<PageLayout
+  {sidebarCollapsed}
+  on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
+>
+  <div class="ms-body">
+    <div class="ms-canvas-wrap">
       <PathPreview
         zones={$mapStore.map.zones}
         mission={selectedMission}
         {selectedZoneId}
-        on:selectzone={(event) => { selectedZoneId = event.detail.zoneId }}
+        on:selectzone={(e) => {
+          selectedZoneId = e.detail.zoneId;
+        }}
       />
+    </div>
 
-      {#if selectedMission && selectedZone}
-        <ZoneSettings mission={selectedMission} zone={selectedZone} />
+    {#if selectedMission && selectedZone}
+      <ZoneSettings
+        mission={selectedMission}
+        zone={selectedZone}
+        color={selectedZoneColor}
+        on:close={() => {
+          selectedZoneId = null;
+        }}
+      />
+    {/if}
+  </div>
+
+  <svelte:fragment slot="sidebar">
+    <div class="ms-sb-hd">
+      <span class="ms-sb-title">Missionen</span>
+      <button type="button" class="ms-add-btn" on:click={createMission}
+        >+ Neu</button
+      >
+    </div>
+
+    <!-- Mission list -->
+    <div class="ms-sb-list">
+      {#if $missionStore.missions.length === 0}
+        <div class="ms-empty">
+          {busy ? "Lade Zonen…" : "Noch keine Missionen angelegt."}
+        </div>
+      {:else}
+        {#each $missionStore.missions as mission}
+          <div
+            role="button"
+            tabindex="0"
+            class="ms-mcard"
+            class:sel={mission.id === $missionStore.selectedMissionId}
+            on:click={() => missionStore.selectMission(mission.id)}
+            on:keydown={(e) => {
+              if (e.key === "Enter" || e.key === " ")
+                missionStore.selectMission(mission.id);
+            }}
+          >
+            <div class="ms-mc-row">
+              <span class="ms-mc-name">{mission.name}</span>
+              <button
+                type="button"
+                class="ms-mc-run"
+                on:click|stopPropagation={() => startMission(mission.id)}
+                >▶ Start</button
+              >
+            </div>
+            <div class="ms-mc-meta">{mission.zoneIds.length} Zonen</div>
+            {#if mission.schedule?.enabled && mission.schedule.days.length > 0}
+              <span class="ms-mc-tag tag-s">🕐 {scheduleSummary(mission)}</span>
+            {:else}
+              <span class="ms-mc-tag tag-m">Manuell</span>
+            {/if}
+          </div>
+        {/each}
       {/if}
     </div>
 
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <span class="sidebar-title">Missionen</span>
-        <button type="button" class="create-btn" on:click={createMission}>+ Neu</button>
-      </div>
+    <!-- Mission Editor -->
+    {#if selectedMission}
+      <div class="ms-editor">
+        <div class="ms-ed-hd">
+          <input
+            class="ms-ed-name"
+            type="text"
+            value={selectedMission.name}
+            on:input={(e) => updateMissionName(selectedMission.id, e)}
+          />
+          <button
+            type="button"
+            class="ms-save-btn"
+            on:click={saveCurrentMission}>Speichern</button
+          >
+          <button
+            type="button"
+            class="ms-del-btn"
+            on:click={() => deleteMission(selectedMission.id)}>✕</button
+          >
+        </div>
 
-      <div class="mission-list">
-        {#if $missionStore.missions.length === 0}
-          <div class="empty-list">Noch keine Missionen angelegt.</div>
-        {:else}
-          {#each $missionStore.missions as mission}
+        <!-- Zones -->
+        <div class="ms-ed-sec">
+          <div class="ms-ed-slbl">
+            <span>Zonen</span>
             <button
               type="button"
-              class:selected={mission.id === $missionStore.selectedMissionId}
-              class="mission-card"
-              on:click={() => missionStore.selectMission(mission.id)}
+              class="ms-add-zone"
+              on:click={addZoneToMission}>+ hinzufügen</button
             >
-              <div class="mission-row">
-                <strong>{mission.name}</strong>
-                <span>{mission.zoneIds.length} Zonen</span>
-              </div>
-              <small>
-                {#if mission.schedule?.enabled && mission.schedule.days.length > 0}
-                  {mission.schedule.days.map((day) => weekDays[day]).join(', ')} · {mission.schedule.startTime}
-                {:else}
-                  Manuell
-                {/if}
-              </small>
-            </button>
-          {/each}
-        {/if}
-      </div>
-
-      {#if selectedMission}
-        <div class="editor">
-          <div class="editor-head">
-            <input
-              class="mission-name"
-              type="text"
-              value={selectedMission.name}
-              on:input={(event) => updateMissionName(selectedMission.id, event)}
-            />
-            <button type="button" class="save-btn" on:click={saveCurrentMission}>Speichern</button>
-            <button type="button" class="delete-btn" on:click={() => deleteMission(selectedMission.id)}>✕</button>
           </div>
-
-          <div class="editor-section">
-            <div class="section-head">
-              <span class="section-label">Zonen</span>
-              <button type="button" class="inline-btn" on:click={addZoneToMission}>+ hinzufügen</button>
+          {#if selectedMission.zoneIds.length === 0}
+            <div class="ms-empty-inline">
+              Noch keine Zonen in dieser Mission.
             </div>
-
-            <div class="zone-rows">
-              {#if selectedMission.zoneIds.length === 0}
-                <div class="empty-inline">Noch keine Zonen in dieser Mission.</div>
-              {:else}
-                {#each selectedMission.zoneIds as zoneId, index}
-                  <div
-                    role="button"
-                    tabindex="0"
-                    class:selected={selectedZoneId === zoneId}
-                    class="zone-row"
-                    on:click={() => { selectedZoneId = zoneId }}
-                    on:keydown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        selectedZoneId = zoneId
-                      }
-                    }}
-                  >
-                    <span class="zone-order">{index + 1}</span>
-                    <span class="zone-title">{zoneName(zoneId)}</span>
-                    <span class="zone-gear">⚙</span>
-                    <button
-                      type="button"
-                      class="zone-delete"
-                      aria-label={`${zoneName(zoneId)} aus Mission entfernen`}
-                      on:click|stopPropagation={() => removeZoneFromMission(zoneId)}
-                    >✕</button>
-                  </div>
-                {/each}
-              {/if}
-            </div>
-          </div>
-
-          <div class="editor-section">
-            <div class="section-label">Zeitplan</div>
-            <div class="days">
-              {#each weekDays as dayLabel, dayIndex}
+          {:else}
+            {#each selectedMission.zoneIds as zoneId, index}
+              <div
+                role="button"
+                tabindex="0"
+                class="ms-zrow"
+                class:sel={selectedZoneId === zoneId}
+                on:click={() => {
+                  selectedZoneId = zoneId;
+                }}
+                on:keydown={(e) => {
+                  if (e.key === "Enter" || e.key === " ")
+                    selectedZoneId = zoneId;
+                }}
+              >
+                <span class="ms-zdrag">⠿</span>
+                <span class="ms-znum">{index + 1}</span>
+                <span
+                  class="ms-zdot"
+                  style="background:{zoneColors[index % zoneColors.length]}"
+                ></span>
+                <span class="ms-zname">{zoneName(zoneId)}</span>
                 <button
                   type="button"
-                  class:active={selectedMission.schedule?.days.includes(dayIndex)}
-                  class="day-btn"
-                  on:click={() => toggleDay(selectedMission.id, dayIndex)}
+                  class="ms-zgear"
+                  class:active={selectedZoneId === zoneId}
+                  aria-label="Einstellungen für {zoneName(zoneId)}"
+                  on:click|stopPropagation={() => {
+                    selectedZoneId = selectedZoneId === zoneId ? null : zoneId;
+                  }}>⚙</button
                 >
-                  {dayLabel}
-                </button>
-              {/each}
-            </div>
+                <button
+                  type="button"
+                  class="ms-zdel"
+                  aria-label="{zoneName(zoneId)} aus Mission entfernen"
+                  on:click|stopPropagation={() => removeZoneFromMission(zoneId)}
+                  >✕</button
+                >
+              </div>
+            {/each}
+          {/if}
+        </div>
 
-            <div class="schedule-grid">
-              <label>
-                <span>Start</span>
-                <input
-                  type="time"
-                  value={selectedMission.schedule?.startTime ?? '09:00'}
-                  on:input={(event) => updateScheduleField(selectedMission.id, 'startTime', (event.currentTarget as HTMLInputElement).value)}
-                />
-              </label>
-              <label>
-                <span>Ende</span>
-                <input
-                  type="time"
-                  value={selectedMission.schedule?.endTime ?? '12:00'}
-                  on:input={(event) => updateScheduleField(selectedMission.id, 'endTime', (event.currentTarget as HTMLInputElement).value)}
-                />
-              </label>
-              <label>
-                <span>Regenpause</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="5"
-                  value={selectedMission.schedule?.rainDelayMinutes ?? 60}
-                  on:input={(event) => updateScheduleField(selectedMission.id, 'rainDelayMinutes', Number((event.currentTarget as HTMLInputElement).value))}
-                />
-              </label>
-              <label class="toggle-field">
-                <span>Aktiv</span>
+        <!-- Schedule -->
+        <div class="ms-ed-sec">
+          <div class="ms-ed-slbl">Zeitplan</div>
+          <div class="ms-days">
+            {#each weekDays as dayLabel, dayIndex}
+              <button
+                type="button"
+                class="ms-day"
+                class:on={selectedMission.schedule?.days.includes(dayIndex)}
+                on:click={() => toggleDay(selectedMission.id, dayIndex)}
+                >{dayLabel}</button
+              >
+            {/each}
+          </div>
+          <div class="ms-timeg">
+            <div class="ms-tfield">
+              <span class="ms-tlbl">Start</span>
+              <input
+                class="ms-tin"
+                type="time"
+                value={selectedMission.schedule?.startTime ?? "09:00"}
+                on:input={(e) =>
+                  updateScheduleField(
+                    selectedMission.id,
+                    "startTime",
+                    (e.currentTarget as HTMLInputElement).value,
+                  )}
+              />
+            </div>
+            <div class="ms-tfield">
+              <span class="ms-tlbl">Ende</span>
+              <input
+                class="ms-tin"
+                type="time"
+                value={selectedMission.schedule?.endTime ?? "12:00"}
+                on:input={(e) =>
+                  updateScheduleField(
+                    selectedMission.id,
+                    "endTime",
+                    (e.currentTarget as HTMLInputElement).value,
+                  )}
+              />
+            </div>
+            <div class="ms-tfield">
+              <span class="ms-tlbl">Regenpause (min)</span>
+              <input
+                class="ms-tin"
+                type="number"
+                min="0"
+                step="5"
+                value={selectedMission.schedule?.rainDelayMinutes ?? 60}
+                on:input={(e) =>
+                  updateScheduleField(
+                    selectedMission.id,
+                    "rainDelayMinutes",
+                    Number((e.currentTarget as HTMLInputElement).value),
+                  )}
+              />
+            </div>
+            <div class="ms-tfield">
+              <label class="ms-toggle-row">
                 <input
                   type="checkbox"
                   checked={selectedMission.schedule?.enabled ?? false}
-                  on:change={(event) => updateScheduleField(selectedMission.id, 'enabled', (event.currentTarget as HTMLInputElement).checked)}
+                  on:change={(e) =>
+                    updateScheduleField(
+                      selectedMission.id,
+                      "enabled",
+                      (e.currentTarget as HTMLInputElement).checked,
+                    )}
                 />
+                <span class="ms-tlbl" style="margin-left:5px">Aktiv</span>
               </label>
             </div>
           </div>
-
-          <MissionControls zones={$mapStore.map.zones} mission={selectedMission} selectedZoneIds={selectedMission.zoneIds} />
         </div>
-      {/if}
-    </aside>
-  </section>
-</main>
+      </div>
+    {/if}
+
+    <!-- Status notifications -->
+    {#if error}
+      <div class="ms-notify ms-notify-err">{error}</div>
+    {:else if info}
+      <div class="ms-notify ms-notify-ok">{info}</div>
+    {/if}
+  </svelte:fragment>
+</PageLayout>
 
 <style>
-  .page {
-    display: grid;
-    gap: 1rem;
+  /* Center column: preview + settings panel */
+  .ms-body {
+    display: flex;
+    flex-direction: column;
     height: 100%;
-    padding: 1rem;
+    overflow: hidden;
   }
-  .head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 1rem;
-    align-items: start;
+
+  .ms-canvas-wrap {
+    flex: 1;
+    position: relative;
+    background: #070d18;
+    overflow: hidden;
   }
-  .eyebrow {
-    display: inline-block;
-    margin-bottom: 0.35rem;
-    color: #60a5fa;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.72rem;
-  }
-  h1 { margin: 0; font-size: 1.55rem; line-height: 1.05; }
-  .status-card, .editor {
-    display: grid;
-    gap: 0.45rem;
-    padding: 0.95rem 1rem;
-    border-radius: 0.8rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
-  }
-  .label, .section-label, .sidebar-title {
-    color: #7a8da8;
-    font-size: 0.76rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .muted { color: #94a3b8; font-size: 0.82rem; }
-  .ok { color: #a8e2a1; font-size: 0.82rem; }
-  .error { color: #f1aaaa; font-size: 0.82rem; }
-  .layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 1rem;
-    min-height: 0;
-  }
-  .workspace {
-    display: grid;
-    gap: 1rem;
-    align-content: start;
-    min-width: 0;
-  }
-  .sidebar {
-    display: grid;
-    grid-template-rows: auto auto 1fr;
-    gap: 1rem;
-    min-height: 0;
-  }
-  .sidebar-head, .mission-row, .editor-head, .section-head {
+
+  .ms-sb-hd {
+    padding: 10px 14px;
+    border-bottom: 1px solid #1e3a5f;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-  }
-  .create-btn, .save-btn, .delete-btn, .day-btn, .inline-btn {
-    padding: 0.5rem 0.8rem;
-    border: 1px solid #2563eb;
-    border-radius: 0.6rem;
-    background: #0c1a3a;
-    color: #93c5fd;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  .inline-btn {
-    padding: 0.3rem 0.55rem;
-    font-size: 0.74rem;
-  }
-  .delete-btn {
-    border-color: #7f1d1d;
-    background: #1a0808;
-    color: #fca5a5;
-  }
-  .mission-list {
-    display: grid;
-    gap: 0.6rem;
-    max-height: 260px;
-    overflow: auto;
-  }
-  .mission-card {
-    display: grid;
-    gap: 0.35rem;
-    padding: 0.8rem 0.9rem;
-    border-radius: 0.7rem;
-    background: #0f1829;
-    border: 1px solid #1a2a40;
-    color: #dce8e8;
-    text-align: left;
-    cursor: pointer;
-  }
-  .mission-card.selected {
-    border-color: #2563eb;
-    background: #0c1a3a;
-  }
-  .mission-card small, .empty-list, .empty-inline {
-    color: #64748b;
-  }
-  .editor {
-    min-height: 0;
-    overflow: auto;
-    align-content: start;
-  }
-  .mission-name, .schedule-grid input {
-    width: 100%;
-    padding: 0.5rem 0.7rem;
-    border: 1px solid #1e3a5f;
-    border-radius: 0.6rem;
-    background: #0a1020;
-    color: #e2e8f0;
-  }
-  .editor-section, .zone-rows {
-    display: grid;
-    gap: 0.6rem;
-  }
-  .zone-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    width: 100%;
-    padding: 0.55rem 0.65rem;
-    border-radius: 0.6rem;
-    background: #0a1020;
-    border: 1px solid #1a2a40;
-    color: #dce8e8;
-    cursor: pointer;
-  }
-  .zone-row.selected {
-    border-color: #2563eb;
-    background: #0c1a3a;
-  }
-  .zone-order {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.35rem;
-    height: 1.35rem;
-    border-radius: 999px;
-    background: #1e3a5f;
-    color: #93c5fd;
-    font-size: 0.75rem;
-    font-weight: 700;
     flex-shrink: 0;
   }
-  .zone-title {
-    flex: 1;
-    text-align: left;
+
+  .ms-sb-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: #e2e8f0;
   }
-  .zone-gear {
-    color: #60a5fa;
-  }
-  .zone-delete {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.6rem;
-    height: 1.6rem;
-    padding: 0;
-    border-radius: 999px;
-    border: 1px solid #7f1d1d;
-    background: #1a0808;
-    color: #fca5a5;
+
+  .ms-add-btn {
+    background: #0c1a3a;
+    border: 1px solid #2563eb;
+    color: #93c5fd;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
     cursor: pointer;
   }
-  .days {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 0.35rem;
+
+  .ms-add-btn:hover {
+    border-color: #3b82f6;
   }
-  .day-btn {
-    padding: 0.45rem 0;
-    background: #0a1020;
+
+  /* Mission cards */
+  .ms-sb-list {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    border-bottom: 1px solid #1e3a5f;
+    flex-shrink: 0;
+  }
+
+  .ms-mcard {
+    background: #0f1829;
+    border: 1px solid #1a2a40;
+    border-radius: 7px;
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+
+  .ms-mcard:hover {
     border-color: #1e3a5f;
+  }
+  .ms-mcard.sel {
+    border-color: #2563eb;
+    background: #0c1a3a;
+  }
+
+  .ms-mc-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ms-mc-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: #e2e8f0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ms-mc-run {
+    background: #0c1a3a;
+    border: 1px solid #2563eb;
+    color: #93c5fd;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .ms-mc-run:hover {
+    background: #0f2040;
+  }
+
+  .ms-mc-meta {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  .ms-mc-tag {
+    display: inline-flex;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-top: 3px;
+  }
+
+  .tag-s {
+    background: #0c1a3a;
+    border: 1px solid #1e40af;
+    color: #93c5fd;
+  }
+  .tag-m {
+    background: #111827;
+    border: 1px solid #374151;
+    color: #6b7280;
+  }
+
+  /* Mission editor */
+  .ms-editor {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ms-ed-hd {
+    padding: 9px 12px;
+    border-bottom: 1px solid #1e3a5f;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .ms-ed-name {
+    flex: 1;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 0;
+  }
+
+  .ms-ed-name:focus {
+    outline: none;
+    border-color: #2563eb;
+  }
+
+  .ms-save-btn {
+    background: #0c1a3a;
+    border: 1px solid #2563eb;
+    color: #93c5fd;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .ms-del-btn {
+    background: #1a0808;
+    border: 1px solid #7f1d1d;
+    color: #f87171;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .ms-ed-sec {
+    padding: 7px 12px;
+    border-bottom: 1px solid #1a2a40;
+  }
+
+  .ms-ed-sec:last-child {
+    border-bottom: none;
+  }
+
+  .ms-ed-slbl {
+    font-size: 10px;
+    font-weight: 500;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .ms-add-zone {
+    font-size: 10px;
+    background: transparent;
+    border: 1px solid #1e3a5f;
+    color: #60a5fa;
+    border-radius: 4px;
+    padding: 1px 6px;
+    cursor: pointer;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Zone rows */
+  .ms-zrow {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 0;
+    border-bottom: 1px solid #0a1020;
+    overflow: hidden;
+    min-width: 0;
+    cursor: pointer;
+  }
+
+  .ms-zrow:last-child {
+    border-bottom: none;
+  }
+
+  .ms-zrow.sel {
+    background: #0c1a3a;
+    border-radius: 5px;
+    padding: 4px 4px;
+    margin: 0 -4px;
+    border-bottom: none;
+  }
+
+  .ms-zdrag {
+    color: #475569;
+    font-size: 12px;
+    cursor: grab;
+    flex-shrink: 0;
+  }
+  .ms-znum {
+    font-size: 10px;
+    color: #475569;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .ms-zdot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .ms-zname {
+    font-size: 12px;
+    color: #e2e8f0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ms-zgear {
+    background: transparent;
+    border: 1px solid #1e3a5f;
+    color: #60a5fa;
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .ms-zgear.active {
+    background: #0c1a3a;
+    border-color: #2563eb;
+  }
+
+  .ms-zdel {
+    background: transparent;
+    border: none;
+    color: #475569;
+    cursor: pointer;
+    font-size: 12px;
+    flex-shrink: 0;
+    padding: 0 2px;
+  }
+
+  .ms-zdel:hover {
+    color: #f87171;
+  }
+
+  /* Schedule */
+  .ms-days {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 7px;
+  }
+
+  .ms-day {
+    flex: 1;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid #1e3a5f;
+    background: #0a1020;
     color: #64748b;
   }
-  .day-btn.active {
+
+  .ms-day.on {
     background: #0c1a3a;
     border-color: #2563eb;
     color: #93c5fd;
   }
-  .schedule-grid {
+
+  .ms-timeg {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.65rem;
+    gap: 6px;
   }
-  .schedule-grid label {
-    display: grid;
-    gap: 0.3rem;
-    color: #94a3b8;
-    font-size: 0.76rem;
+
+  .ms-tfield {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
-  .toggle-field {
-    align-items: start;
+
+  .ms-tlbl {
+    font-size: 10px;
+    color: #475569;
   }
-  .toggle-field input {
-    width: auto;
-    margin-top: 0.45rem;
+
+  .ms-tin {
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+    color: #e2e8f0;
+    border-radius: 5px;
+    padding: 4px 6px;
+    font-size: 11px;
+    width: 100%;
   }
-  @media (max-width: 1100px) {
-    .head, .layout {
-      grid-template-columns: 1fr;
-    }
+
+  .ms-tin:focus {
+    outline: none;
+    border-color: #2563eb;
+  }
+
+  .ms-toggle-row {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding-top: 10px;
+  }
+
+  /* Status notifications */
+  .ms-notify {
+    margin: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .ms-notify-ok {
+    background: #0a1e0f;
+    border: 1px solid #166534;
+    color: #4ade80;
+  }
+  .ms-notify-err {
+    background: #1a0808;
+    border: 1px solid #7f1d1d;
+    color: #fca5a5;
+  }
+
+  .ms-empty {
+    font-size: 11px;
+    color: #475569;
+    padding: 4px 2px;
+  }
+
+  .ms-empty-inline {
+    font-size: 11px;
+    color: #475569;
+    padding: 4px 0;
   }
 </style>

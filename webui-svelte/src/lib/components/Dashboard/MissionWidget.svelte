@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { get } from 'svelte/store'
-  import { onMount } from 'svelte'
-  import { getMissions, type MissionDocument } from '../../api/rest'
-  import { sendCmd } from '../../api/websocket'
-  import { connection } from '../../stores/connection'
-  import { missionStore, type Mission } from '../../stores/missions'
-  import { telemetry } from '../../stores/telemetry'
-  import type { Zone } from '../../stores/map'
+  import { get } from "svelte/store";
+  import { onMount } from "svelte";
+  import { getMissions, type MissionDocument } from "../../api/rest";
+  import { sendCmd } from "../../api/websocket";
+  import { connection } from "../../stores/connection";
+  import { missionStore, type Mission } from "../../stores/missions";
+  import { telemetry } from "../../stores/telemetry";
+  import type { Zone } from "../../stores/map";
 
-  export let zones: Zone[] = []
+  export let zones: Zone[] = [];
 
-  let missions: Mission[] = []
-  let selectedStartMissionId = ''
-  let loadInfo = ''
+  let missions: Mission[] = [];
+  let selectedStartMissionId = "";
+  let loadInfo = "";
 
   function normalizeMission(doc: MissionDocument): Mission {
     return {
@@ -21,105 +21,124 @@
       zoneIds: doc.zoneIds ?? [],
       overrides: doc.overrides ?? {},
       schedule: doc.schedule,
-    }
+    };
   }
 
   function zoneName(zoneId: string): string {
-    return zones.find((zone) => zone.id === zoneId)?.settings.name ?? zoneId
+    return zones.find((zone) => zone.id === zoneId)?.settings.name ?? zoneId;
   }
 
   function toMinutes(time: string): number {
-    const [hour, minute] = time.split(':').map((value) => Number(value))
-    return hour * 60 + minute
+    const [hour, minute] = time.split(":").map((value) => Number(value));
+    return hour * 60 + minute;
   }
 
-  function upcomingMissionCandidate(mission: Mission, now: Date): { mission: Mission; time: Date } | null {
-    if (!mission.schedule?.enabled || mission.schedule.days.length === 0) return null
+  function upcomingMissionCandidate(
+    mission: Mission,
+    now: Date,
+  ): { mission: Mission; time: Date } | null {
+    if (!mission.schedule?.enabled || mission.schedule.days.length === 0)
+      return null;
 
-    const nowDay = now.getDay()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
-    const startMinutes = toMinutes(mission.schedule.startTime)
+    const nowDay = now.getDay();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const startMinutes = toMinutes(mission.schedule.startTime);
 
     for (let offset = 0; offset < 7; offset += 1) {
-      const day = (nowDay + offset) % 7
-      if (!mission.schedule.days.includes(day)) continue
-      const candidate = new Date(now)
-      candidate.setDate(now.getDate() + offset)
-      candidate.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0)
+      const day = (nowDay + offset) % 7;
+      if (!mission.schedule.days.includes(day)) continue;
+      const candidate = new Date(now);
+      candidate.setDate(now.getDate() + offset);
+      candidate.setHours(
+        Math.floor(startMinutes / 60),
+        startMinutes % 60,
+        0,
+        0,
+      );
       if (offset > 0 || startMinutes >= nowMinutes) {
-        return { mission, time: candidate }
+        return { mission, time: candidate };
       }
     }
-    return null
+    return null;
   }
 
   function formatWhen(date: Date): string {
-    return date.toLocaleString('de-DE', {
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return date.toLocaleString("de-DE", {
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   async function loadMissionData() {
     try {
-      const docs = await getMissions()
-      missions = docs.map((mission) => normalizeMission(mission))
-      missionStore.replaceAll(missions, zones)
-      loadInfo = 'Missionen vom Server'
+      const docs = await getMissions();
+      missions = docs.map((mission) => normalizeMission(mission));
+      missionStore.replaceAll(missions, zones);
+      loadInfo = "Missionen vom Server";
     } catch {
-      missions = get(missionStore).missions
-      loadInfo = missions.length > 0 ? 'Lokale Missionen' : 'Noch keine Mission'
+      missions = get(missionStore).missions;
+      loadInfo =
+        missions.length > 0 ? "Lokale Missionen" : "Noch keine Mission";
     }
 
     if (!selectedStartMissionId && missions.length > 0) {
-      selectedStartMissionId = missions[0].id
+      selectedStartMissionId = missions[0].id;
     }
   }
 
   function startSelectedMission() {
-    if (!selectedStartMissionId) return
-    sendCmd('start', { missionId: selectedStartMissionId })
+    if (!selectedStartMissionId) return;
+    sendCmd("start", { missionId: selectedStartMissionId });
   }
 
   onMount(() => {
-    void loadMissionData()
-  })
+    void loadMissionData();
+  });
 
   $: if (zones.length > 0 && missions.length === 0) {
-    missions = get(missionStore).missions
+    missions = get(missionStore).missions;
   }
 
   $: nextMission = (() => {
-    const now = new Date()
+    const now = new Date();
     const candidates = missions
       .map((mission) => upcomingMissionCandidate(mission, now))
-      .filter((entry): entry is { mission: Mission; time: Date } => Boolean(entry))
-      .sort((left, right) => left.time.getTime() - right.time.getTime())
-    return candidates[0] ?? null
-  })()
+      .filter((entry): entry is { mission: Mission; time: Date } =>
+        Boolean(entry),
+      )
+      .sort((left, right) => left.time.getTime() - right.time.getTime());
+    return candidates[0] ?? null;
+  })();
 
-  $: runningMission =
-    $telemetry.mission_id
-      ? missions.find((mission) => mission.id === $telemetry.mission_id) ?? null
-      : null
+  $: runningMission = $telemetry.mission_id
+    ? (missions.find((mission) => mission.id === $telemetry.mission_id) ?? null)
+    : null;
 
   $: runningZoneName =
     runningMission && $telemetry.mission_zone_index > 0
-      ? zoneName(runningMission.zoneIds[$telemetry.mission_zone_index - 1] ?? '')
-      : ''
+      ? zoneName(
+          runningMission.zoneIds[$telemetry.mission_zone_index - 1] ?? "",
+        )
+      : "";
 
   $: runningProgress =
     $telemetry.mission_zone_count > 0
       ? Math.max(
           0,
-          Math.min(100, Math.round(($telemetry.mission_zone_index / $telemetry.mission_zone_count) * 100)),
+          Math.min(
+            100,
+            Math.round(
+              ($telemetry.mission_zone_index / $telemetry.mission_zone_count) *
+                100,
+            ),
+          ),
         )
-      : 0
+      : 0;
 
   $: missionIsRunning =
     Boolean(runningMission) &&
-    ['Undock', 'NavToStart', 'Mow'].includes($telemetry.op)
+    ["Undock", "NavToStart", "Mow"].includes($telemetry.op);
 </script>
 
 <section class="panel mission-panel">
@@ -138,7 +157,12 @@
       <div class="progress" aria-label={`Fortschritt ${runningProgress}%`}>
         <span class="progress-fill" style={`width:${runningProgress}%`}></span>
       </div>
-      <button type="button" class="secondary-btn" on:click={() => sendCmd('stop')} disabled={!$connection.connected}>
+      <button
+        type="button"
+        class="secondary-btn"
+        on:click={() => sendCmd("stop")}
+        disabled={!$connection.connected}
+      >
         Abbrechen
       </button>
     </div>
@@ -157,7 +181,12 @@
           {/each}
         </select>
       </label>
-      <button type="button" class="primary-btn" on:click={startSelectedMission} disabled={!$connection.connected || !selectedStartMissionId}>
+      <button
+        type="button"
+        class="primary-btn"
+        on:click={startSelectedMission}
+        disabled={!$connection.connected || !selectedStartMissionId}
+      >
         Mission starten
       </button>
     </div>
@@ -172,16 +201,16 @@
 
 <style>
   .mission-panel {
-    gap: 0.55rem;
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.58rem 0.68rem;
+    border-bottom: 1px solid #0f1829;
   }
 
   .mission-card {
     display: grid;
     gap: 0.45rem;
-    padding: 0.6rem;
-    border-radius: 0.6rem;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
+    padding: 0;
   }
 
   .card-title {

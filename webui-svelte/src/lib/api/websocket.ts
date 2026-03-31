@@ -1,6 +1,7 @@
 import { connection } from '../stores/connection'
 import { telemetry } from '../stores/telemetry'
 import type { TelemetryEnvelope, WsMessage } from './types'
+import { logStore } from '../stores/logs'
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -43,6 +44,8 @@ function connect() {
         // The current backend sends full state packets, but patching keeps the
         // UI robust if a future backend revision sends partial deltas.
         telemetry.patch(message as Partial<TelemetryEnvelope>)
+      } else if (message.type === 'log') {
+        logStore.push(message.text)
       }
     } catch {
       // Ignore malformed websocket payloads in the MVP.

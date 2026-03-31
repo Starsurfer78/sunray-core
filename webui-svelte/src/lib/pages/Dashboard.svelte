@@ -2,12 +2,26 @@
   import { onMount } from "svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
   import DashboardSidebar from "../components/Dashboard/DashboardSidebar.svelte";
+  import LogBar from "../components/Dashboard/LogBar.svelte";
+  import PageLayout from "../components/PageLayout.svelte";
   import { getMapDocument, type MapZone } from "../api/rest";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
 
   let mapStatus = "Bereit";
   let sidebarCollapsed = false;
+  let mapCanvas: MapCanvas;
+  let mapStageElement: HTMLDivElement | null = null;
+  let logBarHeight = 0;
+
+  function updateLogBarHeight() {
+    if (mapStageElement) {
+      const logBar = mapStageElement.querySelector(".logbar");
+      if (logBar) {
+        logBarHeight = logBar.clientHeight;
+      }
+    }
+  }
 
   function normalizePoints(
     points: Array<[number, number]> | Point[] | undefined,
@@ -45,7 +59,9 @@
         exclusions: (map.exclusions ?? []).map((exclusion) =>
           normalizePoints(exclusion as Array<[number, number]>),
         ),
-        zones: (map.zones ?? []).map((zone, index) => normalizeZone(zone, index)),
+        zones: (map.zones ?? []).map((zone, index) =>
+          normalizeZone(zone, index),
+        ),
       });
       mapStatus = "Synchron";
     } catch {
@@ -55,53 +71,73 @@
 
   onMount(() => {
     void loadOverviewMap();
+
+    // Initial calculation
+    updateLogBarHeight();
+
+    // Observe LogBar height changes to reposition zoom controls dynamically
+    const observer = new ResizeObserver(() => {
+      updateLogBarHeight();
+    });
+
+    if (mapStageElement) {
+      const logBar = mapStageElement.querySelector(".logbar");
+      if (logBar) {
+        observer.observe(logBar);
+      }
+    }
+
+    return () => observer.disconnect();
   });
 </script>
 
-<main class="page">
-  <section class="layout" class:collapsed={sidebarCollapsed}>
-    <div class="main-column">
-      <div class="map-stage">
-        <div class="map-badge">
-          <span class="map-badge-label">Hauptgarten</span>
-          <strong
-            >{$telemetry.x.toFixed(2)} / {$telemetry.y.toFixed(2)} m</strong
-          >
-        </div>
-
-        <MapCanvas
-          showHeader={false}
-          showViewportActions={false}
-          showZoomControls={true}
-          interactive={false}
-          height={680}
-        />
-      </div>
+<PageLayout
+  {sidebarCollapsed}
+  on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
+>
+  <div class="map-stage" bind:this={mapStageElement}>
+    <div class="map-badge">
+      <span class="map-badge-label">Hauptgarten</span>
+      <strong>{$telemetry.x.toFixed(2)} / {$telemetry.y.toFixed(2)} m</strong>
     </div>
 
-    <DashboardSidebar
-      {sidebarCollapsed}
-      on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
+    <MapCanvas
+      bind:this={mapCanvas}
+      showHeader={false}
+      showViewportActions={false}
+      showZoomControls={false}
+      interactive={false}
+      height={680}
     />
-  </section>
-</main>
+
+    <!-- Zoom controls - positioned above log bar -->
+    <div class="zoom-controls" style="--logbar-height: {logBarHeight}px">
+      <button
+        type="button"
+        title="Heranzoomen"
+        on:click={() => mapCanvas?.zoomIn()}>+</button
+      >
+      <button
+        type="button"
+        title="Herauszoomen"
+        on:click={() => mapCanvas?.zoomOut()}>−</button
+      >
+      <button
+        type="button"
+        title="Auf Inhalt zoomen"
+        on:click={() => mapCanvas?.fitToContent()}>◎</button
+      >
+    </div>
+
+    <LogBar />
+  </div>
+
+  <svelte:fragment slot="sidebar">
+    <DashboardSidebar />
+  </svelte:fragment>
+</PageLayout>
 
 <style>
-  .page {
-    height: 100%;
-  }
-
-  .layout {
-    position: relative;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .main-column {
-    min-width: 0;
-    height: 100%;
-  }
-
   .map-stage {
     position: relative;
     height: 100%;
@@ -134,11 +170,38 @@
     font-size: 0.75rem;
   }
 
-  @media (max-width: 900px) {
-    .layout {
-      min-height: auto;
-    }
+  /* Zoom controls - positioned above log bar */
+  .zoom-controls {
+    position: absolute;
+    bottom: calc(var(--logbar-height, 0px) + 0.5rem);
+    left: 0.75rem;
+    z-index: 15;
+    display: flex;
+    flex-direction: row;
+    gap: 0.35rem;
+  }
 
+  .zoom-controls button {
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.4rem;
+    border: 1px solid #1e3a5f;
+    background: rgba(15, 24, 41, 0.94);
+    color: #60a5fa;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .zoom-controls button:hover {
+    background: rgba(30, 58, 95, 0.96);
+    color: #93c5fd;
+  }
+
+  @media (max-width: 900px) {
     .map-stage {
       height: 460px;
     }

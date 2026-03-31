@@ -1,26 +1,31 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import MapCanvas from '../components/Map/MapCanvas.svelte'
-  import { getMapDocument, saveMapDocument, type MapZone } from '../api/rest'
-  import { mapStore, type MapTool, type Point, type Zone } from '../stores/map'
+  import { onMount } from "svelte";
+  import PageLayout from "../components/PageLayout.svelte";
+  import MapCanvas from "../components/Map/MapCanvas.svelte";
+  import { getMapDocument, saveMapDocument, type MapZone } from "../api/rest";
+  import { mapStore, type MapTool, type Point, type Zone } from "../stores/map";
 
-  let busy = false
-  let info = ''
-  let infoTimer: ReturnType<typeof setTimeout> | null = null
-  let mapCanvas: MapCanvas
-  let sidebarCollapsed = false
+  let busy = false;
+  let info = "";
+  let infoTimer: ReturnType<typeof setTimeout> | null = null;
+  let mapCanvas: MapCanvas;
+  let sidebarCollapsed = false;
 
-  type Segment = { a: Point; b: Point }
+  type Segment = { a: Point; b: Point };
 
   function showInfo(msg: string) {
-    info = msg
-    if (infoTimer) clearTimeout(infoTimer)
-    infoTimer = setTimeout(() => { info = '' }, 2500)
+    info = msg;
+    if (infoTimer) clearTimeout(infoTimer);
+    infoTimer = setTimeout(() => {
+      info = "";
+    }, 2500);
   }
 
-  function normalizePoints(points: Array<[number, number]> | Point[] | undefined): Point[] {
-    if (!points) return []
-    return points.map((p) => Array.isArray(p) ? { x: p[0], y: p[1] } : p)
+  function normalizePoints(
+    points: Array<[number, number]> | Point[] | undefined,
+  ): Point[] {
+    if (!points) return [];
+    return points.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1] } : p));
   }
 
   function normalizeZone(zone: MapZone, index: number): Zone {
@@ -35,13 +40,13 @@
         edgeMowing: zone.settings.edgeMowing ?? true,
         edgeRounds: zone.settings.edgeRounds ?? 1,
         speed: zone.settings.speed ?? 1.0,
-        pattern: zone.settings.pattern ?? 'stripe',
+        pattern: zone.settings.pattern ?? "stripe",
       },
-    }
+    };
   }
 
   function orientation(a: Point, b: Point, c: Point) {
-    return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
+    return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
   }
 
   function onSegment(a: Point, b: Point, c: Point) {
@@ -50,218 +55,234 @@
       b.x <= Math.max(a.x, c.x) &&
       Math.min(a.y, c.y) <= b.y &&
       b.y <= Math.max(a.y, c.y)
-    )
+    );
   }
 
   function segmentsIntersect(s1: Segment, s2: Segment) {
-    const o1 = orientation(s1.a, s1.b, s2.a)
-    const o2 = orientation(s1.a, s1.b, s2.b)
-    const o3 = orientation(s2.a, s2.b, s1.a)
-    const o4 = orientation(s2.a, s2.b, s1.b)
+    const o1 = orientation(s1.a, s1.b, s2.a);
+    const o2 = orientation(s1.a, s1.b, s2.b);
+    const o3 = orientation(s2.a, s2.b, s1.a);
+    const o4 = orientation(s2.a, s2.b, s1.b);
 
-    if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true
-    if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true
-    if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true
-    if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true
+    if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true;
+    if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true;
+    if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true;
+    if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true;
 
-    return (o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0)
+    return o1 > 0 !== o2 > 0 && o3 > 0 !== o4 > 0;
   }
 
   function hasSelfIntersection(points: Point[]) {
-    if (points.length < 4) return false
+    if (points.length < 4) return false;
 
     const segments: Segment[] = points.map((point, index) => ({
       a: point,
       b: points[(index + 1) % points.length],
-    }))
+    }));
 
     for (let i = 0; i < segments.length; i += 1) {
       for (let j = i + 1; j < segments.length; j += 1) {
-        const adjacent =
-          j === i + 1 ||
-          (i === 0 && j === segments.length - 1)
+        const adjacent = j === i + 1 || (i === 0 && j === segments.length - 1);
 
-        if (adjacent) continue
-        if (segmentsIntersect(segments[i], segments[j])) return true
+        if (adjacent) continue;
+        if (segmentsIntersect(segments[i], segments[j])) return true;
       }
     }
 
-    return false
+    return false;
   }
 
   async function loadMap() {
-    busy = true
+    busy = true;
     try {
-      const map = await getMapDocument()
+      const map = await getMapDocument();
       mapStore.load({
         perimeter: normalizePoints(map.perimeter),
         dock: normalizePoints(map.dock),
         mow: normalizePoints(map.mow),
-        exclusions: (map.exclusions ?? []).map((e) => normalizePoints(e as Array<[number, number]>)),
-        zones: (map.zones ?? []).map((zone, index) => normalizeZone(zone, index)),
-      })
-      showInfo('Geladen')
+        exclusions: (map.exclusions ?? []).map((e) =>
+          normalizePoints(e as Array<[number, number]>),
+        ),
+        zones: (map.zones ?? []).map((zone, index) =>
+          normalizeZone(zone, index),
+        ),
+      });
+      showInfo("Geladen");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : 'Fehler')
-    } finally { busy = false }
+      showInfo(err instanceof Error ? err.message : "Fehler");
+    } finally {
+      busy = false;
+    }
   }
 
   async function saveMap() {
     if (!canSaveMap) {
-      showInfo(saveHint)
-      return
+      showInfo(saveHint);
+      return;
     }
-    busy = true
+    busy = true;
     try {
       const payload = {
         perimeter: $mapStore.map.perimeter.map((p) => [p.x, p.y]),
         dock: $mapStore.map.dock.map((p) => [p.x, p.y]),
         mow: $mapStore.map.mow.map((p) => [p.x, p.y]),
-        exclusions: $mapStore.map.exclusions.map((ex) => ex.map((p) => [p.x, p.y])),
+        exclusions: $mapStore.map.exclusions.map((ex) =>
+          ex.map((p) => [p.x, p.y]),
+        ),
         zones: $mapStore.map.zones.map((zone) => ({
-          ...zone, polygon: zone.polygon.map((p) => [p.x, p.y]),
+          ...zone,
+          polygon: zone.polygon.map((p) => [p.x, p.y]),
         })),
+      };
+      const result = await saveMapDocument(payload);
+      if (!result.ok) {
+        showInfo(result.error ?? "Fehler");
+        return;
       }
-      const result = await saveMapDocument(payload)
-      if (!result.ok) { showInfo(result.error ?? 'Fehler'); return }
-      mapStore.markSaved()
-      showInfo('Gespeichert')
+      mapStore.markSaved();
+      showInfo("Gespeichert");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : 'Fehler')
-    } finally { busy = false }
+      showInfo(err instanceof Error ? err.message : "Fehler");
+    } finally {
+      busy = false;
+    }
   }
 
   function exportMap() {
-    const data = JSON.stringify({
-      perimeter: $mapStore.map.perimeter,
-      dock: $mapStore.map.dock,
-      exclusions: $mapStore.map.exclusions,
-      zones: $mapStore.map.zones,
-    }, null, 2)
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'map.json'
-    a.click()
-    URL.revokeObjectURL(url)
-    showInfo('Exportiert')
+    const data = JSON.stringify(
+      {
+        perimeter: $mapStore.map.perimeter,
+        dock: $mapStore.map.dock,
+        exclusions: $mapStore.map.exclusions,
+        zones: $mapStore.map.zones,
+      },
+      null,
+      2,
+    );
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "map.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    showInfo("Exportiert");
   }
 
   function importMap() {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
     input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
+      const file = input.files?.[0];
+      if (!file) return;
       try {
-        const text = await file.text()
-        const data = JSON.parse(text)
+        const text = await file.text();
+        const data = JSON.parse(text);
         mapStore.load({
           perimeter: normalizePoints(data.perimeter),
           dock: normalizePoints(data.dock),
           mow: normalizePoints(data.mow ?? []),
-          exclusions: (data.exclusions ?? []).map((e: Array<[number, number]>) => normalizePoints(e)),
-          zones: (data.zones ?? []).map((zone: MapZone, index: number) => normalizeZone(zone, index)),
-        })
-        showInfo('Importiert')
+          exclusions: (data.exclusions ?? []).map(
+            (e: Array<[number, number]>) => normalizePoints(e),
+          ),
+          zones: (data.zones ?? []).map((zone: MapZone, index: number) =>
+            normalizeZone(zone, index),
+          ),
+        });
+        showInfo("Importiert");
       } catch {
-        showInfo('Import fehlgeschlagen')
+        showInfo("Import fehlgeschlagen");
       }
-    }
-    input.click()
+    };
+    input.click();
   }
 
-  $: activeTool = $mapStore.selectedTool
-  $: dockActive = activeTool === 'dock'
-  $: moveActive = activeTool === 'move'
-  $: layer = ((activeTool === 'zone' || activeTool === 'nogo') ? activeTool : 'perimeter') as Extract<MapTool, 'perimeter' | 'zone' | 'nogo'>
+  $: activeTool = $mapStore.selectedTool;
+  $: dockActive = activeTool === "dock";
+  $: moveActive = activeTool === "move";
+  $: layer = (activeTool === "nogo" ? "nogo" : "perimeter") as Extract<
+    MapTool,
+    "perimeter" | "nogo"
+  >;
 
-  function setLayer(l: 'perimeter' | 'zone' | 'nogo') {
-    if (l === 'zone' && $mapStore.map.zones.length === 0) mapStore.createZone()
-    else if (l === 'nogo' && $mapStore.map.exclusions.length === 0) mapStore.createExclusion()
-    else mapStore.setTool(l)
+  function setLayer(l: "perimeter" | "nogo") {
+    if (l === "nogo" && $mapStore.map.exclusions.length === 0)
+      mapStore.createExclusion();
+    else mapStore.setTool(l);
   }
 
-  function toggleDock() { mapStore.setTool(dockActive ? layer : 'dock') }
-  function toggleMove() { mapStore.setTool(moveActive ? layer : 'move') }
+  function toggleDock() {
+    mapStore.setTool(dockActive ? layer : "dock");
+  }
+  function toggleMove() {
+    mapStore.setTool(moveActive ? layer : "move");
+  }
 
   function addNew() {
-    if (activeTool === 'zone') mapStore.createZone()
-    else if (activeTool === 'nogo') mapStore.createExclusion()
+    if (activeTool === "nogo") mapStore.createExclusion();
   }
 
   function deleteActive() {
-    if (layer === 'zone') {
-      mapStore.deleteSelectedZone()
-      return
+    if (layer === "nogo") {
+      mapStore.deleteSelectedExclusion();
+      return;
     }
-    if (layer === 'nogo') {
-      mapStore.deleteSelectedExclusion()
-      return
-    }
-    mapStore.clearActive()
+    mapStore.clearActive();
   }
 
   function removeLastPoint() {
-    if (activeTool === 'move') {
+    if (activeTool === "move") {
       if (mapCanvas?.deleteSelectedPoint()) {
-        showInfo('Punkt geloescht')
-        return
+        showInfo("Punkt geloescht");
+        return;
       }
-      mapStore.setTool(layer)
+      mapStore.setTool(layer);
     }
 
-    if (layer === 'zone') {
-      const zone = $mapStore.map.zones.find((entry) => entry.id === $mapStore.selectedZoneId)
-      if (zone && zone.polygon.length === 0) {
-        mapStore.deleteSelectedZone()
-        showInfo('Leere Zone geloescht')
-        return
-      }
-    }
-
-    if (layer === 'nogo' && $mapStore.selectedExclusionIndex !== null) {
-      const exclusion = $mapStore.map.exclusions[$mapStore.selectedExclusionIndex] ?? []
+    if (layer === "nogo" && $mapStore.selectedExclusionIndex !== null) {
+      const exclusion =
+        $mapStore.map.exclusions[$mapStore.selectedExclusionIndex] ?? [];
       if (exclusion.length === 0) {
-        mapStore.deleteSelectedExclusion()
-        showInfo('Leere NoGo-Zone geloescht')
-        return
+        mapStore.deleteSelectedExclusion();
+        showInfo("Leere NoGo-Zone geloescht");
+        return;
       }
     }
 
-    mapStore.removeLastPoint()
+    mapStore.removeLastPoint();
   }
 
   function handlePointRejected() {
-    showInfo('Punkt wuerde Polygon schneiden')
+    showInfo("Punkt wuerde Polygon schneiden");
   }
 
   $: addBtnTitle = dockActive
-    ? 'Dockpunkt setzen (Klick ins Raster)'
-    : activeTool === 'zone'
-      ? 'Zonenpunkt setzen (Klick ins Raster)'
-      : activeTool === 'nogo'
-        ? 'NoGo-Punkt setzen (Klick ins Raster)'
-        : 'Perimeterpunkt setzen (Klick ins Raster)'
+    ? "Dockpunkt setzen (Klick ins Raster)"
+    : activeTool === "nogo"
+      ? "NoGo-Punkt setzen (Klick ins Raster)"
+      : "Perimeterpunkt setzen (Klick ins Raster)";
 
-  $: hasZones = $mapStore.map.zones.length > 0
-  $: hasNogo  = $mapStore.map.exclusions.length > 0
-  $: perimeterTooSmall = $mapStore.map.perimeter.length > 0 && $mapStore.map.perimeter.length < 3
-  $: perimeterSelfIntersecting = hasSelfIntersection($mapStore.map.perimeter)
-  $: saveHint =
-    perimeterTooSmall
-      ? 'Perimeter braucht mindestens 3 Punkte'
-      : perimeterSelfIntersecting
-        ? 'Perimeter darf sich nicht selbst schneiden'
-        : ''
-  $: canSaveMap = !busy && !saveHint
+  $: hasNogo = $mapStore.map.exclusions.length > 0;
+  $: perimeterTooSmall =
+    $mapStore.map.perimeter.length > 0 && $mapStore.map.perimeter.length < 3;
+  $: perimeterSelfIntersecting = hasSelfIntersection($mapStore.map.perimeter);
+  $: saveHint = perimeterTooSmall
+    ? "Perimeter braucht mindestens 3 Punkte"
+    : perimeterSelfIntersecting
+      ? "Perimeter darf sich nicht selbst schneiden"
+      : "";
+  $: canSaveMap = !busy && !saveHint;
 
-  onMount(() => { void loadMap() })
+  onMount(() => {
+    void loadMap();
+  });
 </script>
 
-<main class="page">
+<PageLayout
+  {sidebarCollapsed}
+  on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
+>
   <div class="map-stage">
     <MapCanvas
       bind:this={mapCanvas}
@@ -273,126 +294,170 @@
 
     <!-- Bottom center: edit tools -->
     <div class="toolbar-wrap">
-
       <!-- Layer selector -->
       <div class="layer-bar">
-        <button type="button" class:active={layer === 'perimeter' && !dockActive} on:click={() => setLayer('perimeter')}>
+        <button
+          type="button"
+          class:active={layer === "perimeter" && !dockActive}
+          on:click={() => setLayer("perimeter")}
+        >
           <span class="layer-dot perimeter"></span> Perimeter
         </button>
-        <button type="button" class:active={layer === 'zone' && !dockActive}
-          on:click={() => setLayer('zone')}>
-          <span class="layer-dot zone"></span>
-          Zone {#if hasZones}<small>({$mapStore.map.zones.length})</small>{/if}
-        </button>
-        <button type="button" class:active={layer === 'nogo' && !dockActive}
-          on:click={() => setLayer('nogo')}>
+        <button
+          type="button"
+          class:active={layer === "nogo" && !dockActive}
+          on:click={() => setLayer("nogo")}
+        >
           <span class="layer-dot nogo"></span>
-          NoGo {#if hasNogo}<small>({$mapStore.map.exclusions.length})</small>{/if}
+          NoGo {#if hasNogo}<small>({$mapStore.map.exclusions.length})</small
+            >{/if}
         </button>
         <div class="divider"></div>
-        <button type="button" class:active={dockActive} title="Dock-Modus" on:click={toggleDock}>D</button>
-        <button type="button" class:active={moveActive} title="Punkte verschieben" on:click={toggleMove}>⇔</button>
+        <button
+          type="button"
+          class:active={dockActive}
+          title="Dock-Modus"
+          on:click={toggleDock}>D</button
+        >
+        <button
+          type="button"
+          class:active={moveActive}
+          title="Punkte verschieben"
+          on:click={toggleMove}>⇔</button
+        >
         {#if info}
           <div class="divider"></div>
           <span class="info">{info}</span>
         {/if}
       </div>
 
-      <!-- Zone/NoGo: new item row -->
-      {#if layer === 'zone' || layer === 'nogo'}
+      <!-- NoGo: new item row -->
+      {#if layer === "nogo"}
         <div class="item-bar">
-          {#if layer === 'zone'}
-            {#each $mapStore.map.zones as zone}
-              <button type="button"
-                class="item-btn"
-                class:active={$mapStore.selectedZoneId === zone.id}
-                on:click={() => { mapStore.selectZone(zone.id); mapStore.setTool('zone') }}
-              >{zone.settings.name}</button>
-            {/each}
-          {:else}
-            {#each $mapStore.map.exclusions as _, i}
-              <button type="button"
-                class="item-btn nogo"
-                class:active={$mapStore.selectedExclusionIndex === i}
-                on:click={() => { mapStore.selectExclusion(i); mapStore.setTool('nogo') }}
-              >NoGo {i + 1}</button>
-            {/each}
-          {/if}
-          <button type="button" class="item-new" on:click={addNew}>+ Neu</button>
+          {#each $mapStore.map.exclusions as _, i}
+            <button
+              type="button"
+              class="item-btn nogo"
+              class:active={$mapStore.selectedExclusionIndex === i}
+              on:click={() => {
+                mapStore.selectExclusion(i);
+                mapStore.setTool("nogo");
+              }}>NoGo {i + 1}</button
+            >
+          {/each}
+          <button type="button" class="item-new" on:click={addNew}>+ Neu</button
+          >
         </div>
       {/if}
 
       <!-- Big action buttons -->
       <div class="big-btns">
-        <button type="button" class="big add" disabled={moveActive} title={addBtnTitle}>+</button>
-        <button type="button" class="big remove" title="Letzten Punkt entfernen" on:click={removeLastPoint}>−</button>
+        <button
+          type="button"
+          class="big add"
+          disabled={moveActive}
+          title={addBtnTitle}>+</button
+        >
+        <button
+          type="button"
+          class="big remove"
+          title="Letzten Punkt entfernen"
+          on:click={removeLastPoint}>−</button
+        >
       </div>
     </div>
 
     <!-- Bottom left: zoom -->
     <div class="zoom-stack">
-      <button type="button" title="Heranzoomen" on:click={() => mapCanvas?.zoomIn()}>+</button>
-      <button type="button" title="Herauszoomen" on:click={() => mapCanvas?.zoomOut()}>−</button>
-      <button type="button" title="Auf Inhalt zoomen" on:click={() => mapCanvas?.fitToContent()}>◎</button>
-    </div>
-
-    <!-- Right sidebar -->
-    <aside class="sidebar" class:collapsed={sidebarCollapsed}>
       <button
-        class="collapse-btn"
-        class:collapsed={sidebarCollapsed}
-        title={sidebarCollapsed ? 'Sidebar ausklappen' : 'Sidebar einklappen'}
-        on:click={() => (sidebarCollapsed = !sidebarCollapsed)}
-      >{sidebarCollapsed ? '‹' : '›'}</button>
-
-      {#if !sidebarCollapsed}
-        <div class="sidebar-inner">
-
-          <div class="sb-section">
-            <span class="sb-label">Status</span>
-            <div class="sb-row">
-              <span class:warn={Boolean(saveHint)} class="muted">
-                {saveHint || ($mapStore.dirty ? 'Ungespeichert' : 'Synchron')}
-              </span>
-            </div>
-            <div class="sb-actions">
-              <button type="button" class="sb-btn" title="Neu laden" disabled={busy} on:click={loadMap}>↺ Laden</button>
-              <button type="button" class="sb-btn primary" class:unsaved={$mapStore.dirty} disabled={!$mapStore.dirty || !canSaveMap} on:click={saveMap}>Speichern</button>
-            </div>
-          </div>
-
-          <div class="sb-section">
-            <span class="sb-label">Karte</span>
-            <select class="sb-select" disabled title="Kartenauswahl — noch nicht verfügbar">
-              <option>Hauptgarten</option>
-            </select>
-          </div>
-
-          <div class="sb-section">
-            <span class="sb-label">Import / Export</span>
-            <div class="sb-actions">
-              <button type="button" class="sb-btn" on:click={importMap}>↑ Import</button>
-              <button type="button" class="sb-btn" on:click={exportMap}>↓ Export</button>
-            </div>
-          </div>
-
-          <div class="sb-section">
-            <span class="sb-label">Inhalt</span>
-            <div class="sb-stat"><span>Perimeter</span><strong>{$mapStore.map.perimeter.length} Punkte</strong></div>
-            <div class="sb-stat"><span>Dock</span><strong>{$mapStore.map.dock.length > 0 ? 'Gesetzt' : '—'}</strong></div>
-            <div class="sb-stat"><span>Zonen</span><strong>{$mapStore.map.zones.length}</strong></div>
-            <div class="sb-stat"><span>NoGo</span><strong>{$mapStore.map.exclusions.length}</strong></div>
-          </div>
-
-        </div>
-      {/if}
-    </aside>
+        type="button"
+        title="Heranzoomen"
+        on:click={() => mapCanvas?.zoomIn()}>+</button
+      >
+      <button
+        type="button"
+        title="Herauszoomen"
+        on:click={() => mapCanvas?.zoomOut()}>−</button
+      >
+      <button
+        type="button"
+        title="Auf Inhalt zoomen"
+        on:click={() => mapCanvas?.fitToContent()}>◎</button
+      >
+    </div>
   </div>
-</main>
+
+  <svelte:fragment slot="sidebar">
+    <div class="sidebar-inner">
+      <div class="sb-section">
+        <span class="sb-label">Status</span>
+        <div class="sb-row">
+          <span class:warn={Boolean(saveHint)} class="muted">
+            {saveHint || ($mapStore.dirty ? "Ungespeichert" : "Synchron")}
+          </span>
+        </div>
+        <div class="sb-actions">
+          <button
+            type="button"
+            class="sb-btn"
+            title="Neu laden"
+            disabled={busy}
+            on:click={loadMap}>↺ Laden</button
+          >
+          <button
+            type="button"
+            class="sb-btn primary"
+            class:unsaved={$mapStore.dirty}
+            disabled={!$mapStore.dirty || !canSaveMap}
+            on:click={saveMap}>Speichern</button
+          >
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">Karte</span>
+        <select
+          class="sb-select"
+          disabled
+          title="Kartenauswahl — noch nicht verfügbar"
+        >
+          <option>Hauptgarten</option>
+        </select>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">Import / Export</span>
+        <div class="sb-actions">
+          <button type="button" class="sb-btn" on:click={importMap}
+            >↑ Import</button
+          >
+          <button type="button" class="sb-btn" on:click={exportMap}
+            >↓ Export</button
+          >
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">Inhalt</span>
+        <div class="sb-stat">
+          <span>Perimeter</span><strong
+            >{$mapStore.map.perimeter.length} Punkte</strong
+          >
+        </div>
+        <div class="sb-stat">
+          <span>Dock</span><strong
+            >{$mapStore.map.dock.length > 0 ? "Gesetzt" : "—"}</strong
+          >
+        </div>
+        <div class="sb-stat">
+          <span>NoGo</span><strong>{$mapStore.map.exclusions.length}</strong>
+        </div>
+      </div>
+    </div></svelte:fragment
+  >
+</PageLayout>
 
 <style>
-  .page { height: 100%; }
-
   .map-stage {
     position: relative;
     height: 100%;
@@ -410,6 +475,7 @@
     flex-direction: column;
     align-items: center;
     gap: 0.4rem;
+    min-width: 320px;
   }
 
   .layer-bar {
@@ -422,6 +488,7 @@
     border-radius: 0.6rem;
     backdrop-filter: blur(6px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    min-height: 2rem;
   }
 
   .layer-bar button {
@@ -439,9 +506,19 @@
     white-space: nowrap;
   }
 
-  .layer-bar button:hover { background: rgba(30, 58, 95, 0.4); color: #e2e8f0; }
-  .layer-bar button.active { background: rgba(30, 58, 95, 0.35); border-color: #2563eb; color: #93c5fd; }
-  .layer-bar button small { color: #475569; font-weight: 400; }
+  .layer-bar button:hover {
+    background: rgba(30, 58, 95, 0.4);
+    color: #e2e8f0;
+  }
+  .layer-bar button.active {
+    background: rgba(30, 58, 95, 0.35);
+    border-color: #2563eb;
+    color: #93c5fd;
+  }
+  .layer-bar button small {
+    color: #475569;
+    font-weight: 400;
+  }
 
   .layer-dot {
     width: 0.45rem;
@@ -449,9 +526,12 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .layer-dot.perimeter { background: #2563eb; }
-  .layer-dot.zone      { background: #0891b2; }
-  .layer-dot.nogo      { background: #dc2626; }
+  .layer-dot.perimeter {
+    background: #2563eb;
+  }
+  .layer-dot.nogo {
+    background: #dc2626;
+  }
 
   .item-bar {
     display: flex;
@@ -463,6 +543,8 @@
     border-radius: 0.5rem;
     flex-wrap: wrap;
     max-width: 380px;
+    min-width: 280px;
+    min-height: 1.8rem;
   }
 
   .item-btn {
@@ -476,10 +558,24 @@
     cursor: pointer;
   }
 
-  .item-btn:hover { border-color: #0891b2; color: #67e8f9; }
-  .item-btn.active { border-color: #0891b2; background: #082f49; color: #67e8f9; }
-  .item-btn.nogo:hover { border-color: #dc2626; color: #fca5a5; }
-  .item-btn.nogo.active { border-color: #dc2626; background: #450a0a; color: #fca5a5; }
+  .item-btn:hover {
+    border-color: #0891b2;
+    color: #67e8f9;
+  }
+  .item-btn.active {
+    border-color: #0891b2;
+    background: #082f49;
+    color: #67e8f9;
+  }
+  .item-btn.nogo:hover {
+    border-color: #dc2626;
+    color: #fca5a5;
+  }
+  .item-btn.nogo.active {
+    border-color: #dc2626;
+    background: #450a0a;
+    color: #fca5a5;
+  }
 
   .item-new {
     padding: 0.22rem 0.5rem;
@@ -492,10 +588,14 @@
     cursor: pointer;
   }
 
-  .item-new:hover { color: #94a3b8; border-color: #334155; }
+  .item-new:hover {
+    color: #94a3b8;
+    border-color: #334155;
+  }
 
   .divider {
-    width: 1px; height: 1.1rem;
+    width: 1px;
+    height: 1.1rem;
     background: #1e3a5f;
     margin: 0 0.12rem;
     flex-shrink: 0;
@@ -506,6 +606,8 @@
     grid-template-columns: 1fr 1fr;
     gap: 0.4rem;
     width: 100%;
+    min-width: 280px;
+    min-height: 2.8rem;
   }
 
   .big {
@@ -520,7 +622,10 @@
     justify-content: center;
   }
 
-  .big:disabled { opacity: 0.35; cursor: default; }
+  .big:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
 
   .big.add {
     background: rgba(12, 26, 58, 0.94);
@@ -528,7 +633,9 @@
     color: #93c5fd;
   }
 
-  .big.add:hover:not(:disabled) { background: rgba(30, 58, 95, 0.94); }
+  .big.add:hover:not(:disabled) {
+    background: rgba(30, 58, 95, 0.94);
+  }
 
   .big.remove {
     background: rgba(69, 10, 10, 0.94);
@@ -536,7 +643,9 @@
     color: #fca5a5;
   }
 
-  .big.remove:hover { background: rgba(100, 15, 15, 0.94); }
+  .big.remove:hover {
+    background: rgba(100, 15, 15, 0.94);
+  }
 
   .info {
     font-size: 0.6rem;
@@ -554,10 +663,12 @@
     position: absolute;
     bottom: 1rem;
     left: 0.75rem;
-    z-index: 10;
+    z-index: 15;
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    flex-direction: row;
+    gap: 0.35rem;
+    min-width: 5.6rem;
+    min-height: 2rem;
   }
 
   .zoom-stack button {
@@ -575,59 +686,9 @@
     justify-content: center;
   }
 
-  .zoom-stack button:hover { background: rgba(30, 58, 95, 0.96); color: #93c5fd; }
-
-  /* ── Right sidebar ── */
-  .sidebar {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 220px;
-    z-index: 5;
-    padding-left: 0.55rem;
-  }
-
-  .sidebar.collapsed { width: 0; }
-
-  .collapse-btn {
-    position: absolute;
-    left: calc(0.55rem - 14px);
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 10;
-    width: 14px;
-    height: 44px;
-    background: #0f1829;
-    border: 1px solid #1e3a5f;
-    border-right: none;
-    color: #475569;
-    cursor: pointer;
-    border-radius: 6px 0 0 6px;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .collapse-btn.collapsed {
-    border-right: 1px solid #1e3a5f;
-    border-left: none;
-    border-radius: 0 6px 6px 0;
-  }
-
-  .collapse-btn:hover { color: #60a5fa; }
-
-  .sidebar-inner {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    background: #0a1020;
-    border: 1px solid #1e3a5f;
-    border-radius: 0.75rem;
-    overflow: hidden;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  .zoom-stack button:hover {
+    background: rgba(30, 58, 95, 0.96);
+    color: #93c5fd;
   }
 
   .sb-section {
@@ -644,9 +705,16 @@
     letter-spacing: 0.08em;
   }
 
-  .muted { color: #94a3b8; font-size: 0.68rem; }
+  .muted {
+    color: #94a3b8;
+    font-size: 0.68rem;
+  }
 
-  .sb-row { display: flex; align-items: center; gap: 0.4rem; }
+  .sb-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
 
   .sb-actions {
     display: grid;
@@ -666,8 +734,14 @@
     text-align: center;
   }
 
-  .sb-btn:hover:not(:disabled) { background: #0c1a3a; color: #e2e8f0; }
-  .sb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sb-btn:hover:not(:disabled) {
+    background: #0c1a3a;
+    color: #e2e8f0;
+  }
+  .sb-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 
   .sb-btn.primary {
     border-color: #2563eb;
@@ -691,7 +765,9 @@
     font-size: 0.68rem;
   }
 
-  .sb-select:disabled { opacity: 0.5; }
+  .sb-select:disabled {
+    opacity: 0.5;
+  }
 
   .sb-stat {
     display: flex;

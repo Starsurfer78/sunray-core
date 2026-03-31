@@ -17,11 +17,11 @@
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', enabled: true },
     { id: 'map', label: 'Karten', enabled: true },
+    { id: 'mission', label: 'Missionen', enabled: true },
     { id: null, label: 'Verlauf', enabled: false },
-    { id: 'diagnostics', label: 'Diagnose', enabled: true },
     { id: null, label: 'Simulator', enabled: false },
-    { id: 'mission', label: 'Mission', enabled: true },
     { id: null, label: 'Einstellungen', enabled: false },
+    { id: 'diagnostics', label: 'Diagnose', enabled: true },
   ]
 
   function triggerEmergencyStop() {
@@ -68,9 +68,9 @@
       <button type="button" class="emergency" on:click={triggerEmergencyStop}>
         NOTAUS
       </button>
-    </div>
 
-    <div class="topbar-nav">
+      <div class="topbar-div"></div>
+
       <nav class="tabs" aria-label="Hauptnavigation">
         {#each navItems as item}
           <button
@@ -185,11 +185,11 @@
     cursor: pointer;
   }
 
-  .topbar-nav {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    min-width: 0;
+  .topbar-div {
+    width: 1px;
+    height: 22px;
+    background: #1e3a5f;
+    flex-shrink: 0;
   }
 
   .tabs {
@@ -260,8 +260,7 @@
   }
 
   @media (max-width: 900px) {
-    .topbar-main,
-    .topbar-nav {
+    .topbar-main {
       align-items: start;
       flex-direction: column;
     }

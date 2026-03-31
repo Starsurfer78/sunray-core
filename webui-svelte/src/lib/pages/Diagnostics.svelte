@@ -1,55 +1,88 @@
 <script lang="ts">
-  import SensorPanel from '../components/Diagnostics/SensorPanel.svelte'
-  import ImuPanel from '../components/Diagnostics/ImuPanel.svelte'
-  import MotorTestPanel from '../components/Diagnostics/MotorTestPanel.svelte'
-  import TickCalibration from '../components/Diagnostics/TickCalibration.svelte'
-  import DirectionValidation from '../components/Diagnostics/DirectionValidation.svelte'
-  import { diagnostics } from '../stores/diagnostics'
+  import PageLayout from "../components/PageLayout.svelte";
+  import SensorPanel from "../components/Diagnostics/SensorPanel.svelte";
+  import ImuPanel from "../components/Diagnostics/ImuPanel.svelte";
+  import MotorTestPanel from "../components/Diagnostics/MotorTestPanel.svelte";
+  import TickCalibration from "../components/Diagnostics/TickCalibration.svelte";
+  import DirectionValidation from "../components/Diagnostics/DirectionValidation.svelte";
+  import { diagnostics } from "../stores/diagnostics";
+
+  let sidebarCollapsed = false;
 </script>
 
-<main class="page">
-  <section class="head">
-    <div>
+<PageLayout
+  {sidebarCollapsed}
+  on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
+>
+  <div class="diagnostics-body">
+    <!-- Sensoren Live als erstes, prominentes Panel -->
+    <div class="sensor-highlight">
+      <SensorPanel />
+    </div>
+
+    <!-- Rest der Panels in einem Grid darunter -->
+    <div class="diagnostics-grid">
+      <ImuPanel />
+      <MotorTestPanel />
+      <TickCalibration />
+      <DirectionValidation />
+    </div>
+  </div>
+
+  <svelte:fragment slot="sidebar">
+    <div class="sidebar-header">
       <span class="eyebrow">Diagnose</span>
       <h1>Hardware und Kalibrierung</h1>
     </div>
 
     <div class="result-card">
       <span class="label">Letzte Aktion</span>
-      <strong>{$diagnostics.activeAction ?? 'bereit'}</strong>
+      <strong>{$diagnostics.activeAction ?? "bereit"}</strong>
       {#if $diagnostics.error}
         <span class="error">{$diagnostics.error}</span>
       {:else if $diagnostics.lastResult}
         <span class="ok">
-          {$diagnostics.lastResult.message ?? ($diagnostics.lastResult.ok ? 'erfolgreich' : 'fehlgeschlagen')}
+          {$diagnostics.lastResult.message ??
+            ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
         </span>
       {:else}
         <span class="muted">Noch kein Ergebnis</span>
       {/if}
     </div>
-  </section>
-
-  <section class="content">
-    <SensorPanel />
-    <ImuPanel />
-    <MotorTestPanel />
-    <TickCalibration />
-    <DirectionValidation />
-  </section>
-</main>
+  </svelte:fragment>
+</PageLayout>
 
 <style>
-  .page {
-    display: grid;
+  .diagnostics-body {
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     gap: 1rem;
     padding: 1rem;
   }
 
-  .head {
+  .sensor-highlight {
+    flex-shrink: 0;
+  }
+
+  .diagnostics-grid {
+    flex: 1;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1rem;
     align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .diagnostics-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .sidebar-header {
+    padding: 1rem;
+    border-bottom: 1px solid #1e3a5f;
   }
 
   .eyebrow {
@@ -61,11 +94,14 @@
     font-size: 0.72rem;
   }
 
-  h1 { margin: 0; }
-
-  h1 { font-size: 1.55rem; line-height: 1.05; }
+  h1 {
+    margin: 0;
+    font-size: 1.55rem;
+    line-height: 1.05;
+  }
 
   .result-card {
+    margin: 1rem;
     display: grid;
     gap: 0.25rem;
     padding: 0.95rem 1rem;
@@ -94,31 +130,5 @@
   .error {
     color: #f1aaaa;
     font-size: 0.82rem;
-  }
-
-  .content {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-    align-items: start;
-  }
-
-  :global(.content > :nth-child(3)),
-  :global(.content > :nth-child(4)),
-  :global(.content > :nth-child(5)) {
-    grid-column: span 2;
-  }
-
-  @media (max-width: 900px) {
-    .head,
-    .content {
-      grid-template-columns: 1fr;
-    }
-
-    :global(.content > :nth-child(3)),
-    :global(.content > :nth-child(4)),
-    :global(.content > :nth-child(5)) {
-      grid-column: span 1;
-    }
   }
 </style>

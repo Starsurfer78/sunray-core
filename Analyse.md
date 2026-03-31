@@ -118,6 +118,41 @@ API-Endpunkte:
 
 ---
 
+### **4) WEBUI UX KONZEPT VS. IMPLEMENTIERUNG**
+
+Basierend auf dem UX-Konzept in `missions_concept.html` und der aktuellen WebUI in `webui-svelte`, hier eine Übersicht was bereits umgesetzt ist.
+
+#### **Vollständig umgesetzt:**
+- **Missions-Seite (`Mission.svelte`):** 
+  - Zentraler Canvas für Bahnvorschau (via `PathPreview.svelte`).
+  - Einstellungs-Panel unten (via `ZoneSettings.svelte`) mit Feldern für Strip-Breite, Winkel, Edge-Mowing, etc.
+  - Rechte Sidebar mit Mission-Liste, Editor für Zonen, Zeitplan (Tage, Start/End-Zeit, Regenverzögerung).
+  - Zone-Farben und -Namen, Drag-and-Drop für Zonen-Reihenfolge.
+  - Speichern/Löschen von Missionen, Backend-Integration.
+
+- **Dashboard (`Dashboard.svelte` + `DashboardSidebar.svelte`):**
+  - MapCanvas mit Roboter-Position, Zoom-Controls.
+  - Sidebar mit Status (Op-Phase), GPS (Fix-Qualität, Heading, EKF), Akku (Spannung, Ladestrom, Bar), Sensoren (Bumper, Lift, Motor).
+  - MissionWidget in der Sidebar (zeigt nächste Mission, aber nicht das vollständige Konzept-Layout).
+
+#### **Teilweise umgesetzt:**
+- **Zone-Management:** Zonen werden geladen und angezeigt, aber keine Zone-Legende oben links im Canvas (wie im Konzept).
+- **Mission-Widget im Dashboard:** Existierend, aber nicht als Overlay-Card mit Fortschrittsbar (wie im Konzept für "Mission läuft").
+- **Tabs/Screens:** Bewusst anders implementiert – separate Seiten via Routing statt Screen-Switcher (Konzept: `sc-switch`), um Fokus und Navigation zu verbessern.
+
+#### **Nicht umgesetzt:**
+- **Zone-Klick-Targets:** Transparente Overlays auf Zonen für direkte Auswahl (im Konzept: `ms-zone-hit`).
+- **Zoom-Buttons:** Spezifische Positionierung unten links im Canvas (im Konzept: `ms-zoom`).
+- **Zone-Legende:** Oben links im Canvas mit Hover-Effekten (im Konzept: `ms-legend`).
+- **Mission-Editor-Details:** Vollständiger Editor mit Save/Delete-Buttons, aber keine Toggle für Edge-Mowing oder Pattern-Auswahl im Panel.
+- **Dashboard-Mission-Card:** Overlay-Card mit Titel, Name, Meta, Fortschrittsbar (im Konzept: `sr-mcard`).
+- **Guided Setup/Onboarding:** Kein Wizard für Erstmal-Setup (Map-Erstellung, Dock-Ausrichtung).
+
+#### **Fazit:**
+Die Kernfunktionalität (Missions-Management, Zone-Settings, Dashboard-Status) ist solide implementiert und folgt dem Konzept grob. Fehlende Elemente sind hauptsächlich UI-Polish (Legenden, Overlays, Tabs) und erweiterte Features (Onboarding, Mission-Fortschritt). Die aktuelle UI ist funktional, aber das Konzept bietet eine visuell reichere Erfahrung.
+
+---
+
 ### **2) ROBOT BEHAVIOR ANALYSIS**
 
 #### **2.1 Op State Machine (When/What/Why)**
