@@ -2,6 +2,7 @@
 
 #include "Config.h"
 
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -240,9 +241,12 @@ namespace sunray
                 data_[canonicalKey(key)] = val;
             }
         }
-        catch (const nlohmann::json::exception &)
+        catch (const nlohmann::json::exception &e)
         {
-            // Invalid JSON → keep defaults, silently ignore corrupt file
+            std::fprintf(stderr,
+                         "sunray-core: invalid config JSON in '%s': %s — using defaults\n",
+                         path_.string().c_str(),
+                         e.what());
         }
     }
 

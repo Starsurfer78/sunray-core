@@ -194,7 +194,7 @@ function createMapStore() {
           accepted = true
         }
       } else if (next.selectedTool === 'dock') {
-        next.map.dock = [point]
+        next.map.dock.push(point)
         accepted = true
       } else if (next.selectedTool === 'nogo') {
         if (next.selectedExclusionIndex === null) {

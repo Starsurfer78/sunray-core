@@ -12,8 +12,10 @@
   export let showViewportActions = true
   export let showRobot = true
   export let showZoomControls = false
+  export let allowPointAdd = true
+  export let pointAddBlockedReason = ''
 
-  const dispatch = createEventDispatcher<{ pointrejected: { tool: string } }>()
+  const dispatch = createEventDispatcher<{ pointrejected: { tool: string; reason?: string } }>()
 
   const RAD_TO_DEG = 180 / Math.PI
   const baseScale = 20
@@ -246,10 +248,24 @@
       suppressClick = false
       return
     }
+    if (!allowPointAdd) {
+      dispatch('pointrejected', {
+        tool: $mapStore.selectedTool,
+        reason: pointAddBlockedReason,
+      })
+      return
+    }
     const target = event.currentTarget as SVGSVGElement
     const accepted = mapStore.addPoint(screenToWorld(event, target))
     if (!accepted) {
       dispatch('pointrejected', { tool: $mapStore.selectedTool })
+    }
+  }
+
+  function selectExclusionArea(exclusionIndex: number) {
+    mapStore.selectExclusion(exclusionIndex)
+    if ($mapStore.selectedTool !== 'move') {
+      mapStore.setTool('nogo')
     }
   }
 
@@ -462,6 +478,10 @@
             stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
             stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
             stroke-dasharray="5 3"
+            role="button"
+            tabindex="-1"
+            aria-label={`NoGo ${exclusionIndex + 1} auswaehlen`}
+            on:click|stopPropagation={() => selectExclusionArea(exclusionIndex)}
           />
         {/if}
         {#each exclusion as point, index}
@@ -474,7 +494,15 @@
         {@const exclusionCenter = centroid(exclusion)}
         {#if exclusionCenter}
           {@const center = worldToScreen(exclusionCenter, currentScale, offsetX, offsetY)}
-          <text x={center.x + 8} y={center.y - 8} class="label exclusion-label">NoGo {exclusionIndex + 1}</text>
+          <text
+            x={center.x + 8}
+            y={center.y - 8}
+            class="label exclusion-label"
+            role="button"
+            tabindex="-1"
+            aria-label={`NoGo ${exclusionIndex + 1} auswaehlen`}
+            on:click|stopPropagation={() => selectExclusionArea(exclusionIndex)}
+          >NoGo {exclusionIndex + 1}</text>
         {/if}
       {/each}
 

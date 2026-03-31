@@ -1,97 +1,126 @@
-# Potenzielle Bugs in sunray-core
+# Bug-Prüfung `sunray-core`
 
-Dieses Dokument listet potenzielle Bugs und Probleme, die ich als Bug-Hunter im Code von sunray-core gefunden habe. Diese basieren auf statischer Code-Analyse und könnten zu Laufzeitfehlern, Speicherlecks, Race Conditions oder anderen Problemen führen.
+## Keine offenen Punkte mehr alles behoben! ###
 
-## Kritische Bugs
 
-### 1. Buffer-Overflow in `MqttClient::getHostname()` (MqttClient.cpp:175-181)
-**Beschreibung:** Die Funktion verwendet ein Stack-Array von 256 Bytes für den Hostnamen, aber `gethostname()` garantiert keine Null-Terminierung, wenn der Hostname länger als 255 Bytes ist. Dies kann zu undefiniertem Verhalten führen, wenn `std::string(hostname)` aufgerufen wird.
+Dieses Dokument hält nur noch die Punkte fest, die gegen den aktuellen Stand
+des Repos geprüft wurden. Veraltete oder bereits behobene Hinweise sind hier
+bewusst entfernt oder als "nicht zutreffend" eingeordnet.
 
-**Code:**
-```cpp
-char hostname[256];
-if (gethostname(hostname, sizeof(hostname)) == 0) {
-    return std::string(hostname);  // Potenziell gefährlich
-}
-```
+## Behoben
 
-**Risiko:** Wenn der Hostname >= 256 Bytes ist, ist das Array nicht null-terminiert, was zu einem Absturz oder falschen Daten führen kann.
+### 1. `MqttClient::getHostname()` kann ohne garantierte Null-Terminierung lesen
+Datei: [`core/MqttClient.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/MqttClient.cpp)
 
-**Fix:** Verwende `std::string` mit Längenbegrenzung oder prüfe auf Null-Terminierung.
+Status: behoben
 
-### 2. Fehlende Thread-Safety in `Config::get()` (Config.cpp)
-**Beschreibung:** Die `get()`-Methode greift auf `data_` zu ohne Lock, obwohl `load()` und `save()` Mutexe verwenden. Dies kann zu Race Conditions führen, wenn ein Thread die Config lädt/speichert während ein anderer liest.
+Beschreibung:
+- `gethostname()` garantiert keine Null-Terminierung, wenn der Hostname den
+  Puffer vollständig ausfüllt.
+- Danach wird direkt `std::string(hostname)` gebaut.
 
-**Risiko:** Datenkonsistenz-Probleme in Multi-Threaded-Umgebungen.
+Risiko:
+- Undefiniertes Verhalten bei sehr langen Hostnamen.
 
-**Fix:** Füge Locks zu allen Zugriffen auf `data_` hinzu.
+Umsetzung:
+- Hostname-Puffer wird initialisiert und das letzte Byte explizit auf `'\0'`
+  gesetzt.
 
-### 3. Ressourcenlecks im Signal-Handler (main.cpp:32-35)
-**Beschreibung:** Der Signal-Handler ruft nur `robot->stop()` auf, aber `wsServer` und `mqttClient` werden nicht gestoppt. Dies kann zu offenen Sockets, Threads und Speicherlecks führen.
+### 2. `Config::load()` verschluckt kaputte JSON-Konfiguration still
+Datei: [`core/Config.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Config.cpp)
 
-**Code:**
-```cpp
-static void signalHandler(int) {
-    if (g_robot) g_robot->stop();
-}
-```
+Status: behoben
 
-**Risiko:** Ressourcenlecks bei abnormaler Terminierung.
+Beschreibung:
+- Bei Parse-Fehlern wird auf Defaults zurückgefallen.
+- Es gibt dabei aktuell kein Warn- oder Error-Logging.
 
-**Fix:** Stoppe alle Komponenten im Signal-Handler oder verwende atexit().
+Risiko:
+- Der Roboter läuft mit Defaults, ohne dass der Benutzer die defekte Datei
+  bemerkt.
 
-## Mittelschwere Bugs
+Umsetzung:
+- Parse-Fehler werden jetzt auf `stderr` ausgegeben.
 
-### 4. Stille Fehler in `Config::load()` (Config.cpp:218-235)
-**Beschreibung:** Wenn die JSON-Konfigurationsdatei korrupt ist, wird sie still ignoriert und die Defaults verwendet. Der Benutzer erhält keine Warnung.
+### 3. MQTT-Publish-Rückgabewerte werden nicht geprüft
+Datei: [`core/MqttClient.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/MqttClient.cpp)
 
-**Risiko:** Unerwartetes Verhalten ohne Feedback an den Benutzer.
+Status: behoben
 
-**Fix:** Logge einen Fehler oder Exception werfen.
+Beschreibung:
+- `mosquitto_publish()` wird für Discovery und Laufzeitdaten aufgerufen.
+- Rückgabewerte werden nicht ausgewertet.
 
-### 5. Fehlende Fehlerbehandlung in `resolveWebRoot()` (main.cpp:40-62)
-**Beschreibung:** `read_symlink()` kann fehlschlagen, aber der Fehler wird nicht behandelt.
+Risiko:
+- Publish-Fehler bleiben unsichtbar.
 
-**Risiko:** Falscher Web-Root-Pfad.
+Umsetzung:
+- Publish-Rückgabewerte werden geprüft und bei Fehlern geloggt.
 
-**Fix:** Prüfe den Rückgabewert von `read_symlink()`.
+### 4. Unbekannte WebSocket-/MQTT-Commands werden still ignoriert
+Datei: [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
 
-### 6. Unbehandelte MQTT-Publish-Fehler (MqttClient.cpp)
-**Beschreibung:** `mosquitto_publish()` wird in `publish()` und `publishDiscoveryEntity()` aufgerufen, aber der Rückgabewert wird nicht geprüft. Publish kann fehlschlagen.
+Status: behoben
 
-**Risiko:** Stille Fehler bei MQTT-Kommunikation.
+Beschreibung:
+- In den Command-Handlern gibt es kein Fallback-Logging für unbekannte Befehle.
 
-**Fix:** Prüfe Rückgabewerte und logge Fehler.
+Risiko:
+- Schwierige Fehlersuche bei Tippfehlern, veralteten Clients oder falschen
+  Payloads.
 
-### 7. Potenzielle Race Condition in MQTT-Start (MqttClient.cpp:207-250)
-**Beschreibung:** `mosquitto_connect_async()` kann fehlschlagen, aber `mosquitto_loop_start()` wird trotzdem aufgerufen.
+Umsetzung:
+- Unbekannte WebSocket-, MQTT- und Simulator-Commands werden warnend geloggt.
 
-**Risiko:** Ungültiger Zustand des MQTT-Clients.
+## Ebenfalls verbessert
 
-**Fix:** Prüfe den Rückgabewert von `connect_async()`.
+### 5. `mosquitto_connect_async()`-Fehler führen nicht zu einem frühen Abbruch
+Datei: [`core/MqttClient.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/MqttClient.cpp)
 
-## Geringfügige Probleme
+Status: verbessert
 
-### 8. Unbehandelte unbekannte Commands (main.cpp)
-**Beschreibung:** In WebSocket- und MQTT-Command-Handlern werden unbekannte Commands still ignoriert, ohne Feedback.
+Beschreibung:
+- Wenn `mosquitto_connect_async()` fehlschlägt, wird gewarnt.
+- Danach wird trotzdem `mosquitto_loop_start()` gestartet.
 
-**Risiko:** Schwierige Fehlersuche.
+Einordnung:
+- Das ist nicht zwingend ein akuter Bug.
+- Für harte Konfigurationsfehler ist das Verhalten aber unsauber und könnte
+  klarer gemacht werden.
 
-**Fix:** Logge unbekannte Commands oder sende Fehlerantwort.
+Umsetzung:
+- Bei einem direkten `connect_async()`-Fehler wird der MQTT-Start jetzt sauber
+  abgebrochen und die Mosquitto-Ressourcen werden freigegeben.
 
-### 9. Fehlende Null-Checks in MQTT-Nachrichten (MqttClient.cpp:75-85)
-**Beschreibung:** In `onMessageCb()` wird `msg->payload` verwendet, aber obwohl `msg` und `payload` geprüft werden, könnte `payloadlen` 0 sein.
+## Geprüft und aktuell nicht zutreffend
 
-**Risiko:** Leere Nachrichten werden verarbeitet.
+### 6. Fehlende Thread-Safety in `Config::get()`
+Datei: [`core/Config.h`](/mnt/LappiDaten/Projekte/sunray-core/core/Config.h)
 
-**Fix:** Zusätzliche Validierung.
+Einordnung:
+- Nicht zutreffend.
+- `Config::get()` nimmt bereits einen `std::lock_guard<std::mutex>`.
 
-## Empfehlungen
+### 7. Ressourcenleck im Signal-Handler durch `robot->stop()`
+Datei: [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp), [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
 
-1. **Code-Reviews:** Implementiere obligatorische Code-Reviews für Threading- und Speichercode.
-2. **Unit-Tests:** Erhöhe Testabdeckung, besonders für Fehlerfälle.
-3. **Logging:** Verbessere Fehlerlogging für bessere Diagnose.
-4. **Static Analysis:** Verwende Tools wie Clang-Tidy oder Coverity für automatische Bug-Detection.
+Einordnung:
+- Nicht zutreffend.
+- `robot->stop()` stößt den geordneten Shutdown an, indem nur das
+  Lauf-Flag zurückgesetzt wird.
+- Danach verlässt `Robot::loop()` sauber die Schleife, fährt Hardware herunter,
+  und `main()` stoppt anschließend `mqttClient` und `wsServer`.
 
-Dies ist keine exhaustive Liste – weitere Analyse mit spezialisierten Tools wird empfohlen.</content>
-<parameter name="filePath">/mnt/LappiDaten/Projekte/sunray-core/BUG.md
+### 8. Fehlende Fehlerbehandlung in `resolveWebRoot()`
+Datei: [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
+
+Einordnung:
+- Nicht zutreffend.
+- `read_symlink()` wird bereits über `std::error_code` geprüft.
+
+### 9. Leere MQTT-Nachrichten würden ungeprüft verarbeitet
+Datei: [`core/MqttClient.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/MqttClient.cpp)
+
+Einordnung:
+- Nicht zutreffend.
+- `msg`, `payload` und `payloadlen <= 0` werden bereits geprüft.

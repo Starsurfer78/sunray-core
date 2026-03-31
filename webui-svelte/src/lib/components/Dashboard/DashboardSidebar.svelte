@@ -1,20 +1,74 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onMount } from "svelte";
   import MissionWidget from "./MissionWidget.svelte";
   import RobotControls from "../RobotControls.svelte";
-  import {
-    gpsQuality,
-    batteryPercent,
-    telemetry,
-  } from "../../stores/telemetry";
+  import { batteryPercent, gpsQuality, telemetry } from "../../stores/telemetry";
+  import { connection } from "../../stores/connection";
   import { mapStore } from "../../stores/map";
+  import {
+    getPreflightChecks,
+    getPrimaryNotice,
+    humanizeReason,
+  } from "../../utils/robotUi";
 
   export let sidebarCollapsed = false;
 
   const dispatch = createEventDispatcher();
 
-  const sensorStateClass = (value: boolean) => (value ? "hot" : "idle");
+  let nowMs = Date.now();
+
+  $: preflight = getPreflightChecks($telemetry, $connection, $mapStore.map, nowMs);
+  $: startRelease = {
+    allowed: preflight.every((check) => check.ok),
+    blockers: preflight.filter((check) => !check.ok),
+  };
+  $: primaryNotice = getPrimaryNotice(
+    $telemetry,
+    $connection,
+    $mapStore.map,
+    nowMs,
+  );
+  $: startHint =
+    startRelease.blockers[0]?.hint ??
+    "Startfreigabe noch nicht erteilt.";
+  $: reasonText = humanizeReason($telemetry.event_reason);
+  $: batteryValue = `${$telemetry.battery_v.toFixed(1)} V · ${$batteryPercent}%`;
+
+  const toneClass = (tone: string) => `tone-${tone}`;
+
+  const formatConnectionState = () => {
+    if (!$connection.connected) return "Getrennt";
+    const age = Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000));
+    if (age <= 5) return "Live";
+    return `Alt (${age}s)`;
+  };
+
+  const formatMapState = () =>
+    $mapStore.map.perimeter.length >= 3
+      ? `${$mapStore.map.perimeter.length} P · Dock ${$mapStore.map.dock.length}`
+      : "Keine freigegebene Karte";
+
+  const formatErrorState = () => {
+    if ($telemetry.op === "Error") {
+      return $telemetry.error_code || reasonText;
+    }
+    return $telemetry.motor_err || $telemetry.lift || $telemetry.bumper_l || $telemetry.bumper_r
+      ? "Sensor- oder Motorblocker aktiv"
+      : "Unauffaellig";
+  };
+
+  onMount(() => {
+    const interval = setInterval(() => {
+      nowMs = Date.now();
+    }, 1000);
+
+    return () => clearInterval(interval);
+  });
 </script>
+
+<svelte:head>
+  <!-- keep empty; component-only -->
+</svelte:head>
 
 <aside class="sidebar" class:collapsed={sidebarCollapsed}>
   <button
@@ -29,90 +83,73 @@
   <div class="sr-side" class:hidden={sidebarCollapsed}>
     <section class="panel">
       <div class="panel-head">
-        <span class="label">Status</span>
+        <span class="label">Betrieb</span>
         <strong>{$telemetry.op}</strong>
         <span class="muted">Phase {$telemetry.state_phase || "idle"}</span>
-        <span class="status-pos"
-          >X {$telemetry.x.toFixed(2)} m · Y {$telemetry.y.toFixed(2)} m</span
-        >
+      </div>
+
+      <div class={`notice ${toneClass(primaryNotice.tone)}`}>
+        <span class="notice-title">{primaryNotice.title}</span>
+        <span>{primaryNotice.detail}</span>
+        <strong>{primaryNotice.action}</strong>
       </div>
     </section>
 
     <section class="panel">
-      <div class="section-title">GPS</div>
-      <div class="gps-card">
-        <div class="gps-head">
-          <strong class="gps-fix">{$gpsQuality}</strong>
-          <span class="gps-sol">acc {$telemetry.gps_acc.toFixed(2)}</span>
-        </div>
-        <div class="metrics two-col">
-          <div class="metric">
-            <span class="metric-label">Heading</span>
-            <strong
-              >{(($telemetry.heading * 180) / Math.PI).toFixed(1)} deg</strong
-            >
+      <div class="section-title">Startfreigabe</div>
+      <div class="release-badge" class:ok={startRelease.allowed} class:blocked={!startRelease.allowed}>
+        {#if startRelease.allowed}
+          <strong>Freigabe erteilt</strong>
+          <span>Start ist aus Sicht von Verbindung, GPS, Akku, Karte, Dock und Fehlerstatus moeglich.</span>
+        {:else}
+          <strong>Start blockiert</strong>
+          <span>{startHint}</span>
+        {/if}
+      </div>
+
+      <div class="check-list">
+        {#each preflight as check}
+          <div class="check-row" class:ok={check.ok} class:blocked={!check.ok}>
+            <div class="check-main">
+              <span>{check.label}</span>
+              <strong>{check.value}</strong>
+            </div>
+            <span class="check-hint">{check.hint}</span>
           </div>
-          <div class="metric">
-            <span class="metric-label">EKF</span>
-            <strong>{$telemetry.ekf_health}</strong>
-          </div>
-        </div>
+        {/each}
       </div>
     </section>
 
     <section class="panel">
-      <div class="section-title">Akku</div>
-      <div class="metrics two-col">
-        <div class="metric">
-          <span class="metric-label">Spannung</span>
-          <strong>{$telemetry.battery_v.toFixed(1)} V</strong>
-          <div class="battery-bar" aria-label={`Ladestand ${$batteryPercent}%`}>
-            <span
-              class="battery-fill"
-              style={`width:${Math.max(0, Math.min(100, $batteryPercent))}%`}
-            ></span>
-          </div>
+      <div class="section-title">Naechste Aktion</div>
+      <div class="summary-grid">
+        <div class="summary-card">
+          <span class="metric-label">GPS</span>
+          <strong>{$gpsQuality}</strong>
+          <span class="muted">Acc {$telemetry.gps_acc.toFixed(2)} m</span>
         </div>
-        <div class="metric">
-          <span class="metric-label">Dock</span>
-          <strong>{$telemetry.charge_v.toFixed(1)} V</strong>
+        <div class="summary-card">
+          <span class="metric-label">Akku</span>
+          <strong>{batteryValue}</strong>
+          <span class="muted">Dock {$telemetry.charge_v.toFixed(1)} V</span>
         </div>
-      </div>
-      <div class="metrics single-row">
-        <div class="metric">
-          <span class="metric-label">Ladestrom</span>
-          <strong>{$telemetry.charge_a.toFixed(2)} A</strong>
+        <div class="summary-card">
+          <span class="metric-label">Verbindung</span>
+          <strong>{formatConnectionState()}</strong>
+          <span class="muted">MCU {$telemetry.mcu_v || "---"}</span>
         </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-title">Sensoren</div>
-      <div class="sensor-grid">
-        <div class="sensor">
-          <span>Bumper L</span>
-          <span class={`sensor-state ${sensorStateClass($telemetry.bumper_l)}`}>
-            <span class="sensor-dot"></span>
-          </span>
+        <div class="summary-card">
+          <span class="metric-label">Karte</span>
+          <strong>{formatMapState()}</strong>
+          <span class="muted">Grund {reasonText}</span>
         </div>
-        <div class="sensor">
-          <span>Bumper R</span>
-          <span class={`sensor-state ${sensorStateClass($telemetry.bumper_r)}`}>
-            <span class="sensor-dot"></span>
-          </span>
-        </div>
-        <div class="sensor">
-          <span>Lift</span>
-          <span class={`sensor-state ${sensorStateClass($telemetry.lift)}`}>
-            <span class="sensor-dot"></span>
-          </span>
-        </div>
-        <div class="sensor">
-          <span>Motor</span>
-          <span
-            class={`sensor-state ${sensorStateClass($telemetry.motor_err)}`}
-          >
-            <span class="sensor-dot"></span>
+        <div class="summary-card wide">
+          <span class="metric-label">Recovery / Fehler</span>
+          <strong>{formatErrorState()}</strong>
+          <span class="muted">
+            {$telemetry.resume_target
+              ? `Resume-Ziel ${$telemetry.resume_target}`
+              : "Kein aktives Resume-Ziel"}
           </span>
         </div>
       </div>
@@ -120,7 +157,7 @@
 
     <MissionWidget zones={$mapStore.map.zones} />
 
-    <RobotControls />
+    <RobotControls startAllowed={startRelease.allowed} {startHint} />
   </div>
 </aside>
 
@@ -193,16 +230,14 @@
 
   .panel {
     display: grid;
-    gap: 0.4rem;
-    padding: 0.58rem 0.68rem;
+    gap: 0.45rem;
+    padding: 0.62rem 0.7rem;
     border-bottom: 1px solid #0f1829;
   }
 
-  .panel-head,
-  .metric,
-  .sensor {
+  .panel-head {
     display: grid;
-    gap: 0.14rem;
+    gap: 0.12rem;
   }
 
   .label,
@@ -228,151 +263,111 @@
     color: #60a5fa;
   }
 
-  .muted,
-  .sensor span {
+  .muted {
     color: #94a3b8;
     font-size: 0.64rem;
   }
 
-  .status-pos {
-    color: #64748b;
-    font-family: "Courier New", monospace;
-    font-size: 0.6rem;
-  }
-
-  .gps-card {
+  .notice,
+  .release-badge {
     display: grid;
-    gap: 0.42rem;
-    padding: 0.52rem;
-    border-radius: 0.5rem;
-    background: #0f1829;
+    gap: 0.22rem;
+    padding: 0.65rem;
+    border-radius: 0.6rem;
     border: 1px solid #1e3a5f;
+    background: #0f1829;
   }
 
-  .gps-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.4rem;
-  }
-
-  .gps-fix {
-    color: #4ade80;
+  .notice-title {
     font-size: 0.74rem;
+    font-weight: 700;
   }
 
-  .gps-sol {
-    color: #64748b;
-    font-size: 0.58rem;
-    font-family: "Courier New", monospace;
-    background: #0a1020;
-    border-radius: 0.32rem;
-    padding: 0.12rem 0.32rem;
+  .tone-success {
+    border-color: #166534;
+    background: #052e16;
+    color: #86efac;
   }
 
-  .metrics.two-col,
-  .sensor-grid {
+  .tone-warning {
+    border-color: #92400e;
+    background: #3b2305;
+    color: #fbbf24;
+  }
+
+  .tone-error {
+    border-color: #7f1d1d;
+    background: #450a0a;
+    color: #fca5a5;
+  }
+
+  .tone-info {
+    border-color: #1d4ed8;
+    background: #0c1a3a;
+    color: #93c5fd;
+  }
+
+  .release-badge.ok {
+    border-color: #166534;
+    background: rgba(5, 46, 22, 0.8);
+  }
+
+  .release-badge.blocked {
+    border-color: #92400e;
+    background: rgba(59, 35, 5, 0.82);
+  }
+
+  .check-list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.36rem;
+    gap: 0.35rem;
   }
 
-  .metrics.single-row {
+  .check-row {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 0.46rem;
-  }
-
-  .metric,
-  .sensor {
-    padding: 0.42rem 0.5rem;
-    border-radius: 0.45rem;
-    background: #0a1020;
+    gap: 0.12rem;
+    padding: 0.46rem 0.52rem;
+    border-radius: 0.48rem;
     border: 1px solid #1a2a40;
+    background: #0f1829;
   }
 
-  .sensor {
+  .check-row.ok {
+    border-color: #166534;
+  }
+
+  .check-row.blocked {
+    border-color: #92400e;
+  }
+
+  .check-main {
     display: flex;
-    align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+    font-size: 0.66rem;
+    color: #cbd5e1;
   }
 
-  .sensor-state {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 0.75rem;
-    flex-shrink: 0;
-    color: #64748b;
+  .check-hint {
+    color: #94a3b8;
+    font-size: 0.62rem;
+    line-height: 1.35;
   }
 
-  .sensor-state.hot {
-    color: #ef4444;
+  .summary-grid {
+    display: grid;
+    gap: 0.35rem;
   }
 
-  .sensor-state.idle {
-    color: #22c55e;
+  .summary-card {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.48rem 0.52rem;
+    border-radius: 0.48rem;
+    border: 1px solid #1a2a40;
+    background: #0f1829;
   }
 
-  .sensor-dot {
-    width: 0.44rem;
-    height: 0.44rem;
-    border-radius: 999px;
-    background: currentColor;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04);
-  }
-
-  .battery-bar {
-    margin-top: 0.24rem;
-    width: 100%;
-    height: 0.35rem;
-    border-radius: 999px;
-    background: #08101c;
-    border: 1px solid #16253d;
-    overflow: hidden;
-  }
-
-  .battery-fill {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, #1d4ed8 0%, #22c55e 100%);
-  }
-
-  @media (max-width: 980px) {
-    .sidebar {
-      position: relative;
-      width: auto;
-      top: auto;
-      right: auto;
-      bottom: auto;
-      margin-top: 0.75rem;
-    }
-
-    .sidebar.collapsed {
-      width: auto;
-    }
-
-    .sr-side {
-      margin-left: 0;
-      height: auto;
-      box-shadow: none;
-    }
-
-    .collapse-btn,
-    .collapse-btn.collapsed {
-      left: auto;
-      right: 0.75rem;
-      top: -0.65rem;
-      transform: none;
-      border: 1px solid #1e3a5f;
-      border-radius: 6px;
-    }
-
-    .metrics.two-col,
-    .sensor-grid {
-      grid-template-columns: 1fr 1fr;
-    }
+  .summary-card.wide {
+    gap: 0.18rem;
   }
 </style>

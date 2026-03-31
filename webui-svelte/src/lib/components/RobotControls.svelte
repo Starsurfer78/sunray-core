@@ -2,6 +2,9 @@
   import { sendCmd } from "../api/websocket";
   import { connection } from "../stores/connection";
 
+  export let startAllowed = true;
+  export let startHint = "";
+
   const controls = [
     { label: "Start", cmd: "start", accent: "start" },
     { label: "Stop", cmd: "stop", accent: "stop" },
@@ -129,13 +132,22 @@
       <button
         type="button"
         class={control.accent}
-        disabled={!$connection.connected}
+        disabled={
+          !$connection.connected || (control.cmd === "start" && !startAllowed)
+        }
+        title={control.cmd === "start" && !startAllowed ? startHint : ""}
         on:click={() => sendCmd(control.cmd)}
       >
         {control.label}
       </button>
     {/each}
   </div>
+
+  {#if !$connection.connected}
+    <div class="hint hint-warning">Steuerung erst nach Verbindungsaufbau verfuegbar.</div>
+  {:else if !startAllowed && startHint}
+    <div class="hint hint-warning">{startHint}</div>
+  {/if}
 
   <button type="button" class="joystick-btn" on:click={openJoystick}>
     Joystick
@@ -258,6 +270,19 @@
   .joystick-btn:hover:not(:disabled) {
     background: #0c1a3a;
     border-color: #2563eb;
+  }
+
+  .hint {
+    font-size: 0.64rem;
+    line-height: 1.4;
+    border-radius: 0.45rem;
+    padding: 0.45rem 0.55rem;
+  }
+
+  .hint-warning {
+    color: #fbbf24;
+    background: rgba(40, 24, 0, 0.7);
+    border: 1px solid #92400e;
   }
 
   /* Floating panel */

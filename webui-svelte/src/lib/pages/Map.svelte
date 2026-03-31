@@ -3,18 +3,60 @@
   import PageLayout from "../components/PageLayout.svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
   import { getMapDocument, saveMapDocument, type MapZone } from "../api/rest";
+  import { type Telemetry } from "../api/types";
+  import { connection } from "../stores/connection";
   import { mapStore, type MapTool, type Point, type Zone } from "../stores/map";
+  import { telemetry } from "../stores/telemetry";
 
   let busy = false;
   let info = "";
+  let infoTone: "success" | "warning" | "error" = "success";
   let infoTimer: ReturnType<typeof setTimeout> | null = null;
   let mapCanvas: MapCanvas;
   let sidebarCollapsed = false;
+  let nowMs = Date.now();
+  let hydrationDone = false;
+
+  const DRAFT_KEY = "sunray-map-draft-v1";
+  const CONNECTION_FRESH_MS = 5000;
+  const GOOD_ACCURACY_M = 0.05;
+  const MAX_DOCK_ENTRY_DISTANCE_M = 2.0;
+
+  type WorkflowStepId =
+    | "new"
+    | "rtk"
+    | "perimeter"
+    | "nogo"
+    | "dock"
+    | "validate"
+    | "save";
+
+  type WorkflowStep = {
+    id: WorkflowStepId;
+    label: string;
+    status: "done" | "active" | "blocked" | "pending";
+    detail: string;
+  };
+
+  type DraftDocument = {
+    savedAt: number;
+    map: {
+      perimeter: Point[];
+      dock: Point[];
+      mow: Point[];
+      exclusions: Point[][];
+      zones: Zone[];
+    };
+  };
 
   type Segment = { a: Point; b: Point };
 
-  function showInfo(msg: string) {
+  function showInfo(
+    msg: string,
+    tone: "success" | "warning" | "error" = "success",
+  ) {
     info = msg;
+    infoTone = tone;
     if (infoTimer) clearTimeout(infoTimer);
     infoTimer = setTimeout(() => {
       info = "";
@@ -92,6 +134,100 @@
     return false;
   }
 
+  function pointInPolygon(point: Point, polygon: Point[]) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i].x;
+      const yi = polygon[i].y;
+      const xj = polygon[j].x;
+      const yj = polygon[j].y;
+
+      const intersects =
+        yi > point.y !== yj > point.y &&
+        point.x <
+          ((xj - xi) * (point.y - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
+
+  function distanceToSegment(point: Point, segment: Segment) {
+    const dx = segment.b.x - segment.a.x;
+    const dy = segment.b.y - segment.a.y;
+    if (dx === 0 && dy === 0) {
+      return Math.hypot(point.x - segment.a.x, point.y - segment.a.y);
+    }
+
+    const t =
+      ((point.x - segment.a.x) * dx + (point.y - segment.a.y) * dy) /
+      (dx * dx + dy * dy);
+    const clamped = Math.max(0, Math.min(1, t));
+    const projection = {
+      x: segment.a.x + clamped * dx,
+      y: segment.a.y + clamped * dy,
+    };
+    return Math.hypot(point.x - projection.x, point.y - projection.y);
+  }
+
+  function minDistanceToPolygon(point: Point, polygon: Point[]) {
+    if (polygon.length < 2) return Number.POSITIVE_INFINITY;
+    let minDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const segment = {
+        a: polygon[index],
+        b: polygon[(index + 1) % polygon.length],
+      };
+      minDistance = Math.min(minDistance, distanceToSegment(point, segment));
+    }
+    return minDistance;
+  }
+
+  function mapPayload() {
+    return {
+      perimeter: $mapStore.map.perimeter.map((p) => [p.x, p.y]),
+      dock: $mapStore.map.dock.map((p) => [p.x, p.y]),
+      mow: $mapStore.map.mow.map((p) => [p.x, p.y]),
+      exclusions: $mapStore.map.exclusions.map((ex) =>
+        ex.map((p) => [p.x, p.y]),
+      ),
+      zones: $mapStore.map.zones.map((zone) => ({
+        ...zone,
+        polygon: zone.polygon.map((p) => [p.x, p.y]),
+      })),
+    };
+  }
+
+  function saveDraft() {
+    if (typeof localStorage === "undefined" || !hydrationDone) return;
+    const draft: DraftDocument = {
+      savedAt: Date.now(),
+      map: structuredClone($mapStore.map),
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }
+
+  function clearDraft() {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(DRAFT_KEY);
+  }
+
+  function restoreDraft(): boolean {
+    if (typeof localStorage === "undefined") return false;
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return false;
+
+    try {
+      const draft = JSON.parse(raw) as DraftDocument;
+      mapStore.load(draft.map);
+      showInfo("Entwurf wiederhergestellt");
+      return true;
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+      return false;
+    }
+  }
+
   async function loadMap() {
     busy = true;
     try {
@@ -107,42 +243,34 @@
           normalizeZone(zone, index),
         ),
       });
-      showInfo("Geladen");
+      if (!restoreDraft()) {
+        showInfo("Geladen");
+      }
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Fehler");
+      showInfo(err instanceof Error ? err.message : "Fehler", "error");
     } finally {
       busy = false;
+      hydrationDone = true;
     }
   }
 
   async function saveMap() {
     if (!canSaveMap) {
-      showInfo(saveHint);
+      showInfo(saveHint, "warning");
       return;
     }
     busy = true;
     try {
-      const payload = {
-        perimeter: $mapStore.map.perimeter.map((p) => [p.x, p.y]),
-        dock: $mapStore.map.dock.map((p) => [p.x, p.y]),
-        mow: $mapStore.map.mow.map((p) => [p.x, p.y]),
-        exclusions: $mapStore.map.exclusions.map((ex) =>
-          ex.map((p) => [p.x, p.y]),
-        ),
-        zones: $mapStore.map.zones.map((zone) => ({
-          ...zone,
-          polygon: zone.polygon.map((p) => [p.x, p.y]),
-        })),
-      };
-      const result = await saveMapDocument(payload);
+      const result = await saveMapDocument(mapPayload());
       if (!result.ok) {
-        showInfo(result.error ?? "Fehler");
+        showInfo(result.error ?? "Fehler", "error");
         return;
       }
       mapStore.markSaved();
+      clearDraft();
       showInfo("Gespeichert");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Fehler");
+      showInfo(err instanceof Error ? err.message : "Fehler", "error");
     } finally {
       busy = false;
     }
@@ -190,9 +318,11 @@
             normalizeZone(zone, index),
           ),
         });
+        hydrationDone = true;
+        saveDraft();
         showInfo("Importiert");
       } catch {
-        showInfo("Import fehlgeschlagen");
+        showInfo("Import fehlgeschlagen", "error");
       }
     };
     input.click();
@@ -234,7 +364,7 @@
   function removeLastPoint() {
     if (activeTool === "move") {
       if (mapCanvas?.deleteSelectedPoint()) {
-        showInfo("Punkt geloescht");
+        showInfo("Punkt geloescht", "success");
         return;
       }
       mapStore.setTool(layer);
@@ -245,7 +375,7 @@
         $mapStore.map.exclusions[$mapStore.selectedExclusionIndex] ?? [];
       if (exclusion.length === 0) {
         mapStore.deleteSelectedExclusion();
-        showInfo("Leere NoGo-Zone geloescht");
+        showInfo("Leere NoGo-Zone geloescht", "success");
         return;
       }
     }
@@ -253,30 +383,293 @@
     mapStore.removeLastPoint();
   }
 
-  function handlePointRejected() {
-    showInfo("Punkt wuerde Polygon schneiden");
+  function addCurrentRobotPoint() {
+    if (moveActive) {
+      showInfo("Im Verschieben-Modus koennen keine neuen Punkte gesetzt werden", "warning");
+      return;
+    }
+
+    if (!allowPointAdd) {
+      showInfo(pointAddBlockedReason, "warning");
+      return;
+    }
+
+    const point = {
+      x: Number($telemetry.x.toFixed(2)),
+      y: Number($telemetry.y.toFixed(2)),
+    };
+
+    const accepted = mapStore.addPoint(point);
+    if (!accepted) {
+      showInfo("Punkt wuerde Polygon schneiden", "error");
+      return;
+    }
+
+    if (dockActive) {
+      showInfo("Docking-Pfadpunkt von aktueller Roboterposition gespeichert");
+      return;
+    }
+
+    if (activeTool === "nogo") {
+      showInfo("NoGo-Punkt von aktueller Roboterposition gespeichert");
+      return;
+    }
+
+    showInfo("Perimeterpunkt von aktueller Roboterposition gespeichert");
   }
 
-  $: addBtnTitle = dockActive
-    ? "Dockpunkt setzen (Klick ins Raster)"
-    : activeTool === "nogo"
-      ? "NoGo-Punkt setzen (Klick ins Raster)"
-      : "Perimeterpunkt setzen (Klick ins Raster)";
+  function newMap() {
+    mapStore.reset();
+    mapStore.setTool("perimeter");
+    hydrationDone = true;
+    saveDraft();
+    showInfo("Neue Karte gestartet");
+  }
+
+  function activateTool(tool: MapTool) {
+    if (tool === "nogo" && $mapStore.map.exclusions.length === 0) {
+      mapStore.createExclusion();
+      return;
+    }
+    mapStore.setTool(tool);
+  }
+
+  function finishNoGoStep() {
+    mapStore.setTool("dock");
+    showInfo("NoGo abgeschlossen, jetzt Docking-Pfad aufnehmen");
+  }
+
+  function finishActiveNoGo() {
+    mapStore.selectExclusion(null);
+    mapStore.setTool("perimeter");
+    showInfo("NoGo-Bereich abgeschlossen");
+  }
+
+  function startNewNoGo() {
+    mapStore.createExclusion();
+    showInfo(`NoGo ${$mapStore.map.exclusions.length} gestartet`);
+  }
+
+  function editActiveNoGo() {
+    if ($mapStore.selectedExclusionIndex === null) {
+      showInfo("Bitte zuerst einen NoGo-Bereich auswaehlen", "warning");
+      return;
+    }
+    mapStore.setTool("nogo");
+    showInfo(`${activeNoGoLabel} aktiv`);
+  }
+
+  function deleteActiveNoGo() {
+    if ($mapStore.selectedExclusionIndex === null) {
+      showInfo("Bitte zuerst einen NoGo-Bereich auswaehlen", "warning");
+      return;
+    }
+    const label = activeNoGoLabel;
+    mapStore.deleteSelectedExclusion();
+    showInfo(`${label} geloescht`);
+  }
+
+  function removeLastPerimeterPoint() {
+    mapStore.setTool("perimeter");
+    mapStore.removeLastPoint();
+  }
+
+  function clearDockPath() {
+    mapStore.setTool("dock");
+    mapStore.clearActive();
+  }
+
+  function handlePointRejected(event: CustomEvent<{ tool: string; reason?: string }>) {
+    showInfo(event.detail.reason || "Punkt wuerde Polygon schneiden", event.detail.reason ? "warning" : "error");
+  }
+
+  $: addBtnTitle = moveActive
+    ? "Im Verschieben-Modus nicht verfuegbar"
+    : dockActive
+      ? "Aktuelle Roboterposition als Docking-Pfadpunkt speichern"
+      : activeTool === "nogo"
+        ? "Aktuelle Roboterposition als NoGo-Punkt speichern"
+        : "Aktuelle Roboterposition als Perimeterpunkt speichern";
+
+  $: connectionFresh =
+    $connection.connected && nowMs - $connection.lastSeen <= CONNECTION_FRESH_MS;
+  $: rtkFix = $telemetry.gps_sol === 4;
+  $: rtkFloat = $telemetry.gps_sol === 5;
+  $: acceptableAccuracy =
+    $telemetry.gps_acc > 0 && $telemetry.gps_acc <= GOOD_ACCURACY_M;
+  $: mappingSignalReady = connectionFresh && (rtkFix || (rtkFloat && acceptableAccuracy));
+  $: preflightHint = !$connection.connected
+    ? "WLAN getrennt: Aufnahme pausiert"
+    : !connectionFresh
+      ? "Telemetrie veraltet: kurz auf frische Daten warten"
+      : rtkFix
+        ? "RTK Fix stabil"
+        : rtkFloat && acceptableAccuracy
+          ? "RTK Float mit guter Genauigkeit"
+          : "Kein stabiles RTK fuer neue Punkte";
 
   $: hasNogo = $mapStore.map.exclusions.length > 0;
   $: perimeterTooSmall =
     $mapStore.map.perimeter.length > 0 && $mapStore.map.perimeter.length < 3;
   $: perimeterSelfIntersecting = hasSelfIntersection($mapStore.map.perimeter);
-  $: saveHint = perimeterTooSmall
-    ? "Perimeter braucht mindestens 3 Punkte"
-    : perimeterSelfIntersecting
-      ? "Perimeter darf sich nicht selbst schneiden"
-      : "";
+  $: perimeterValid =
+    $mapStore.map.perimeter.length >= 3 && !perimeterSelfIntersecting;
+  $: dockTooShort =
+    $mapStore.map.dock.length > 0 && $mapStore.map.dock.length < 2;
+  $: dockEntryDistance =
+    perimeterValid && $mapStore.map.dock.length > 0
+      ? minDistanceToPolygon($mapStore.map.dock[0], $mapStore.map.perimeter)
+      : Number.POSITIVE_INFINITY;
+  $: dockEntryPlausible =
+    perimeterValid &&
+    $mapStore.map.dock.length > 0 &&
+    (pointInPolygon($mapStore.map.dock[0], $mapStore.map.perimeter) ||
+      dockEntryDistance <= MAX_DOCK_ENTRY_DISTANCE_M);
+  $: dockPathValid =
+    $mapStore.map.dock.length >= 2 && dockEntryPlausible;
+  $: validationIssues = [
+    !perimeterValid
+      ? perimeterTooSmall
+        ? "Perimeter braucht mindestens 3 Punkte"
+        : perimeterSelfIntersecting
+          ? "Perimeter darf sich nicht selbst schneiden"
+          : "Perimeter fehlt noch"
+      : "",
+    !dockPathValid
+      ? dockTooShort
+        ? "Docking-Pfad braucht mindestens 2 Punkte"
+        : $mapStore.map.dock.length === 0
+          ? "Docking-Pfad fehlt noch"
+          : "Docking-Pfad muss am Perimeter beginnen oder in seiner Naehe"
+      : "",
+    !mappingSignalReady ? "Fuer Aufnahme und Freigabe wird frische RTK-Telemetrie benoetigt" : "",
+  ].filter(Boolean);
+  $: saveHint = validationIssues[0] ?? "";
   $: canSaveMap = !busy && !saveHint;
+  $: allowPointAdd = mappingSignalReady;
+  $: pointAddBlockedReason = preflightHint;
+  $: noGoPointCount = $mapStore.map.exclusions.reduce(
+    (total, exclusion) => total + exclusion.length,
+    0,
+  );
+  $: activeNoGoLabel =
+    $mapStore.selectedExclusionIndex !== null
+      ? `NoGo ${$mapStore.selectedExclusionIndex + 1}`
+      : "Keine aktive NoGo";
+  $: workflowSteps = [
+    {
+      id: "new",
+      label: "Neue Karte",
+      status: $mapStore.map.perimeter.length === 0 &&
+        $mapStore.map.dock.length === 0 &&
+        noGoPointCount === 0
+        ? "active"
+        : "done",
+      detail:
+        $mapStore.map.perimeter.length === 0 &&
+        $mapStore.map.dock.length === 0 &&
+        noGoPointCount === 0
+          ? "Frischen Entwurf starten oder bestehenden Entwurf laden"
+          : "Entwurf aktiv",
+    },
+    {
+      id: "rtk",
+      label: "RTK pruefen",
+      status: mappingSignalReady ? "done" : "active",
+      detail: preflightHint,
+    },
+    {
+      id: "perimeter",
+      label: "Grenze aufnehmen",
+      status: perimeterValid
+        ? "done"
+        : mappingSignalReady
+          ? "active"
+          : "blocked",
+      detail: perimeterValid
+        ? `${$mapStore.map.perimeter.length} Punkte aufgenommen`
+        : `${$mapStore.map.perimeter.length} Punkte aufgenommen`,
+    },
+    {
+      id: "nogo",
+      label: "NoGo optional",
+      status:
+        perimeterValid && hasNogo
+          ? "done"
+          : perimeterValid
+            ? "active"
+            : "pending",
+      detail: hasNogo
+        ? `${$mapStore.map.exclusions.length} NoGo-Bereiche hinterlegt`
+        : "Optional: Beete, Inseln oder Sperrbereiche markieren",
+    },
+    {
+      id: "dock",
+      label: "Docking-Pfad",
+      status: dockPathValid
+        ? "done"
+        : perimeterValid && mappingSignalReady
+          ? "active"
+          : perimeterValid
+            ? "blocked"
+            : "pending",
+      detail: dockPathValid
+        ? `${$mapStore.map.dock.length} Punkte im Docking-Pfad`
+        : `${$mapStore.map.dock.length} Punkte gesetzt`,
+    },
+    {
+      id: "validate",
+      label: "Validieren",
+      status:
+        validationIssues.length === 0
+          ? "done"
+          : perimeterValid || $mapStore.map.dock.length > 0
+            ? "active"
+            : "pending",
+      detail:
+        validationIssues.length === 0
+          ? "Karte ist freigabebereit"
+          : validationIssues[0],
+    },
+    {
+      id: "save",
+      label: "Speichern",
+      status:
+        !$mapStore.dirty && perimeterValid && dockPathValid
+          ? "done"
+          : validationIssues.length === 0
+            ? "active"
+            : "pending",
+      detail: !$mapStore.dirty && perimeterValid && dockPathValid
+        ? "Aktive Karte synchron"
+        : "Freigabe speichert die aktive Karte",
+    },
+  ] satisfies WorkflowStep[];
+  $: currentStep = workflowSteps.find((step) => step.status === "active") ?? workflowSteps[workflowSteps.length - 1];
+  $: nextStep =
+    workflowSteps.find(
+      (step) => step.status === "pending" || step.status === "blocked",
+    ) ?? null;
+  $: primaryBlocker = validationIssues[0] ?? (!mappingSignalReady ? preflightHint : "");
+  $: connectionAgeSeconds =
+    $connection.lastSeen > 0
+      ? Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000))
+      : null;
 
   onMount(() => {
+    const interval = setInterval(() => {
+      nowMs = Date.now();
+    }, 1000);
     void loadMap();
+    return () => {
+      clearInterval(interval);
+      if (infoTimer) clearTimeout(infoTimer);
+    };
   });
+
+  $: if (hydrationDone) {
+    saveDraft();
+  }
 </script>
 
 <PageLayout
@@ -284,11 +677,19 @@
   on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
 >
   <div class="map-stage">
+    {#if info}
+      <div class={`map-toast ${infoTone}`} role="status" aria-live="polite">
+        {info}
+      </div>
+    {/if}
+
     <MapCanvas
       bind:this={mapCanvas}
       showHeader={false}
       showViewportActions={false}
       interactive={true}
+      {allowPointAdd}
+      {pointAddBlockedReason}
       on:pointrejected={handlePointRejected}
     />
 
@@ -325,10 +726,6 @@
           title="Punkte verschieben"
           on:click={toggleMove}>⇔</button
         >
-        {#if info}
-          <div class="divider"></div>
-          <span class="info">{info}</span>
-        {/if}
       </div>
 
       <!-- NoGo: new item row -->
@@ -356,7 +753,8 @@
           type="button"
           class="big add"
           disabled={moveActive}
-          title={addBtnTitle}>+</button
+          title={addBtnTitle}
+          on:click={addCurrentRobotPoint}>+</button
         >
         <button
           type="button"
@@ -390,64 +788,209 @@
   <svelte:fragment slot="sidebar">
     <div class="sidebar-inner">
       <div class="sb-section">
-        <span class="sb-label">Status</span>
-        <div class="sb-row">
-          <span class:warn={Boolean(saveHint)} class="muted">
-            {saveHint || ($mapStore.dirty ? "Ungespeichert" : "Synchron")}
-          </span>
+        <span class="sb-label">Mapping-Assistent</span>
+        <div class="assistant-card">
+          <strong>{currentStep.label}</strong>
+          <span>{currentStep.detail}</span>
+          {#if nextStep}
+            <span>Als naechstes: {nextStep.label}</span>
+          {/if}
+          {#if primaryBlocker}
+            <span class="warn-copy">Blocker: {primaryBlocker}</span>
+          {/if}
         </div>
         <div class="sb-actions">
           <button
             type="button"
             class="sb-btn"
-            title="Neu laden"
+            title="Neue Karte"
             disabled={busy}
-            on:click={loadMap}>↺ Laden</button
+            on:click={newMap}>Neu</button
           >
           <button
             type="button"
-            class="sb-btn primary"
-            class:unsaved={$mapStore.dirty}
-            disabled={!$mapStore.dirty || !canSaveMap}
-            on:click={saveMap}>Speichern</button
+            class="sb-btn"
+            title="Neu laden"
+            disabled={busy}
+            on:click={loadMap}>Laden</button
           >
         </div>
       </div>
 
       <div class="sb-section">
-        <span class="sb-label">Karte</span>
-        <select
-          class="sb-select"
-          disabled
-          title="Kartenauswahl — noch nicht verfügbar"
-        >
-          <option>Hauptgarten</option>
-        </select>
-      </div>
-
-      <div class="sb-section">
-        <span class="sb-label">Import / Export</span>
-        <div class="sb-actions">
-          <button type="button" class="sb-btn" on:click={importMap}
-            >↑ Import</button
-          >
-          <button type="button" class="sb-btn" on:click={exportMap}
-            >↓ Export</button
-          >
+        <span class="sb-label">1. RTK & Verbindung</span>
+        <div class="assistant-card telemetry-card" class:blocked={!mappingSignalReady}>
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <span class="telemetry-label">GPS</span>
+              <strong>{$telemetry.gps_text || "—"}</strong>
+              <span class="telemetry-copy">Loesung {$telemetry.gps_sol || 0}</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">Qualitaet</span>
+              <strong>{rtkFix ? "RTK Fix" : rtkFloat ? "RTK Float" : "Kein stabiler Fix"}</strong>
+              <span class="telemetry-copy">
+                Acc {$telemetry.gps_acc > 0 ? `${$telemetry.gps_acc.toFixed(2)} m` : "—"}
+              </span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">Verbindung</span>
+              <strong>{$connection.connected ? "Online" : "Offline"}</strong>
+              <span class="telemetry-copy">
+                {connectionFresh
+                  ? "Telemetrie frisch"
+                  : connectionAgeSeconds !== null
+                    ? `Letztes Paket vor ${connectionAgeSeconds}s`
+                    : "Noch keine Daten"}
+              </span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">Hinweis</span>
+              <strong>{preflightHint}</strong>
+              <span class="telemetry-copy">
+                WLAN-Qualitaet/RSSI wird aktuell noch nicht uebertragen
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="sb-section">
-        <span class="sb-label">Inhalt</span>
+        <span class="sb-label">2. Grenze aufnehmen</span>
+        <div class="assistant-card" class:active={activeTool === "perimeter"}>
+          <strong>{$mapStore.map.perimeter.length} Punkte</strong>
+          <span>Roboter entlang der Grenze abstellen und Punkt bei gutem RTK setzen.</span>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              on:click={() => activateTool("perimeter")}>Perimeter</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={$mapStore.map.perimeter.length === 0}
+              on:click={removeLastPerimeterPoint}>Letzten Punkt</button
+            >
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">3. NoGo optional</span>
+        <div class="assistant-card" class:active={activeTool === "nogo"}>
+          <strong>{$mapStore.map.exclusions.length} Bereiche</strong>
+          <span>Optional fuer Beete, Inseln oder andere Sperrflaechen.</span>
+          <span>{activeNoGoLabel}</span>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={!perimeterValid}
+              on:click={() => activateTool("nogo")}>NoGo</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={!perimeterValid}
+              on:click={startNewNoGo}>+ Neu</button
+            >
+          </div>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={$mapStore.selectedExclusionIndex === null}
+              on:click={editActiveNoGo}>Bearbeiten</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={$mapStore.selectedExclusionIndex === null}
+              on:click={finishActiveNoGo}>Abschliessen</button
+            >
+          </div>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={$mapStore.selectedExclusionIndex === null}
+              on:click={deleteActiveNoGo}>Loeschen</button
+            >
+            <button type="button" class="sb-btn" on:click={finishNoGoStep}
+              >Weiter</button
+            >
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">4. Docking-Pfad</span>
+        <div class="assistant-card" class:active={dockActive} class:blocked={!perimeterValid}>
+          <strong>{$mapStore.map.dock.length} Punkte</strong>
+          <span>Pfad vom Garten zur Ladestation vollstaendig aufnehmen.</span>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={!perimeterValid}
+              on:click={() => activateTool("dock")}>Docking-Pfad</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={$mapStore.map.dock.length === 0}
+              on:click={clearDockPath}>Leeren</button
+            >
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">5. Validieren & Speichern</span>
+        <div class="assistant-card" class:blocked={validationIssues.length > 0}>
+          <strong>{validationIssues.length === 0 ? "Karte freigabebereit" : "Noch offen"}</strong>
+          {#if validationIssues.length > 0}
+            <ul class="issue-list">
+              {#each validationIssues as issue}
+                <li>{issue}</li>
+              {/each}
+            </ul>
+          {:else}
+            <span>Perimeter, Docking-Pfad und RTK-Pruefung sind plausibel.</span>
+          {/if}
+          <div class="assistant-actions assistant-actions--stacked">
+            <button
+              type="button"
+              class="sb-btn primary"
+              class:unsaved={$mapStore.dirty}
+              disabled={!$mapStore.dirty || !canSaveMap}
+              on:click={saveMap}>Karte freigeben</button
+            >
+            <div class="sb-actions">
+              <button type="button" class="sb-btn" on:click={importMap}
+                >Import</button
+              >
+              <button type="button" class="sb-btn" on:click={exportMap}
+                >Export</button
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <span class="sb-label">Entwurf</span>
         <div class="sb-stat">
-          <span>Perimeter</span><strong
-            >{$mapStore.map.perimeter.length} Punkte</strong
+          <span>Status</span><strong
+            >{$mapStore.dirty ? "Ungespeichert" : "Synchron"}</strong
           >
         </div>
         <div class="sb-stat">
-          <span>Dock</span><strong
-            >{$mapStore.map.dock.length > 0 ? "Gesetzt" : "—"}</strong
-          >
+          <span>Perimeter</span><strong>{$mapStore.map.perimeter.length} Punkte</strong>
+        </div>
+        <div class="sb-stat">
+          <span>Docking-Pfad</span><strong>{$mapStore.map.dock.length} Punkte</strong>
         </div>
         <div class="sb-stat">
           <span>NoGo</span><strong>{$mapStore.map.exclusions.length}</strong>
@@ -462,6 +1005,44 @@
     position: relative;
     height: 100%;
     background: #070d18;
+  }
+
+  .map-toast {
+    position: absolute;
+    top: 0.85rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    max-width: min(32rem, calc(100% - 2rem));
+    padding: 0.65rem 0.9rem;
+    border-radius: 0.7rem;
+    border: 1px solid rgba(37, 99, 235, 0.5);
+    background: rgba(7, 13, 24, 0.9);
+    color: #dbeafe;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+
+  .map-toast.success {
+    border-color: rgba(22, 101, 52, 0.8);
+    background: rgba(10, 30, 15, 0.92);
+    color: #86efac;
+  }
+
+  .map-toast.warning {
+    border-color: rgba(217, 119, 6, 0.82);
+    background: rgba(40, 24, 0, 0.92);
+    color: #fbbf24;
+  }
+
+  .map-toast.error {
+    border-color: rgba(220, 38, 38, 0.82);
+    background: rgba(36, 10, 10, 0.92);
+    color: #fca5a5;
   }
 
   /* ── Bottom center toolbar ── */
@@ -647,17 +1228,6 @@
     background: rgba(100, 15, 15, 0.94);
   }
 
-  .info {
-    font-size: 0.6rem;
-    color: #4ade80;
-    white-space: nowrap;
-    padding: 0 0.25rem;
-  }
-
-  .warn {
-    color: #fca5a5;
-  }
-
   /* ── Bottom left zoom ── */
   .zoom-stack {
     position: absolute;
@@ -698,6 +1268,10 @@
     border-bottom: 1px solid #0f1829;
   }
 
+  .sidebar-inner {
+    display: grid;
+  }
+
   .sb-label {
     color: #7a8da8;
     font-size: 0.59rem;
@@ -705,21 +1279,20 @@
     letter-spacing: 0.08em;
   }
 
-  .muted {
-    color: #94a3b8;
-    font-size: 0.68rem;
-  }
-
-  .sb-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-
   .sb-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.3rem;
+  }
+
+  .assistant-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem;
+  }
+
+  .assistant-actions--stacked {
+    grid-template-columns: 1fr;
   }
 
   .sb-btn {
@@ -755,18 +1328,73 @@
     color: #fbbf24;
   }
 
-  .sb-select {
-    width: 100%;
-    padding: 0.3rem 0.4rem;
-    border: 1px solid #1a2a40;
-    border-radius: 0.4rem;
-    background: #0a1020;
-    color: #dce8e8;
-    font-size: 0.68rem;
+  .assistant-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.65rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: rgba(15, 24, 41, 0.76);
   }
 
-  .sb-select:disabled {
-    opacity: 0.5;
+  .assistant-card strong {
+    color: #e2e8f0;
+    font-size: 0.74rem;
+  }
+
+  .assistant-card span {
+    color: #94a3b8;
+    font-size: 0.66rem;
+    line-height: 1.4;
+  }
+
+  .warn-copy {
+    color: #fca5a5 !important;
+  }
+
+  .assistant-card.active {
+    border-color: #2563eb;
+    background: rgba(12, 26, 58, 0.8);
+  }
+
+  .assistant-card.blocked {
+    border-color: #dc2626;
+    background: rgba(69, 10, 10, 0.32);
+  }
+
+  .telemetry-card {
+    gap: 0.55rem;
+  }
+
+  .telemetry-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+  }
+
+  .telemetry-item {
+    display: grid;
+    gap: 0.12rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.45rem;
+    background: rgba(7, 13, 24, 0.55);
+    border: 1px solid #162237;
+  }
+
+  .telemetry-label {
+    color: #7a8da8 !important;
+    font-size: 0.56rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .telemetry-item strong {
+    font-size: 0.7rem;
+  }
+
+  .telemetry-copy {
+    color: #94a3b8 !important;
+    font-size: 0.62rem !important;
   }
 
   .sb-stat {
@@ -780,5 +1408,19 @@
   .sb-stat strong {
     color: #94a3b8;
     font-size: 0.64rem;
+  }
+
+  .issue-list {
+    margin: 0;
+    padding-left: 1rem;
+    color: #fca5a5;
+    font-size: 0.66rem;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 900px) {
+    .telemetry-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

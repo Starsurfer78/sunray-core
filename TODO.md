@@ -115,20 +115,24 @@ Kernidee: Zone = benannte Fläche + Defaults. Mission = benannter, wiederholbare
 
 ### C.16 Benutzererlebnis / Nutzerführung
 
-- [ ] C.16-a: Dashboard-Preflight als echte Startfreigabe ergänzen: GPS, Akku, Karte, Dock, Fehlerstatus, Verbindungsstatus sichtbar und verständlich bündeln
+Priorisierte Reihenfolge aktuell: `C.16-a` → `C.16-c` → `C.16-d` → `C.16-i`; `C.16-e` bewusst erst später.
+
+- [x] C.16-a: Dashboard-Preflight als echte Startfreigabe ergänzen: GPS, Akku, Karte, Dock, Fehlerstatus, Verbindungsstatus sichtbar und verständlich bündeln
   <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
-- [ ] C.16-c: Für Start-Blocker und Warnzustände direkte Handlungsempfehlungen im UI anzeigen, nicht nur Rohstatus
+- [x] C.16-c: Für Start-Blocker und Warnzustände direkte Handlungsempfehlungen im UI anzeigen, nicht nur Rohstatus
   <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte, core/Robot.cpp | model:sonnet -->
-- [ ] C.16-d: Fehler- und Recovery-Karten vereinheitlichen: `Error`, `GpsWait`, `WaitRain`, `Dock`, `Charge` mit Ursache, Kritikalität und nächstem sinnvollen Schritt darstellen
+- [x] C.16-d: Fehler- und Recovery-Karten vereinheitlichen: `Error`, `GpsWait`, `WaitRain`, `Dock`, `Charge` mit Ursache, Kritikalität und nächstem sinnvollen Schritt darstellen
   <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Diagnostics.svelte, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+- [~] C.16-f: Mapping-Workflow als Assistent statt nur als Editor denken: neue Karte, RTK-Prüfung, Grenzaufnahme, Validierung, Docking-Pfad, Speichern
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Map.svelte, core/navigation/Map.h | model:sonnet -->
+  Stand: Svelte-Map-Seite ist als gefuehrter Assistent umgebaut. Vorhanden sind jetzt: kompakter Workflow-Hinweis, RTK-/GPS-/Verbindungs-Panel, lokaler Draft im Browser, Punktaufnahme ueber aktuelle Roboterposition, NoGo-Bereiche anlegen/abschliessen/neu beginnen/auf Karte auswaehlen/bearbeiten/loeschen, Docking-Pfad direkt aufnehmen sowie farbige Toast-Hinweise. Fachentscheidungen dafuer: Single-Map-Workflow, lokaler Draft statt Neustart bei WLAN-Verlust, Docking-Pfad wird direkt mit aufgenommen, Punkte nur bei frischer Verbindung + brauchbarem RTK zulassen. Weitere Schaerfung erfolgt aus Praxis-/Betriebserfahrungen.
+- [~] C.16-g: Kartenerstellung vor Freigabe validieren: Perimeter geschlossen, ausreichend Punkte, Docking plausibel, Start grundsätzlich möglich
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui-svelte/src/lib/pages/Map.svelte, core/WebSocketServer.cpp, core/navigation/Map.h, core/navigation/Map.cpp | model:sonnet -->
+  Stand: Freigabe-Gating und Plausibilitaetspruefung sind jetzt in der WebUI aktiv. Aktuell geprueft werden: Perimeter mit Mindestpunktzahl, keine Selbstschnitte, Docking-Pfad mit Mindestpunktzahl, plausibler Einstieg des Docking-Pfads am/nahe Perimeter sowie frische RTK-/Verbindungstelemetrie vor Punktaufnahme und Freigabe. Offen bleiben serverseitige Absicherung, tiefere Navigationspruefungen im Core und der Kartenreferenzmodus `absolut/relativ`.
+- [x] C.16-i: Primäransicht und Diagnoseansicht stärker trennen, damit das Dashboard Betriebsoberfläche bleibt und Rohdaten in Diagnose landen
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Diagnostics.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:haiku -->
 - [ ] C.16-e: Geführten Erststart-/Setup-Flow in der WebUI anlegen: Verbindung, GPS, Karte, Dock, Testfahrt, Startfreigabe
   <!-- ctx: module:webui, module:websocket_server | files:webui-svelte/src/App.svelte, webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:opus -->
-- [ ] C.16-f: Mapping-Workflow als Assistent statt nur als Editor denken: neue Karte, RTK-Prüfung, Grenzaufnahme, Validierung, Docking-Pfad, Speichern
-  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Map.svelte, core/navigation/Map.h | model:sonnet -->
-- [ ] C.16-g: Kartenerstellung vor Freigabe validieren: Perimeter geschlossen, ausreichend Punkte, Docking plausibel, Start grundsätzlich möglich
-  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui-svelte/src/lib/pages/Map.svelte, core/WebSocketServer.cpp, core/navigation/Map.h, core/navigation/Map.cpp | model:sonnet -->
-- [ ] C.16-i: Primäransicht und Diagnoseansicht stärker trennen, damit das Dashboard Betriebsoberfläche bleibt und Rohdaten in Diagnose landen
-  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Diagnostics.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:haiku -->
 
 ---
 

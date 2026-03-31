@@ -16,6 +16,7 @@
 #endif
 
 #include <chrono>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <unistd.h>
@@ -67,7 +68,12 @@ namespace sunray
                 impl->log->info("MqttClient",
                                 "Connected to " + impl->host + ":" + std::to_string(impl->port) + " prefix=" + impl->prefix);
                 const std::string cmdTopic = impl->prefix + "/cmd";
-                mosquitto_subscribe(impl->mosq, nullptr, cmdTopic.c_str(), impl->qos);
+                const int subRc = mosquitto_subscribe(impl->mosq, nullptr, cmdTopic.c_str(), impl->qos);
+                if (subRc != MOSQ_ERR_SUCCESS)
+                {
+                    impl->log->warn("MqttClient",
+                                    "Subscribe failed for " + cmdTopic + ": " + mosquitto_strerror(subRc));
+                }
 
                 // Publish Home Assistant discovery if enabled
                 impl->publishDiscovery();
@@ -106,14 +112,33 @@ namespace sunray
 
         // ── Publish helper ────────────────────────────────────────────────────
 
+        bool publishRaw(const std::string &topic,
+                        const std::string &payload,
+                        bool retain,
+                        const std::string &what)
+        {
+            if (!mosq)
+                return false;
+
+            const int rc = mosquitto_publish(mosq, nullptr, topic.c_str(),
+                                             static_cast<int>(payload.size()),
+                                             payload.c_str(), qos, retain);
+            if (rc != MOSQ_ERR_SUCCESS && log)
+            {
+                log->warn("MqttClient",
+                          "Publish failed for " + what + " on " + topic + ": "
+                          + mosquitto_strerror(rc));
+                return false;
+            }
+            return true;
+        }
+
         void publish(const std::string &subtopic, const std::string &payload)
         {
             if (!mosq)
                 return;
             const std::string topic = prefix + "/" + subtopic;
-            mosquitto_publish(mosq, nullptr, topic.c_str(),
-                              static_cast<int>(payload.size()),
-                              payload.c_str(), qos, /*retain=*/false);
+            publishRaw(topic, payload, /*retain=*/false, "telemetry");
         }
 
         // ── Home Assistant discovery ───────────────────────────────────────────
@@ -164,16 +189,15 @@ namespace sunray
                 return;
             const std::string topic = haPrefix + "/" + component + "/sunray/" + objectId + "/config";
             const std::string payload = config.dump();
-            mosquitto_publish(mosq, nullptr, topic.c_str(),
-                              static_cast<int>(payload.size()),
-                              payload.c_str(), qos, /*retain=*/true);
+            publishRaw(topic, payload, /*retain=*/true, "discovery");
         }
 
         std::string getHostname()
         {
-            char hostname[256];
+            char hostname[256] = {};
             if (gethostname(hostname, sizeof(hostname)) == 0)
             {
+                hostname[sizeof(hostname) - 1] = '\0';
                 return std::string(hostname);
             }
             return "unknown";
@@ -251,7 +275,11 @@ namespace sunray
         if (rc != MOSQ_ERR_SUCCESS)
         {
             logger_->warn(TAG,
-                          "Initial connect attempt: " + std::string(mosquitto_strerror(rc)) + " — will retry in background");
+                          "Initial connect attempt failed: " + std::string(mosquitto_strerror(rc)));
+            mosquitto_destroy(impl_->mosq);
+            impl_->mosq = nullptr;
+            mosquitto_lib_cleanup();
+            return;
         }
 
         // Start network I/O thread (handles connect, keepalive, reconnect)

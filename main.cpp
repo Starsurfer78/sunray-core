@@ -180,7 +180,7 @@ int main(int argc, char* argv[]) {
     });
 
     // WebSocket commands → Robot
-    wsServer->onCommand([&robot, missionPath](const std::string& cmd,
+    wsServer->onCommand([&robot, logger, missionPath](const std::string& cmd,
                                   const nlohmann::json& params) {
         if      (cmd == "start")  {
             const std::string missionId = params.value("missionId", std::string());
@@ -212,6 +212,9 @@ int main(int argc, char* argv[]) {
             if (params.contains("zones") && params["zones"].is_array())
                 for (const auto& z : params["zones"]) ids.push_back(z.get<std::string>());
             robot.startMowingZones(ids);
+        }
+        else {
+            logger->warn("main", "Unknown WebSocket command ignored: " + cmd);
         }
     });
 
@@ -264,7 +267,7 @@ int main(int argc, char* argv[]) {
 
     // Simulator commands → SimulationDriver (only wired in --sim mode)
     if (simDrv) {
-        wsServer->onSimCommand([simDrv](const std::string& action,
+        wsServer->onSimCommand([simDrv, logger](const std::string& action,
                                         const nlohmann::json& params) {
             if (action == "bumper") {
                 const std::string side = params.value("side", "both");
@@ -290,6 +293,8 @@ int main(int argc, char* argv[]) {
                 simDrv->addObstacle(std::move(poly));
             } else if (action == "obstacles_clear") {
                 simDrv->clearObstacles();
+            } else {
+                logger->warn("main", "Unknown simulator command ignored: " + action);
             }
         });
     }
@@ -299,7 +304,7 @@ int main(int argc, char* argv[]) {
 
     // ── 7. MQTT client (optional — enabled via mqtt_enabled=true in config) ───
     auto mqttClient = std::make_unique<sunray::MqttClient>(config, logger);
-    mqttClient->onCommand([&robot, missionPath](const std::string& cmd,
+    mqttClient->onCommand([&robot, logger, missionPath](const std::string& cmd,
                                    const nlohmann::json& params) {
         if      (cmd == "start")  {
             const std::string missionId = params.value("missionId", std::string());
@@ -316,6 +321,9 @@ int main(int argc, char* argv[]) {
         else if (cmd == "stop")   { robot.emergencyStop(); }
         else if (cmd == "dock")   { robot.startDocking(); }
         else if (cmd == "charge") { robot.startDocking(); }
+        else {
+            logger->warn("main", "Unknown MQTT command ignored: " + cmd);
+        }
     });
     mqttClient->start();
     robot.setMqttClient(mqttClient.get());

@@ -5,9 +5,14 @@
   import MotorTestPanel from "../components/Diagnostics/MotorTestPanel.svelte";
   import TickCalibration from "../components/Diagnostics/TickCalibration.svelte";
   import DirectionValidation from "../components/Diagnostics/DirectionValidation.svelte";
+  import TelemetryPanel from "../components/TelemetryPanel.svelte";
   import { diagnostics } from "../stores/diagnostics";
+  import { telemetry } from "../stores/telemetry";
+  import { getRecoveryNotice, humanizeReason } from "../utils/robotUi";
 
   let sidebarCollapsed = false;
+
+  $: recoveryNotice = getRecoveryNotice($telemetry);
 </script>
 
 <PageLayout
@@ -15,6 +20,8 @@
   on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
 >
   <div class="diagnostics-body">
+    <TelemetryPanel />
+
     <!-- Sensoren Live als erstes, prominentes Panel -->
     <div class="sensor-highlight">
       <SensorPanel />
@@ -33,6 +40,22 @@
     <div class="sidebar-header">
       <span class="eyebrow">Diagnose</span>
       <h1>Hardware und Kalibrierung</h1>
+      <p>Rohdaten, Sensorstatus und Servicefunktionen gebuendelt an einem Ort.</p>
+    </div>
+
+    <div class={`state-card ${recoveryNotice.tone}`}>
+      <span class="label">Betriebszustand</span>
+      <strong>{recoveryNotice.title}</strong>
+      <span>{recoveryNotice.detail}</span>
+      <span class="action">{recoveryNotice.action}</span>
+    </div>
+
+    <div class="result-card">
+      <span class="label">Live-Grund</span>
+      <strong>{humanizeReason($telemetry.event_reason)}</strong>
+      <span class="muted">
+        Resume {$telemetry.resume_target || "—"} · Fehler {$telemetry.error_code || "—"}
+      </span>
     </div>
 
     <div class="result-card">
@@ -83,6 +106,8 @@
   .sidebar-header {
     padding: 1rem;
     border-bottom: 1px solid #1e3a5f;
+    display: grid;
+    gap: 0.35rem;
   }
 
   .eyebrow {
@@ -100,6 +125,14 @@
     line-height: 1.05;
   }
 
+  p {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  .state-card,
   .result-card {
     margin: 1rem;
     display: grid;
@@ -108,6 +141,28 @@
     border-radius: 0.8rem;
     background: #0f1829;
     border: 1px solid #1e3a5f;
+  }
+
+  .state-card.success {
+    border-color: #166534;
+  }
+
+  .state-card.warning {
+    border-color: #92400e;
+  }
+
+  .state-card.error {
+    border-color: #7f1d1d;
+  }
+
+  .state-card.info {
+    border-color: #1d4ed8;
+  }
+
+  .action {
+    color: #dbeafe;
+    font-size: 0.82rem;
+    line-height: 1.45;
   }
 
   .label {
