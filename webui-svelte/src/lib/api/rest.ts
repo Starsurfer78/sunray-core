@@ -55,6 +55,13 @@ export interface ConfigUpdateResponse {
   error?: string
 }
 
+export interface FlatConfigDocument {
+  ticks_per_revolution?: number
+  invert_left_motor?: boolean
+  invert_right_motor?: boolean
+  [key: string]: unknown
+}
+
 export interface MapPoint {
   x: number
   y: number
@@ -131,6 +138,17 @@ export function updateMotorCalibrationConfig(payload: {
   invert_right_motor?: boolean
 }) {
   return putJson<ConfigUpdateResponse>('/api/config', payload)
+}
+
+export async function getConfigDocument(): Promise<FlatConfigDocument> {
+  const response = await fetch('/api/config')
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+
+  return response.json() as Promise<FlatConfigDocument>
 }
 
 export async function getMapDocument(): Promise<MapDocument> {

@@ -74,6 +74,8 @@ namespace sunray
             {"motor_pid_kp", 0.5},
             {"motor_pid_ki", 0.01},
             {"motor_pid_kd", 0.01},
+            {"invert_left_motor", false},
+            {"invert_right_motor", false},
 
             // ── Motorstrom-Grenzen / Fehlerbehandlung ─────────────────────────────
             // Legacy Alfred/Sunray tuning keys. They are kept for future reactivation,

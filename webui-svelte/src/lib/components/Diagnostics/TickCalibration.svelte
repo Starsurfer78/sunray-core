@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { runMotorDiag, updateMotorCalibrationConfig } from '../../api/rest'
+  import { onMount } from 'svelte'
+  import { getConfigDocument, runMotorDiag, updateMotorCalibrationConfig } from '../../api/rest'
   import { diagnostics } from '../../stores/diagnostics'
 
   type Wheel = 'left' | 'right'
@@ -8,6 +9,16 @@
   let pwm = 0.15
   let measuredTicks: number | null = null
   let savedTicks: number | null = null
+
+  onMount(async () => {
+    try {
+      const config = await getConfigDocument()
+      savedTicks =
+        typeof config.ticks_per_revolution === 'number' ? config.ticks_per_revolution : null
+    } catch {
+      savedTicks = null
+    }
+  })
 
   async function measureOneRevolution() {
     diagnostics.start(`ticks:${selectedWheel}`)

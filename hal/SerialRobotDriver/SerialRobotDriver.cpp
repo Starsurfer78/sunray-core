@@ -230,6 +230,8 @@ void SerialRobotDriver::run() {
 // ── HardwareInterface: motor ──────────────────────────────────────────────────
 
 void SerialRobotDriver::setMotorPwm(int left, int right, int mow) {
+    if (config_->get<bool>("invert_left_motor", false)) left = -left;
+    if (config_->get<bool>("invert_right_motor", false)) right = -right;
     pwmLeft_  = left;
     pwmRight_ = right;
     pwmMow_   = mow;
