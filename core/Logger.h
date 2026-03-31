@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <chrono>
 #include <ctime>
+#include <functional>
+#include <memory>
 
 namespace sunray {
 
@@ -71,6 +73,25 @@ private:
 class NullLogger : public Logger {
 public:
     void log(LogLevel, const std::string&, const std::string&) override {}
+};
+
+/// Fan-out logger: forwards every message to a primary logger and optionally to
+/// a secondary callback (for example WebUI live log mirroring).
+class FanoutLogger : public Logger {
+public:
+    using SinkCallback = std::function<void(LogLevel, const std::string&, const std::string&)>;
+
+    explicit FanoutLogger(std::shared_ptr<Logger> primary, SinkCallback secondary = {})
+        : primary_(std::move(primary)), secondary_(std::move(secondary)) {}
+
+    void log(LogLevel level, const std::string& module, const std::string& msg) override {
+        if (primary_) primary_->log(level, module, msg);
+        if (secondary_) secondary_(level, module, msg);
+    }
+
+private:
+    std::shared_ptr<Logger> primary_;
+    SinkCallback secondary_;
 };
 
 } // namespace sunray

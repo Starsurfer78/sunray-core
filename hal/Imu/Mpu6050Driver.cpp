@@ -110,6 +110,7 @@ void Mpu6050Driver::update(float dt_s) {
         data_.roll  = roll_;
         data_.pitch = pitch_;
         data_.yaw   = yaw_;
+        data_.calibrating = calibrating_.load();
         data_.valid = true;
     }
 }
@@ -124,7 +125,9 @@ void Mpu6050Driver::startCalibration() {
 
 ImuData Mpu6050Driver::getData() const {
     std::lock_guard<std::mutex> lk(mutex_);
-    return data_;
+    ImuData data = data_;
+    data.calibrating = calibrating_.load();
+    return data;
 }
 
 bool Mpu6050Driver::writeReg(uint8_t reg, uint8_t val) {

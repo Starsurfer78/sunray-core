@@ -267,6 +267,8 @@ private:
 
     GpsData       lastGps_;             ///< last GPS snapshot from gps_->getData()
     ImuData       lastImu_;             ///< last IMU snapshot from hw_->readImu()
+    bool          imuCalibrationExpected_ = false;
+    bool          imuCalibrationActive_ = false;
     std::string   lastNmeaGGA_;         ///< last NMEA GGA line forwarded to WebSocket
     unsigned long gpsLastFixTime_ms_      = 0;  ///< now_ms_ when last valid GPS fix arrived (BUG-006)
     bool          gpsNoSignalLatched_     = false;

@@ -58,6 +58,7 @@ struct ImuData {
     float accX = 0.0f, accY = 0.0f, accZ = 0.0f;  ///< acceleration [g]
     float gyroX = 0.0f, gyroY = 0.0f, gyroZ = 0.0f; ///< angular velocity [rad/s]
     float roll = 0.0f, pitch = 0.0f, yaw = 0.0f;    ///< integrated orientation [rad]
+    bool  calibrating = false; ///< true while gyro bias estimation is running
     bool  valid = false;  ///< true if sensor is responding
 };
 

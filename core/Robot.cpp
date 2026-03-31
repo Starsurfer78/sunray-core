@@ -55,6 +55,8 @@ bool Robot::init() {
     sensors_ = hw_->readSensors();
     previousSensors_ = sensors_;
     lastImu_ = {};
+    imuCalibrationExpected_ = false;
+    imuCalibrationActive_ = false;
 
     logger_->info(TAG, "Robot id: " + hw_->getRobotId());
     if (!historyDb_.init(*config_, *logger_)) {
@@ -63,6 +65,12 @@ bool Robot::init() {
     }
     eventRecorder_.bind(&historyDb_, logger_.get());
     lastRecordedOpName_ = activeOpName();
+    if (config_->get<bool>("imu_auto_calibrate_on_start", true)) {
+        logger_->info(TAG, "IMU-Kalibrierung gestartet — Roboter bitte nicht bewegen");
+        hw_->calibrateImu();
+        imuCalibrationExpected_ = true;
+        imuCalibrationActive_ = true;
+    }
     logger_->info(TAG, "Init complete — entering IDLE");
     return true;
 }
@@ -132,6 +140,15 @@ void Robot::tickHardware() {
     sensors_  = hw_->readSensors();
     battery_  = hw_->readBattery();
     lastImu_  = hw_->readImu();
+    if (imuCalibrationExpected_) {
+        if (lastImu_.calibrating) {
+            imuCalibrationActive_ = true;
+        } else if (imuCalibrationActive_) {
+            logger_->info(TAG, "IMU-Kalibrierung abgeschlossen");
+            imuCalibrationExpected_ = false;
+            imuCalibrationActive_ = false;
+        }
+    }
     if (lastImu_.valid) {
         stateEst_.updateImu(lastImu_.yaw, lastImu_.roll, lastImu_.pitch);
     }
@@ -1164,6 +1181,9 @@ nlohmann::json Robot::diagImuCalib() {
         return {{"ok", false}, {"error", "Nur im Idle-Zustand erlaubt"}};
 
     hw_->calibrateImu();
+    logger_->info(TAG, "IMU-Kalibrierung gestartet — Roboter bitte nicht bewegen");
+    imuCalibrationExpected_ = true;
+    imuCalibrationActive_ = true;
     // The IMU driver completes calibration asynchronously in its 50 Hz update loop.
     // Returning immediately keeps the HTTP diag endpoint short-lived and avoids
     // tying the request lifetime to the full 5 s sensor calibration window.

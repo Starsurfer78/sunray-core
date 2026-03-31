@@ -33,6 +33,7 @@ namespace sunray
             {"eeprom_mux_channel", 5},
             {"adc_mux_channel", 6},
             {"imu_i2c_addr", "0x69"},
+            {"imu_auto_calibrate_on_start", true},
             {"charger_connected_voltage_v", 7.0},
 
             // ── GPS ──────────────────────────────────────────────────────────────

@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <vector>
 
 // ── Global robot pointer for signal handler ────────────────────────────────────
@@ -121,7 +122,23 @@ int main(int argc, char* argv[]) {
     const auto configDir = config->path().parent_path();
 
     // ── 2. Logger ──────────────────────────────────────────────────────────────
-    auto logger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::INFO);
+    sunray::WebSocketServer* wsLogSink = nullptr;
+    auto stdoutLogger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::INFO);
+    auto logger = std::make_shared<sunray::FanoutLogger>(
+        stdoutLogger,
+        [&wsLogSink](sunray::LogLevel level, const std::string& module, const std::string& msg) {
+            if (!wsLogSink) return;
+            const char* tag = "INFO";
+            switch (level) {
+                case sunray::LogLevel::DEBUG: tag = "DEBUG"; break;
+                case sunray::LogLevel::INFO:  tag = "INFO"; break;
+                case sunray::LogLevel::WARN:  tag = "WARN"; break;
+                case sunray::LogLevel::ERROR: tag = "ERROR"; break;
+            }
+            std::ostringstream line;
+            line << "[" << tag << "] " << module << " " << msg;
+            wsLogSink->broadcastLog(line.str());
+        });
     logger->info("main", std::string("sunray-core starting")
                          + (simMode ? " [SIMULATION]" : " [Alfred]")
                          + " — config: " + configPath);
@@ -164,6 +181,7 @@ int main(int argc, char* argv[]) {
 
     // ── 6. WebSocket + HTTP server ─────────────────────────────────────────────
     auto wsServer = std::make_unique<sunray::WebSocketServer>(config, logger);
+    wsLogSink = wsServer.get();
 
     // Static file serving: resolve webui/dist from cwd and binary location.
     wsServer->setWebRoot(resolveWebRoot());
