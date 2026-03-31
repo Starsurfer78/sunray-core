@@ -40,6 +40,11 @@ export interface MapState {
   dirty: boolean
 }
 
+export interface AddPointResult {
+  accepted: boolean
+  reason?: string
+}
+
 type Segment = { a: Point; b: Point }
 
 const defaultZoneSettings: ZoneSettings = {
@@ -159,6 +164,14 @@ function wouldCreateSelfIntersection(points: Point[], point: Point) {
   return hasSelfIntersection([...points, point])
 }
 
+function isNearPoint(a: Point, b: Point, threshold = 0.03) {
+  return Math.hypot(a.x - b.x, a.y - b.y) <= threshold
+}
+
+function wouldDuplicatePoint(points: Point[], point: Point) {
+  return points.some((existing) => isNearPoint(existing, point))
+}
+
 function createMapStore() {
   const { subscribe, set, update } = writable<MapState>(initialState)
 
@@ -183,28 +196,40 @@ function createMapStore() {
       ...state,
       selectedExclusionIndex,
     })),
-    addPoint: (point: Point) => {
-      let accepted = false
+    addPoint: (point: Point): AddPointResult => {
+      let result: AddPointResult = { accepted: false }
 
       update((state) => {
       const next = structuredClone(state)
       if (next.selectedTool === 'perimeter') {
-        if (!wouldCreateSelfIntersection(next.map.perimeter, point)) {
+        if (wouldDuplicatePoint(next.map.perimeter, point)) {
+          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+        } else if (!wouldCreateSelfIntersection(next.map.perimeter, point)) {
           next.map.perimeter.push(point)
-          accepted = true
+          result = { accepted: true }
+        } else {
+          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
         }
       } else if (next.selectedTool === 'dock') {
-        next.map.dock.push(point)
-        accepted = true
+        if (wouldDuplicatePoint(next.map.dock, point)) {
+          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+        } else {
+          next.map.dock.push(point)
+          result = { accepted: true }
+        }
       } else if (next.selectedTool === 'nogo') {
         if (next.selectedExclusionIndex === null) {
           next.map.exclusions.push([])
           next.selectedExclusionIndex = next.map.exclusions.length - 1
         }
         const exclusion = next.map.exclusions[next.selectedExclusionIndex]
-        if (exclusion && !wouldCreateSelfIntersection(exclusion, point)) {
+        if (exclusion && wouldDuplicatePoint(exclusion, point)) {
+          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+        } else if (exclusion && !wouldCreateSelfIntersection(exclusion, point)) {
           exclusion.push(point)
-          accepted = true
+          result = { accepted: true }
+        } else {
+          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
         }
       } else if (next.selectedTool === 'zone') {
         let zone = next.map.zones.find((entry) => entry.id === next.selectedZoneId)
@@ -214,18 +239,22 @@ function createMapStore() {
           next.map.zones.push(zone)
           next.selectedZoneId = id
         }
-        if (!wouldCreateSelfIntersection(zone.polygon, point)) {
+        if (wouldDuplicatePoint(zone.polygon, point)) {
+          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+        } else if (!wouldCreateSelfIntersection(zone.polygon, point)) {
           zone.polygon.push(point)
-          accepted = true
+          result = { accepted: true }
+        } else {
+          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
         }
       }
-      if (accepted) {
+      if (result.accepted) {
         next.dirty = true
       }
       return next
       })
 
-      return accepted
+      return result
     },
     movePerimeterPoint: (index: number, point: Point) => update((state) => {
       const next = structuredClone(state)

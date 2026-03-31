@@ -1,6 +1,7 @@
 <script lang="ts">
   import { sendCmd } from "../api/websocket";
   import { connection } from "../stores/connection";
+  import { joystickOpen } from "../stores/joystick";
 
   export let startAllowed = true;
   export let startHint = "";
@@ -11,17 +12,32 @@
     { label: "Dock", cmd: "dock", accent: "dock" },
   ] as const;
 
-  let joystickOpen = false;
   let speed = 0.5; // 0.1 – 1.0
 
   // Drag state for the panel
   let panelX = 0;
   let panelY = 0;
+  let positionInitialized = false;
+
+  function placeJoystickPanel() {
+    const width = 210;
+    const height = 260;
+    const padding = 16;
+    const topbarOffset = 88;
+    panelX = Math.max(
+      padding,
+      Math.round(window.innerWidth / 2 - width / 2),
+    );
+    panelY = Math.max(
+      topbarOffset,
+      Math.round(window.innerHeight / 2 - height / 2),
+    );
+    positionInitialized = true;
+  }
 
   function openJoystick() {
-    panelX = window.innerWidth / 2 - 105;
-    panelY = window.innerHeight / 2 - 130;
-    joystickOpen = true;
+    placeJoystickPanel();
+    joystickOpen.set(true);
   }
   let dragging = false;
   let dragOffsetX = 0;
@@ -118,14 +134,41 @@
 
   function closeJoystick() {
     onPointerUp();
-    joystickOpen = false;
+    joystickOpen.set(false);
+  }
+
+  function toggleJoystick() {
+    if ($joystickOpen) {
+      closeJoystick();
+      return;
+    }
+    openJoystick();
   }
 
   $: speedLabel = `${Math.round(speed * 100)}%`;
+  $: if ($joystickOpen && !positionInitialized) {
+    placeJoystickPanel();
+  }
+  $: if (!$joystickOpen) {
+    positionInitialized = false;
+  }
 </script>
 
 <section class="panel">
   <span class="label">Steuerung</span>
+
+  <button
+    type="button"
+    class="joystick-toggle"
+    class:active={$joystickOpen}
+    on:click={toggleJoystick}
+  >
+    {#if $joystickOpen}
+      Joystick ausblenden
+    {:else}
+      Joystick einblenden
+    {/if}
+  </button>
 
   <div class="actions">
     {#each controls as control}
@@ -148,13 +191,9 @@
   {:else if !startAllowed && startHint}
     <div class="hint hint-warning">{startHint}</div>
   {/if}
-
-  <button type="button" class="joystick-btn" on:click={openJoystick}>
-    Joystick
-  </button>
 </section>
 
-{#if joystickOpen}
+{#if $joystickOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="dialog" style="left: {panelX}px; top: {panelY}px;">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -259,17 +298,25 @@
     color: #fbbf24;
   }
 
-  .joystick-btn {
+  .joystick-toggle {
     width: 100%;
-    padding: 0.5rem;
-    border-color: #1e3a5f;
-    background: #0f1829;
-    color: #60a5fa;
+    padding: 0.62rem 0.7rem;
+    border-color: #2563eb;
+    background: linear-gradient(135deg, #102448, #16346d);
+    color: #dbeafe;
+    font-size: 0.7rem;
+    letter-spacing: 0.02em;
   }
 
-  .joystick-btn:hover:not(:disabled) {
-    background: #0c1a3a;
-    border-color: #2563eb;
+  .joystick-toggle:hover:not(:disabled) {
+    background: linear-gradient(135deg, #14315f, #1d4d96);
+    border-color: #60a5fa;
+  }
+
+  .joystick-toggle.active {
+    border-color: #22c55e;
+    background: linear-gradient(135deg, #0b3320, #17643b);
+    color: #dcfce7;
   }
 
   .hint {

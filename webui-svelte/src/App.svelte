@@ -7,6 +7,9 @@
   import StatusBar from './lib/components/StatusBar.svelte'
   import { startTelemetry, stopTelemetry } from './lib/api/websocket'
   import { telemetry } from './lib/stores/telemetry'
+  import { connection } from './lib/stores/connection'
+  import { joystickOpen } from './lib/stores/joystick'
+  import { mapInfoOpen } from './lib/stores/mapInfo'
 
   type View = 'dashboard' | 'diagnostics' | 'map' | 'mission'
   type NavItem = { id: View | null; label: string; enabled: boolean }
@@ -49,6 +52,14 @@
       ? humanizeReason($telemetry.event_reason)
       : ''
 
+  function toggleJoystick() {
+    joystickOpen.update((open) => !open)
+  }
+
+  function toggleMapInfo() {
+    mapInfoOpen.update((open) => !open)
+  }
+
   onMount(() => {
     startTelemetry()
     return () => stopTelemetry()
@@ -86,6 +97,42 @@
           </button>
         {/each}
       </nav>
+
+      <button
+        type="button"
+        class="topbar-joystick"
+        class:active={$joystickOpen}
+        disabled={currentView !== 'dashboard'}
+        title={
+          currentView !== 'dashboard'
+            ? 'Joystick ist im Dashboard verfuegbar'
+            : !$connection.connected
+              ? 'Joystick ohne Live-Verbindung nur als UI-Vorschau'
+              : $joystickOpen
+                ? 'Joystick ausblenden'
+                : 'Joystick einblenden'
+        }
+        on:click={toggleJoystick}
+      >
+        <span aria-hidden="true">🕹</span>
+      </button>
+
+      <button
+        type="button"
+        class="topbar-info-btn"
+        class:active={$mapInfoOpen}
+        disabled={currentView !== 'map'}
+        title={
+          currentView !== 'map'
+            ? 'Karteninfo ist in der Kartenansicht verfuegbar'
+            : $mapInfoOpen
+              ? 'Karteninfo ausblenden'
+              : 'Karteninfo einblenden'
+        }
+        on:click={toggleMapInfo}
+      >
+        <span aria-hidden="true">i</span>
+      </button>
 
       {#if emergencyInfo}
         <span class="topbar-info">{emergencyInfo}</span>
@@ -231,6 +278,59 @@
     color: #94a3b8;
     font-size: 0.78rem;
     white-space: nowrap;
+  }
+
+  .topbar-joystick {
+    flex-shrink: 0;
+    width: 2.4rem;
+    height: 2.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #060c17;
+    color: #93c5fd;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .topbar-info-btn {
+    flex-shrink: 0;
+    width: 2.4rem;
+    height: 2.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #060c17;
+    color: #bfdbfe;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .topbar-info-btn.active {
+    border-color: #0891b2;
+    background: #082f49;
+    color: #cffafe;
+  }
+
+  .topbar-info-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .topbar-joystick.active {
+    border-color: #22c55e;
+    background: #0b3320;
+    color: #dcfce7;
+  }
+
+  .topbar-joystick:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .view {

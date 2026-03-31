@@ -5,8 +5,10 @@
   import { getMapDocument, saveMapDocument, type MapZone } from "../api/rest";
   import { type Telemetry } from "../api/types";
   import { connection } from "../stores/connection";
+  import { batteryPercent } from "../stores/telemetry";
   import { mapStore, type MapTool, type Point, type Zone } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
+  import { mapInfoOpen } from "../stores/mapInfo";
 
   let busy = false;
   let info = "";
@@ -16,6 +18,7 @@
   let sidebarCollapsed = false;
   let nowMs = Date.now();
   let hydrationDone = false;
+  let mappingTestMode = false;
 
   const DRAFT_KEY = "sunray-map-draft-v1";
   const CONNECTION_FRESH_MS = 5000;
@@ -399,9 +402,12 @@
       y: Number($telemetry.y.toFixed(2)),
     };
 
-    const accepted = mapStore.addPoint(point);
-    if (!accepted) {
-      showInfo("Punkt wuerde Polygon schneiden", "error");
+    const result = mapStore.addPoint(point);
+    if (!result.accepted) {
+      showInfo(
+        result.reason || "Punkt konnte nicht gesetzt werden",
+        result.reason === "Punkt liegt bereits an dieser Stelle" ? "warning" : "error",
+      );
       return;
     }
 
@@ -437,6 +443,21 @@
   function finishNoGoStep() {
     mapStore.setTool("dock");
     showInfo("NoGo abgeschlossen, jetzt Docking-Pfad aufnehmen");
+  }
+
+  function finishPerimeterStep() {
+    if ($mapStore.map.perimeter.length < 3) {
+      showInfo("Perimeter braucht mindestens 3 Punkte", "warning");
+      return;
+    }
+    if (hasSelfIntersection($mapStore.map.perimeter)) {
+      showInfo("Perimeter darf sich nicht selbst schneiden", "error");
+      return;
+    }
+    mapStore.setTool("nogo");
+    showInfo(
+      "Perimeter abgeschlossen. Optional NoGo markieren oder direkt mit Docking-Pfad weitermachen",
+    );
   }
 
   function finishActiveNoGo() {
@@ -479,6 +500,15 @@
     mapStore.clearActive();
   }
 
+  function finishDockPath() {
+    if ($mapStore.map.dock.length < 2) {
+      showInfo("Docking-Pfad braucht mindestens 2 Punkte", "warning");
+      return;
+    }
+    mapStore.setTool("move");
+    showInfo("Docking-Pfad abgeschlossen. Jetzt Validierung und Speichern pruefen");
+  }
+
   function handlePointRejected(event: CustomEvent<{ tool: string; reason?: string }>) {
     showInfo(event.detail.reason || "Punkt wuerde Polygon schneiden", event.detail.reason ? "warning" : "error");
   }
@@ -507,6 +537,9 @@
         : rtkFloat && acceptableAccuracy
           ? "RTK Float mit guter Genauigkeit"
           : "Kein stabiles RTK fuer neue Punkte";
+  $: effectivePreflightHint = mappingTestMode
+    ? "Testmodus aktiv: Punktaufnahme und Freigabe sind ohne RTK fuer UI-Tests erlaubt"
+    : preflightHint;
 
   $: hasNogo = $mapStore.map.exclusions.length > 0;
   $: perimeterTooSmall =
@@ -516,14 +549,20 @@
     $mapStore.map.perimeter.length >= 3 && !perimeterSelfIntersecting;
   $: dockTooShort =
     $mapStore.map.dock.length > 0 && $mapStore.map.dock.length < 2;
+  $: dockEntryPoint =
+    $mapStore.map.dock.length > 0 ? $mapStore.map.dock[0] : null;
+  $: dockTerminalPoint =
+    $mapStore.map.dock.length > 0
+      ? $mapStore.map.dock[$mapStore.map.dock.length - 1]
+      : null;
   $: dockEntryDistance =
-    perimeterValid && $mapStore.map.dock.length > 0
-      ? minDistanceToPolygon($mapStore.map.dock[0], $mapStore.map.perimeter)
+    perimeterValid && dockEntryPoint
+      ? minDistanceToPolygon(dockEntryPoint, $mapStore.map.perimeter)
       : Number.POSITIVE_INFINITY;
   $: dockEntryPlausible =
     perimeterValid &&
-    $mapStore.map.dock.length > 0 &&
-    (pointInPolygon($mapStore.map.dock[0], $mapStore.map.perimeter) ||
+    dockEntryPoint &&
+    (pointInPolygon(dockEntryPoint, $mapStore.map.perimeter) ||
       dockEntryDistance <= MAX_DOCK_ENTRY_DISTANCE_M);
   $: dockPathValid =
     $mapStore.map.dock.length >= 2 && dockEntryPlausible;
@@ -542,12 +581,14 @@
           ? "Docking-Pfad fehlt noch"
           : "Docking-Pfad muss am Perimeter beginnen oder in seiner Naehe"
       : "",
-    !mappingSignalReady ? "Fuer Aufnahme und Freigabe wird frische RTK-Telemetrie benoetigt" : "",
+    !mappingSignalReady && !mappingTestMode
+      ? "Fuer Aufnahme und Freigabe wird frische RTK-Telemetrie benoetigt"
+      : "",
   ].filter(Boolean);
   $: saveHint = validationIssues[0] ?? "";
   $: canSaveMap = !busy && !saveHint;
-  $: allowPointAdd = mappingSignalReady;
-  $: pointAddBlockedReason = preflightHint;
+  $: allowPointAdd = mappingSignalReady || mappingTestMode;
+  $: pointAddBlockedReason = effectivePreflightHint;
   $: noGoPointCount = $mapStore.map.exclusions.reduce(
     (total, exclusion) => total + exclusion.length,
     0,
@@ -576,7 +617,7 @@
       id: "rtk",
       label: "RTK pruefen",
       status: mappingSignalReady ? "done" : "active",
-      detail: preflightHint,
+      detail: effectivePreflightHint,
     },
     {
       id: "perimeter",
@@ -650,11 +691,29 @@
     workflowSteps.find(
       (step) => step.status === "pending" || step.status === "blocked",
     ) ?? null;
-  $: primaryBlocker = validationIssues[0] ?? (!mappingSignalReady ? preflightHint : "");
+  $: primaryBlocker =
+    validationIssues[0] ?? (!mappingSignalReady && !mappingTestMode ? preflightHint : "");
   $: connectionAgeSeconds =
     $connection.lastSeen > 0
       ? Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000))
       : null;
+  $: mapInfoConnectionState = !$connection.connected
+    ? "offline"
+    : connectionFresh
+      ? "live"
+      : connectionAgeSeconds !== null
+        ? `alt (${connectionAgeSeconds}s)`
+        : "verbunden";
+  $: mapInfoGpsStatus = rtkFix
+    ? "RTK Fix"
+    : rtkFloat
+      ? "RTK Float"
+      : $telemetry.gps_text || "invalid";
+  $: mapInfoTargetX = $telemetry.resume_target ? "—" : "—";
+  $: mapInfoTargetY = $telemetry.resume_target ? "—" : "—";
+  $: mapInfoIndex = $telemetry.mission_zone_count > 0
+    ? `${Math.max(1, $telemetry.mission_zone_index + 1)}/${$telemetry.mission_zone_count}`
+    : "—";
 
   onMount(() => {
     const interval = setInterval(() => {
@@ -680,6 +739,54 @@
     {#if info}
       <div class={`map-toast ${infoTone}`} role="status" aria-live="polite">
         {info}
+      </div>
+    {/if}
+
+    {#if $mapInfoOpen}
+      <div class="map-info-panel">
+        <div class="map-info-grid">
+          <div class="map-info-card">
+            <span class="map-info-label">GPS / RTK</span>
+            <strong>{mapInfoGpsStatus}</strong>
+            <span>Acc: {$telemetry.gps_acc > 0 ? `${$telemetry.gps_acc.toFixed(2)} m` : "—"}</span>
+            <span>Sat: — / —</span>
+            <span>Age: {connectionAgeSeconds !== null ? `${connectionAgeSeconds}s` : "—"}</span>
+          </div>
+
+          <div class="map-info-card">
+            <span class="map-info-label">Position</span>
+            <strong>{mapInfoConnectionState}</strong>
+            <span>Pos x: {$telemetry.x.toFixed(2)} m</span>
+            <span>Pos y: {$telemetry.y.toFixed(2)} m</span>
+            <span>Tgt x: {mapInfoTargetX}</span>
+            <span>Tgt y: {mapInfoTargetY}</span>
+            <span>Idx: {mapInfoIndex}</span>
+          </div>
+
+          <div class="map-info-card">
+            <span class="map-info-label">Akku</span>
+            <strong>{$batteryPercent}%</strong>
+            <span>Voltage: {$telemetry.battery_v.toFixed(2)} V</span>
+            <span>Current: {$telemetry.charge_a.toFixed(2)} A</span>
+            <span>Dock: {$telemetry.charge_v.toFixed(2)} V</span>
+          </div>
+
+          <div class="map-info-card">
+            <span class="map-info-label">System</span>
+            <strong>{$telemetry.pi_v || "—"}</strong>
+            <span>MCU: {$telemetry.mcu_v || "—"}</span>
+            <span>Mode: {mappingTestMode ? "Testmodus aktiv" : "Normal"}</span>
+            <span>{effectivePreflightHint}</span>
+            <button
+              type="button"
+              class="info-toggle"
+              class:active={mappingTestMode}
+              on:click={() => (mappingTestMode = !mappingTestMode)}
+            >
+              {mappingTestMode ? "Testmodus aktiv" : "Testmodus fuer Mauspunkte"}
+            </button>
+          </div>
+        </div>
       </div>
     {/if}
 
@@ -818,44 +925,6 @@
       </div>
 
       <div class="sb-section">
-        <span class="sb-label">1. RTK & Verbindung</span>
-        <div class="assistant-card telemetry-card" class:blocked={!mappingSignalReady}>
-          <div class="telemetry-grid">
-            <div class="telemetry-item">
-              <span class="telemetry-label">GPS</span>
-              <strong>{$telemetry.gps_text || "—"}</strong>
-              <span class="telemetry-copy">Loesung {$telemetry.gps_sol || 0}</span>
-            </div>
-            <div class="telemetry-item">
-              <span class="telemetry-label">Qualitaet</span>
-              <strong>{rtkFix ? "RTK Fix" : rtkFloat ? "RTK Float" : "Kein stabiler Fix"}</strong>
-              <span class="telemetry-copy">
-                Acc {$telemetry.gps_acc > 0 ? `${$telemetry.gps_acc.toFixed(2)} m` : "—"}
-              </span>
-            </div>
-            <div class="telemetry-item">
-              <span class="telemetry-label">Verbindung</span>
-              <strong>{$connection.connected ? "Online" : "Offline"}</strong>
-              <span class="telemetry-copy">
-                {connectionFresh
-                  ? "Telemetrie frisch"
-                  : connectionAgeSeconds !== null
-                    ? `Letztes Paket vor ${connectionAgeSeconds}s`
-                    : "Noch keine Daten"}
-              </span>
-            </div>
-            <div class="telemetry-item">
-              <span class="telemetry-label">Hinweis</span>
-              <strong>{preflightHint}</strong>
-              <span class="telemetry-copy">
-                WLAN-Qualitaet/RSSI wird aktuell noch nicht uebertragen
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="sb-section">
         <span class="sb-label">2. Grenze aufnehmen</span>
         <div class="assistant-card" class:active={activeTool === "perimeter"}>
           <strong>{$mapStore.map.perimeter.length} Punkte</strong>
@@ -869,8 +938,14 @@
             <button
               type="button"
               class="sb-btn"
-              disabled={$mapStore.map.perimeter.length === 0}
-              on:click={removeLastPerimeterPoint}>Letzten Punkt</button
+              disabled={$mapStore.map.perimeter.length < 3}
+              on:click={finishPerimeterStep}>Abschliessen</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={!perimeterValid}
+              on:click={finishNoGoStep}>Weiter</button
             >
           </div>
         </div>
@@ -910,17 +985,6 @@
               on:click={finishActiveNoGo}>Abschliessen</button
             >
           </div>
-          <div class="assistant-actions">
-            <button
-              type="button"
-              class="sb-btn"
-              disabled={$mapStore.selectedExclusionIndex === null}
-              on:click={deleteActiveNoGo}>Loeschen</button
-            >
-            <button type="button" class="sb-btn" on:click={finishNoGoStep}
-              >Weiter</button
-            >
-          </div>
         </div>
       </div>
 
@@ -941,6 +1005,20 @@
               class="sb-btn"
               disabled={$mapStore.map.dock.length === 0}
               on:click={clearDockPath}>Leeren</button
+            >
+          </div>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={$mapStore.map.dock.length < 2}
+              on:click={finishDockPath}>Abschliessen</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={!dockPathValid}
+              on:click={() => mapStore.setTool("move")}>Zur Kontrolle</button
             >
           </div>
         </div>
@@ -1005,6 +1083,72 @@
     position: relative;
     height: 100%;
     background: #070d18;
+  }
+
+  .map-info-panel {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.85rem;
+    z-index: 25;
+    width: min(24rem, calc(100% - 1.7rem));
+    padding: 0.7rem;
+    border-radius: 0.8rem;
+    border: 1px solid #1e3a5f;
+    background: rgba(7, 13, 24, 0.92);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.34);
+    backdrop-filter: blur(10px);
+  }
+
+  .map-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .map-info-card {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.6rem;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(30, 58, 95, 0.75);
+    background: rgba(15, 24, 41, 0.72);
+  }
+
+  .map-info-card strong {
+    color: #e2e8f0;
+    font-size: 0.78rem;
+  }
+
+  .map-info-card span {
+    color: #a9bacd;
+    font-size: 0.66rem;
+    line-height: 1.35;
+  }
+
+  .info-toggle {
+    margin-top: 0.25rem;
+    padding: 0.42rem 0.55rem;
+    border-radius: 0.45rem;
+    border: 1px solid #1e3a5f;
+    background: #0f1829;
+    color: #bfdbfe;
+    font-size: 0.64rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .info-toggle.active {
+    border-color: #d97706;
+    background: rgba(28, 18, 0, 0.72);
+    color: #fbbf24;
+  }
+
+  .map-info-label {
+    color: #7a8da8 !important;
+    font-size: 0.57rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .map-toast {
@@ -1364,37 +1508,6 @@
 
   .telemetry-card {
     gap: 0.55rem;
-  }
-
-  .telemetry-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.45rem;
-  }
-
-  .telemetry-item {
-    display: grid;
-    gap: 0.12rem;
-    padding: 0.45rem 0.5rem;
-    border-radius: 0.45rem;
-    background: rgba(7, 13, 24, 0.55);
-    border: 1px solid #162237;
-  }
-
-  .telemetry-label {
-    color: #7a8da8 !important;
-    font-size: 0.56rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .telemetry-item strong {
-    font-size: 0.7rem;
-  }
-
-  .telemetry-copy {
-    color: #94a3b8 !important;
-    font-size: 0.62rem !important;
   }
 
   .sb-stat {
