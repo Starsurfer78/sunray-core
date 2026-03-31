@@ -24,9 +24,16 @@
 #include "hal/HardwareInterface.h"
 #include "hal/GpsDriver/GpsDriver.h"
 #include "core/Config.h"
+#include "core/ButtonActions.h"
+#include "core/BuzzerSequencer.h"
+#include "core/EventMessages.h"
 #include "core/Logger.h"
 #include "core/Schedule.h"
 #include "core/WebSocketServer.h"
+#include "core/storage/EventRecord.h"
+#include "core/storage/EventRecorder.h"
+#include "core/storage/HistoryDatabase.h"
+#include "core/storage/SessionRecord.h"
 #include "core/op/Op.h"
 #include "core/navigation/StateEstimator.h"
 #include "core/navigation/Map.h"
@@ -113,6 +120,8 @@ public:
     /// Start mowing only the specified zones (C.12).
     /// zoneIds: list of zone IDs from the map JSON. Empty = all zones (same as startMowing()).
     void startMowingZones(const std::vector<std::string>& zoneIds);
+    void startMowingMission(const std::string& missionId,
+                            const std::vector<std::string>& zoneIds);
 
     /// Access OpManager for direct command dispatch (e.g. from WebSocket server).
     OpManager& opManager() { return opMgr_; }
@@ -141,6 +150,11 @@ public:
 
     /// Return current schedule as JSON array (C.11).
     nlohmann::json getSchedule() const;
+
+    /// Read-only history/statistics queries for the WebUI backend.
+    nlohmann::json getHistoryEvents(unsigned limit = 100) const;
+    nlohmann::json getHistorySessions(unsigned limit = 100) const;
+    nlohmann::json getHistoryStatisticsSummary() const;
 
     /// Direct pose override (e.g. from AT+P command / Mission Service setpos).
     void setPose(float x, float y, float heading);
@@ -189,9 +203,36 @@ private:
     void tickStateMachine(OpContext& ctx);
     bool tickDiag();
     void tickButtonControl();
+    void tickUserFeedback();
     void tickManualDrive();
     void tickSafetyStop(OpContext& ctx);
     void tickTelemetry();
+    void tickSessionTracking();
+    void persistCurrentSession(bool force);
+    void clearActiveMissionTracking();
+    void refreshActiveMissionProgress();
+    bool canStartMowingMission();
+    void rejectStartMowingMission(const std::string& eventReason,
+                                  const std::string& message);
+    EventRecord makeEventRecord(const std::string& level,
+                                const std::string& eventType,
+                                const std::string& eventReason,
+                                const std::string& message,
+                                const std::string& errorCode = "") const;
+    void recordEvent(const std::string& level,
+                     const std::string& eventType,
+                     const std::string& eventReason,
+                     const std::string& message,
+                     const std::string& errorCode = "");
+    int currentGpsSolutionCode() const;
+    std::string currentErrorCode() const;
+    std::string currentDominantEventReason() const;
+    std::string transitionEventReason(const std::string& beforeOp,
+                                      const std::string& afterOp) const;
+    void showUiNotice(const std::string& message,
+                      const std::string& severity,
+                      const std::string& eventReason,
+                      uint64_t durationMs = 5000);
 
     /// Update LED_2 (status) and LED_3 (GPS) from active Op name.
     void updateStatusLeds();
@@ -203,6 +244,7 @@ private:
     void armMissionResumeGuard();
     std::string currentStatePhase() const;
     std::string currentResumeTarget() const;
+    static long long wallClockNowMs();
     static std::string computeMapFingerprint(const std::filesystem::path& path);
 
     // ── Dependencies ──────────────────────────────────────────────────────────
@@ -235,10 +277,24 @@ private:
     bool          scheduleWasActive_      = false;  ///< previous timetable state (C.11)
 
     Schedule      schedule_;              ///< weekly mowing timetable (C.11)
+    HistoryDatabase historyDb_;
+    EventRecorder   eventRecorder_;
     std::filesystem::path schedulePath_; ///< path for schedule persistence
     std::string currentMapFingerprint_;
     std::string activeMissionMapFingerprint_;
     bool        resumeBlockedByMapChange_ = false;
+    bool        batteryLowEventLatched_ = false;
+    bool        batteryCriticalEventLatched_ = false;
+    bool        sessionActive_ = false;
+    SessionRecord currentSession_;
+    float       sessionLastX_ = 0.0f;
+    float       sessionLastY_ = 0.0f;
+    double      sessionGpsAccuracySum_ = 0.0;
+    unsigned    sessionGpsAccuracyCount_ = 0;
+    unsigned long sessionLastPersist_ms_ = 0;
+    std::string activeMissionId_;
+    std::vector<std::string> activeMissionZoneIds_;
+    int         activeMissionZoneIndex_ = 0;
 
     std::atomic<bool>     running_{false};
     unsigned long         controlLoops_ = 0;
@@ -249,11 +305,17 @@ private:
     std::atomic<int>      manualAngular1000_{0};
     std::atomic<uint64_t> manualDriveTs_ms_{0};
 
-    uint64_t buttonHoldStart_ms_   = 0;
-    uint64_t buttonBeepOffAt_ms_   = 0;
-    unsigned buttonLastFeedback_s_ = 0;
-    bool     buttonHoldActive_     = false;
-    bool     stopButtonPrev_       = false;
+    ButtonHoldThresholds buttonHoldThresholds_;
+    BuzzerSequencer      buzzerSequencer_;
+    uint64_t             buttonHoldStart_ms_   = 0;
+    unsigned             buttonLastFeedback_s_ = 0;
+    bool                 buttonHoldActive_     = false;
+    bool                 stopButtonPrev_       = false;
+    mutable uint64_t   uiMessageUntil_ms_       = 0;
+    mutable std::string uiMessage_;
+    mutable std::string uiSeverity_             = "info";
+    mutable std::string uiEventReason_          = "none";
+    std::string      lastRecordedOpName_        = "Idle";
 
     OdometryData odometry_;
     SensorData   sensors_;

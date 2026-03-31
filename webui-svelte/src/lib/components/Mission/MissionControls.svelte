@@ -1,14 +1,21 @@
 <script lang="ts">
   import { sendCmd } from '../../api/websocket'
   import { connection } from '../../stores/connection'
+  import type { Mission } from '../../stores/missions'
   import type { Zone } from '../../stores/map'
 
   export let zones: Zone[] = []
+  export let mission: Mission | null = null
   export let selectedZoneIds: string[] = []
 
   function startSelected() {
     if (selectedZoneIds.length === 0) return
     sendCmd('startZones', { zones: selectedZoneIds })
+  }
+
+  function startMission() {
+    if (!mission) return
+    sendCmd('start', { missionId: mission.id })
   }
 
   function startAll() {
@@ -31,6 +38,9 @@
   </header>
 
   <div class="actions">
+    <button type="button" on:click={startMission} disabled={!$connection.connected || !mission}>
+      Mission starten
+    </button>
     <button type="button" on:click={startSelected} disabled={!$connection.connected || selectedZoneIds.length === 0}>
       Gewaehlte Zonen maehen
     </button>
@@ -46,6 +56,9 @@
   </div>
 
   <div class="meta">
+    {#if mission}
+      Mission: {mission.name}<br />
+    {/if}
     Auswahl: {selectedZoneIds.length} / {zones.length}
   </div>
 </section>

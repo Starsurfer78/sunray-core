@@ -200,6 +200,19 @@ TEST_CASE("A4: Low battery transitions Mow toward Dock safely", "[a4_invariants]
     REQUIRE(hasMotorStop(hw->motorCalls)); // Mow end / safety behavior
 }
 
+TEST_CASE("A4: start command without loaded map does not leave dock", "[a4_invariants]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    hw->battery.chargerConnected = true;
+
+    robot->startMowing();
+    robot->run();
+
+    REQUIRE(robot->activeOpName() == "Idle");
+    REQUIRE_FALSE(hasMotorStop(hw->motorCalls));
+}
+
 TEST_CASE("A5: startup without valid GPS transitions to GpsWait and recovers to Mow", "[a5_gps]") {
     auto cfg = makeConfig();
     cfg->set("gps_no_signal_ms", 1);

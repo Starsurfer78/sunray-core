@@ -2,6 +2,11 @@
 
 Neustart der Alfred-WebUI auf Basis von `Svelte + Vite + TypeScript`.
 
+Dies ist die aktive Frontend-Basis des Projekts.
+
+Die fruehere Vue-WebUI wurde als Referenz nach
+`ALTE_DATEIEN/webui-vue-reference/` verschoben.
+
 ## Ziel
 
 Das neue Frontend soll klein, robust und websocket-faehig sein. Der MVP deckt

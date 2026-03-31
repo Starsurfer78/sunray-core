@@ -8,6 +8,9 @@ export interface Point {
 export interface ZoneSettings {
   name: string
   stripWidth: number
+  angle: number
+  edgeMowing: boolean
+  edgeRounds: number
   speed: number
   pattern: 'stripe' | 'spiral'
 }
@@ -42,6 +45,9 @@ type Segment = { a: Point; b: Point }
 const defaultZoneSettings: ZoneSettings = {
   name: 'Zone',
   stripWidth: 0.18,
+  angle: 0,
+  edgeMowing: true,
+  edgeRounds: 1,
   speed: 1.0,
   pattern: 'stripe',
 }
@@ -79,6 +85,28 @@ function createZone(id: string, order: number): Zone {
       name: `Zone ${order}`,
     },
   }
+}
+
+function normalizeZoneSettings(settings: Partial<ZoneSettings> | undefined, fallbackName: string): ZoneSettings {
+  return {
+    name: settings?.name ?? fallbackName,
+    stripWidth: settings?.stripWidth ?? defaultZoneSettings.stripWidth,
+    angle: settings?.angle ?? defaultZoneSettings.angle,
+    edgeMowing: settings?.edgeMowing ?? defaultZoneSettings.edgeMowing,
+    edgeRounds: settings?.edgeRounds ?? defaultZoneSettings.edgeRounds,
+    speed: settings?.speed ?? defaultZoneSettings.speed,
+    pattern: settings?.pattern ?? defaultZoneSettings.pattern,
+  }
+}
+
+function normalizeZones(zones: Zone[] | undefined): Zone[] {
+  if (!zones) return []
+  return zones.map((zone, index) => ({
+    id: zone.id,
+    order: zone.order ?? index + 1, // legacy editor ordering until missions own sequencing
+    polygon: zone.polygon ?? [],
+    settings: normalizeZoneSettings(zone.settings, `Zone ${index + 1}`),
+  }))
 }
 
 function orientation(a: Point, b: Point, c: Point) {
@@ -144,7 +172,7 @@ function createMapStore() {
         dock: map.dock ?? [],
         mow: map.mow ?? [],
         exclusions: map.exclusions ?? [],
-        zones: map.zones ?? [],
+        zones: normalizeZones(map.zones),
       },
       selectedExclusionIndex: null,
       dirty: false,
@@ -344,6 +372,24 @@ function createMapStore() {
       const next = structuredClone(state)
       const zone = next.map.zones.find((entry) => entry.id === zoneId)
       if (zone) zone.settings.name = name
+      next.dirty = true
+      return next
+    }),
+    updateZoneSettings: (zoneId: string, patch: Partial<ZoneSettings>) => update((state) => {
+      const next = structuredClone(state)
+      const zone = next.map.zones.find((entry) => entry.id === zoneId)
+      if (!zone) return next
+
+      zone.settings = {
+        ...zone.settings,
+        ...patch,
+      }
+
+      if (zone.settings.angle < 0) zone.settings.angle = 0
+      if (zone.settings.angle > 179) zone.settings.angle = 179
+      if (zone.settings.edgeRounds < 1) zone.settings.edgeRounds = 1
+      if (zone.settings.edgeRounds > 5) zone.settings.edgeRounds = 5
+
       next.dirty = true
       return next
     }),

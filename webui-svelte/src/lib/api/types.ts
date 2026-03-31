@@ -29,6 +29,9 @@ export interface Telemetry {
   resume_target: string
   event_reason: string
   error_code: string
+  mission_id: string
+  mission_zone_index: number
+  mission_zone_count: number
 }
 
 export interface TelemetryEnvelope extends Telemetry {
@@ -73,4 +76,7 @@ export const defaultTelemetry: Telemetry = {
   resume_target: '',
   event_reason: 'none',
   error_code: '',
+  mission_id: '',
+  mission_zone_index: 0,
+  mission_zone_count: 0,
 }

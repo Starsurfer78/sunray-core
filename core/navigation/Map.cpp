@@ -101,6 +101,9 @@ bool Map::load(const std::filesystem::path& path) {
                     auto& js = jz["settings"];
                     z.settings.name       = js.value("name", "Zone");
                     z.settings.stripWidth = js.value("stripWidth", 0.18f);
+                    z.settings.angle      = js.value("angle", 0.0f);
+                    z.settings.edgeMowing = js.value("edgeMowing", true);
+                    z.settings.edgeRounds = js.value("edgeRounds", 1);
                     z.settings.speed      = js.value("speed", 1.0f);
                     std::string pat       = js.value("pattern", "stripe");
                     z.settings.pattern    = (pat == "spiral") ? ZonePattern::SPIRAL : ZonePattern::STRIPE;
@@ -139,6 +142,9 @@ bool Map::save(const std::filesystem::path& path) const {
             jz["settings"] = {
                 { "name",       z.settings.name },
                 { "stripWidth", z.settings.stripWidth },
+                { "angle",      z.settings.angle },
+                { "edgeMowing", z.settings.edgeMowing },
+                { "edgeRounds", z.settings.edgeRounds },
                 { "speed",      z.settings.speed },
                 { "pattern",    z.settings.pattern == ZonePattern::SPIRAL ? "spiral" : "stripe" },
             };
@@ -492,6 +498,28 @@ bool Map::isInsideAllowedArea(float x, float y) const {
         if (pointInPolygon(ex, x, y)) return false;
     }
     return true;
+}
+
+std::string Map::zoneIdForPoint(float x, float y,
+                                const std::vector<std::string>& preferredOrder) const {
+    auto findPreferred = [this, x, y](const std::string& zoneId) -> std::string {
+        for (const auto& zone : zones_) {
+            if (zone.id == zoneId && pointInPolygon(zone.polygon, x, y)) {
+                return zone.id;
+            }
+        }
+        return {};
+    };
+
+    for (const auto& zoneId : preferredOrder) {
+        const std::string match = findPreferred(zoneId);
+        if (!match.empty()) return match;
+    }
+
+    for (const auto& zone : zones_) {
+        if (pointInPolygon(zone.polygon, x, y)) return zone.id;
+    }
+    return {};
 }
 
 // ── Geometry helpers ───────────────────────────────────────────────────────────

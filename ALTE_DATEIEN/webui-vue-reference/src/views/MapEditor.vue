@@ -11,6 +11,9 @@ interface Origin { lat: number; lon: number }
 interface ZoneSettings {
   name:       string
   stripWidth: number        // metres
+  angle:      number        // degrees 0..179
+  edgeMowing: boolean
+  edgeRounds: number
   speed:      number        // m/s
   pattern:    'stripe' | 'spiral'
 }
@@ -18,7 +21,7 @@ interface ZoneSettings {
 interface Zone {
   id:       string
   polygon:  Pt[]
-  order:    number
+  order:    number          // legacy editor ordering until missions own sequencing
   settings: ZoneSettings
 }
 
@@ -386,6 +389,9 @@ async function loadMap() {
       settings: {
         name:       z.settings?.name       ?? `Zone ${i + 1}`,
         stripWidth: z.settings?.stripWidth ?? 0.18,
+        angle:      z.settings?.angle      ?? 0,
+        edgeMowing: z.settings?.edgeMowing ?? true,
+        edgeRounds: z.settings?.edgeRounds ?? 1,
         speed:      z.settings?.speed      ?? 1.0,
         pattern:    z.settings?.pattern    ?? 'stripe',
       },
@@ -554,7 +560,7 @@ function closePolygon() {
       id,
       polygon:  [...drawingPts.value],
       order:    newOrder,
-      settings: { name: `Zone ${newOrder}`, stripWidth: 0.18, speed: 1.0, pattern: 'stripe' },
+      settings: { name: `Zone ${newOrder}`, stripWidth: 0.18, angle: 0, edgeMowing: true, edgeRounds: 1, speed: 1.0, pattern: 'stripe' },
     })
     selectedZoneId.value = id
     editingZoneId.value  = id
@@ -584,7 +590,13 @@ function computePreview() {
   previewMow.value = computeMowPath(
     zone.polygon as [number,number][],
     mapData.exclusions as [number,number][][],
-    { ...pathSettings, stripWidth: zone.settings.stripWidth },
+    {
+      ...pathSettings,
+      stripWidth: zone.settings.stripWidth,
+      angle: zone.settings.angle,
+      edgeMowing: zone.settings.edgeMowing,
+      edgeRounds: zone.settings.edgeRounds,
+    },
     perimClip,
   )
   status.value = `Mähpfad für "${zone.settings.name}" berechnet: ${previewMow.value.length} Wegpunkte`
@@ -912,10 +924,14 @@ watch(() => mapData.zones, (zones) => {
   if (!zones.find(z => z.id === pathZoneId.value)) pathZoneId.value = zones[0].id
 }, { deep: false })
 
-// Pre-fill stripWidth from the selected zone's settings
+// Pre-fill preview settings from the selected zone's defaults
 watch(pathZoneId, (id) => {
   const zone = mapData.zones.find(z => z.id === id)
-  if (zone) pathSettings.stripWidth = zone.settings.stripWidth
+  if (!zone) return
+  pathSettings.stripWidth = zone.settings.stripWidth
+  pathSettings.angle = zone.settings.angle
+  pathSettings.edgeMowing = zone.settings.edgeMowing
+  pathSettings.edgeRounds = zone.settings.edgeRounds
 })
 </script>
 
@@ -1103,67 +1119,111 @@ watch(pathZoneId, (id) => {
         <div
           v-for="z in [...mapData.zones].sort((a,b) => a.order - b.order)"
           :key="z.id"
-          class="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800 last:border-b-0 cursor-pointer hover:bg-gray-800 transition-colors"
+          class="px-3 py-2 border-b border-gray-800 last:border-b-0 cursor-pointer hover:bg-gray-800 transition-colors"
           :class="selectedZoneId === z.id ? 'bg-gray-800 border-l-2 border-l-purple-500' : ''"
           @click="selectedZoneId = selectedZoneId === z.id ? null : z.id; editingZoneId = selectedZoneId; draw()"
         >
-          <!-- Order badge -->
-          <span class="w-5 h-5 rounded-full bg-purple-800 text-purple-200 text-xs flex items-center justify-center font-bold flex-shrink-0">{{ z.order }}</span>
-
-          <!-- Name (editable when selected) -->
-          <template v-if="editingZoneId === z.id">
-            <input
-              v-model="z.settings.name"
-              @click.stop
-              @input="dirty = true"
-              class="w-24 bg-gray-700 border border-purple-600 rounded px-1.5 py-0.5 text-xs text-gray-100 font-medium"
-              placeholder="Name"
-            />
-            <!-- Strip width -->
-            <label class="text-gray-500 text-xs flex-shrink-0">Breite</label>
-            <input
-              v-model.number="z.settings.stripWidth"
-              @click.stop
-              @input="dirty = true"
-              type="number" step="0.01" min="0.05" max="1.0"
-              class="w-16 bg-gray-700 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-gray-100 font-mono"
-            />
-            <span class="text-gray-600 text-xs">m</span>
-            <!-- Speed -->
-            <label class="text-gray-500 text-xs flex-shrink-0">Speed</label>
-            <input
-              v-model.number="z.settings.speed"
-              @click.stop
-              @input="dirty = true"
-              type="number" step="0.1" min="0.1" max="3.0"
-              class="w-14 bg-gray-700 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-gray-100 font-mono"
-            />
-            <span class="text-gray-600 text-xs">m/s</span>
-            <!-- Pattern -->
-            <select
-              v-model="z.settings.pattern"
-              @click.stop
-              @change="dirty = true"
-              class="bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-xs text-gray-100"
-            >
-              <option value="stripe">Streifen</option>
-              <option value="spiral" disabled title="Noch nicht implementiert">Spirale (bald)</option>
-            </select>
-          </template>
-          <template v-else>
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-purple-800 text-purple-200 text-xs flex items-center justify-center font-bold flex-shrink-0">{{ z.order }}</span>
             <span class="text-xs text-gray-200 font-medium flex-1 min-w-0 truncate">{{ z.settings.name }}</span>
-            <span class="text-xs text-gray-500 flex-shrink-0">{{ z.settings.pattern === 'stripe' ? '≡' : '◎' }} {{ z.settings.stripWidth.toFixed(2) }}m  {{ z.settings.speed.toFixed(1) }}m/s</span>
-          </template>
-
-          <!-- Move + delete -->
-          <div class="flex items-center gap-1 flex-shrink-0 ml-1" @click.stop>
-            <button @click="moveZone(z.id, -1)" :disabled="z.order === 1"
-              class="w-5 h-5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 text-xs disabled:opacity-30 flex items-center justify-center" title="Nach oben">▲</button>
-            <button @click="moveZone(z.id, 1)" :disabled="z.order === mapData.zones.length"
-              class="w-5 h-5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 text-xs disabled:opacity-30 flex items-center justify-center" title="Nach unten">▼</button>
-            <button @click="deleteZone(z.id)"
-              class="w-5 h-5 rounded bg-gray-700 hover:bg-red-800 text-gray-400 hover:text-red-200 text-xs flex items-center justify-center" title="Zone löschen">✕</button>
+            <span class="text-xs text-gray-500 flex-shrink-0">
+              {{ z.settings.pattern === 'stripe' ? '≡' : '◎' }}
+              {{ z.settings.stripWidth.toFixed(2) }}m · {{ z.settings.angle }}°
+              <template v-if="z.settings.edgeMowing"> · Rand {{ z.settings.edgeRounds }}x</template>
+              <template v-else> · ohne Rand</template>
+            </span>
+            <div class="flex items-center gap-1 flex-shrink-0 ml-1" @click.stop>
+              <button @click="moveZone(z.id, -1)" :disabled="z.order === 1"
+                class="w-5 h-5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 text-xs disabled:opacity-30 flex items-center justify-center" title="Nach oben">▲</button>
+              <button @click="moveZone(z.id, 1)" :disabled="z.order === mapData.zones.length"
+                class="w-5 h-5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 text-xs disabled:opacity-30 flex items-center justify-center" title="Nach unten">▼</button>
+              <button @click="deleteZone(z.id)"
+                class="w-5 h-5 rounded bg-gray-700 hover:bg-red-800 text-gray-400 hover:text-red-200 text-xs flex items-center justify-center" title="Zone löschen">✕</button>
+            </div>
           </div>
+
+          <template v-if="editingZoneId === z.id">
+            <div class="mt-2 ml-7 grid grid-cols-2 gap-2 text-xs" @click.stop>
+              <label class="flex flex-col gap-1 text-gray-400">
+                <span>Name</span>
+                <input
+                  v-model="z.settings.name"
+                  @input="dirty = true"
+                  class="bg-gray-700 border border-purple-600 rounded px-1.5 py-1 text-xs text-gray-100 font-medium"
+                  placeholder="Name"
+                />
+              </label>
+              <label class="flex flex-col gap-1 text-gray-400">
+                <span>Muster</span>
+                <select
+                  v-model="z.settings.pattern"
+                  @change="dirty = true"
+                  class="bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-gray-100"
+                >
+                  <option value="stripe">Streifen</option>
+                  <option value="spiral" disabled title="Noch nicht implementiert">Spirale (bald)</option>
+                </select>
+              </label>
+              <label class="flex flex-col gap-1 text-gray-400">
+                <span>Breite</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    v-model.number="z.settings.stripWidth"
+                    @input="dirty = true"
+                    type="number" step="0.01" min="0.05" max="1.0"
+                    class="w-20 bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-gray-100 font-mono"
+                  />
+                  <span class="text-gray-600">m</span>
+                </div>
+              </label>
+              <label class="flex flex-col gap-1 text-gray-400">
+                <span>Winkel</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    v-model.number="z.settings.angle"
+                    @input="dirty = true"
+                    type="number" step="1" min="0" max="179"
+                    class="w-20 bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-gray-100 font-mono"
+                  />
+                  <span class="text-gray-600">°</span>
+                </div>
+              </label>
+              <label class="flex flex-col gap-1 text-gray-400">
+                <span>Geschwindigkeit</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    v-model.number="z.settings.speed"
+                    @input="dirty = true"
+                    type="number" step="0.1" min="0.1" max="3.0"
+                    class="w-20 bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-gray-100 font-mono"
+                  />
+                  <span class="text-gray-600">m/s</span>
+                </div>
+              </label>
+              <label class="flex items-center gap-2 text-gray-300">
+                <input
+                  v-model="z.settings.edgeMowing"
+                  @change="dirty = true"
+                  type="checkbox"
+                  class="rounded border-gray-600 bg-gray-700 text-purple-500 focus:ring-purple-500"
+                />
+                <span>Rand mähen</span>
+              </label>
+              <label class="flex flex-col gap-1 text-gray-400" :class="!z.settings.edgeMowing ? 'opacity-50' : ''">
+                <span>Randbahnen</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    v-model.number="z.settings.edgeRounds"
+                    @input="dirty = true"
+                    :disabled="!z.settings.edgeMowing"
+                    type="number" step="1" min="1" max="5"
+                    class="w-20 bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-gray-100 font-mono disabled:opacity-50"
+                  />
+                  <span class="text-gray-600">x</span>
+                </div>
+              </label>
+            </div>
+          </template>
         </div>
       </div>
     </div>

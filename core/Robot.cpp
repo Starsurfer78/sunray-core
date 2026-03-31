@@ -17,6 +17,7 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <cmath>
 #include <stdexcept>
 
 namespace sunray {
@@ -56,6 +57,12 @@ bool Robot::init() {
     lastImu_ = {};
 
     logger_->info(TAG, "Robot id: " + hw_->getRobotId());
+    if (!historyDb_.init(*config_, *logger_)) {
+        logger_->error(TAG, "History database init failed");
+        return false;
+    }
+    eventRecorder_.bind(&historyDb_, logger_.get());
+    lastRecordedOpName_ = activeOpName();
     logger_->info(TAG, "Init complete — entering IDLE");
     return true;
 }
@@ -92,8 +99,10 @@ void Robot::run() {
         tickStateMachine(ctx);
         if (tickDiag()) return;
         tickButtonControl();
+        tickUserFeedback();
         tickManualDrive();
         tickSafetyStop(ctx);
+        tickSessionTracking();
         updateStatusLeds();
         tickTelemetry();
         ++controlLoops_;
@@ -214,7 +223,78 @@ void Robot::tickSafetyGuards(OpContext& ctx) {
 }
 
 void Robot::tickStateMachine(OpContext& ctx) {
+    const std::string beforeOp = lastRecordedOpName_;
     opMgr_.tick(ctx);
+    const std::string afterOp = activeOpName();
+    if (afterOp != beforeOp) {
+        const std::string eventReason = transitionEventReason(beforeOp, afterOp);
+        const std::string message =
+            messages::humanReadableTransitionMessage(
+                beforeOp, afterOp, eventReason,
+                afterOp == "Error" ? currentErrorCode() : "");
+        const std::string severity = afterOp == "Error" ? "error"
+                                  : (afterOp == "GpsWait" || afterOp == "Dock"
+                                     || afterOp == "WaitRain"
+                                     || afterOp == "EscapeReverse"
+                                     || afterOp == "EscapeForward") ? "warn"
+                                  : "info";
+        recordEvent(afterOp == "Error" ? "error" : "info",
+                    "state_transition",
+                    eventReason,
+                    message,
+                    afterOp == "Error" ? currentErrorCode() : "");
+        if (beforeOp == "Mow" && afterOp != "Mow" && sessionActive_) {
+            currentSession_.endedAtMs = wallClockNowMs();
+            currentSession_.durationMs = currentSession_.endedAtMs - currentSession_.startedAtMs;
+            currentSession_.batteryEndV = battery_.voltage;
+            currentSession_.endReason = eventReason;
+            if (sessionGpsAccuracyCount_ > 0) {
+                currentSession_.meanGpsAccuracyM = static_cast<float>(
+                    sessionGpsAccuracySum_ / static_cast<double>(sessionGpsAccuracyCount_));
+            }
+            persistCurrentSession(true);
+            sessionActive_ = false;
+            sessionGpsAccuracySum_ = 0.0;
+            sessionGpsAccuracyCount_ = 0;
+            sessionLastPersist_ms_ = 0;
+        }
+        if (afterOp == "Idle" || afterOp == "Charge" || afterOp == "Error") {
+            clearActiveMissionTracking();
+        }
+        if (eventReason != "none" || afterOp == "Error") {
+            showUiNotice(message, severity, eventReason,
+                         afterOp == "Error" ? 12000 : 6000);
+        }
+        if (afterOp == "Mow" && !sessionActive_) {
+            currentSession_ = {};
+            currentSession_.startedAtMs = wallClockNowMs();
+            currentSession_.id = "session-" + std::to_string(currentSession_.startedAtMs);
+            currentSession_.batteryStartV = battery_.voltage;
+            currentSession_.batteryEndV = battery_.voltage;
+            nlohmann::json meta = {
+                {"source", "core"},
+                {"state_phase", "mowing"},
+            };
+            if (!currentMapFingerprint_.empty()) {
+                meta["map_fingerprint"] = currentMapFingerprint_;
+            }
+            currentSession_.metadataJson = meta.dump();
+            sessionLastX_ = stateEst_.x();
+            sessionLastY_ = stateEst_.y();
+            sessionGpsAccuracySum_ = 0.0;
+            sessionGpsAccuracyCount_ = 0;
+            sessionLastPersist_ms_ = 0;
+            if (lastGps_.hAccuracy > 0.0f) {
+                currentSession_.meanGpsAccuracyM = lastGps_.hAccuracy;
+                currentSession_.maxGpsAccuracyM = lastGps_.hAccuracy;
+                sessionGpsAccuracySum_ = lastGps_.hAccuracy;
+                sessionGpsAccuracyCount_ = 1;
+            }
+            sessionActive_ = true;
+            persistCurrentSession(true);
+        }
+        lastRecordedOpName_ = afterOp;
+    }
 }
 
 bool Robot::tickDiag() {
@@ -260,12 +340,6 @@ bool Robot::tickDiag() {
 }
 
 void Robot::tickButtonControl() {
-    // End short button-beep pulse.
-    if (buttonBeepOffAt_ms_ != 0 && now_ms_ >= buttonBeepOffAt_ms_) {
-        hw_->setBuzzer(false);
-        buttonBeepOffAt_ms_ = 0;
-    }
-
     const bool pressed = sensors_.stopButton;
     const std::string opName = activeOpName();
     const bool canRunHoldActions = (opName == "Idle" || opName == "Charge");
@@ -284,29 +358,31 @@ void Robot::tickButtonControl() {
         const unsigned heldSeconds = static_cast<unsigned>((now_ms_ - buttonHoldStart_ms_) / 1000UL);
         if (heldSeconds > buttonLastFeedback_s_) {
             buttonLastFeedback_s_ = heldSeconds;
-            hw_->setBuzzer(true);
-            buttonBeepOffAt_ms_ = now_ms_ + 100;
+            buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::ButtonTick);
         }
     } else if (stopButtonPrev_ && buttonHoldActive_) {
         const unsigned heldSeconds = static_cast<unsigned>((now_ms_ - buttonHoldStart_ms_) / 1000UL);
+        const ButtonHoldAction action =
+            resolveButtonHoldAction(heldSeconds, buttonHoldThresholds_);
 
-        if (buttonBeepOffAt_ms_ != 0) {
-            hw_->setBuzzer(false);
-            buttonBeepOffAt_ms_ = 0;
-        }
+        buzzerSequencer_.stop(*hw_);
 
-        if (heldSeconds >= 9) {
+        if (action == ButtonHoldAction::Shutdown) {
+            buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::ShutdownRequested);
             emergencyStop();
             hw_->keepPowerOn(false);
             running_.store(false);
             logger_->warn(TAG, "Stop button long-press >=9s — shutdown requested");
-        } else if (heldSeconds >= 6) {
+        } else if (action == ButtonHoldAction::StartMowing) {
+            buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::StartMowingAccepted);
             startMowing();
             logger_->info(TAG, "Stop button long-press >=6s — start mowing");
-        } else if (heldSeconds >= 5) {
+        } else if (action == ButtonHoldAction::StartDocking) {
+            buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::StartDockingAccepted);
             startDocking();
             logger_->info(TAG, "Stop button long-press >=5s — start docking");
-        } else if (heldSeconds >= 1) {
+        } else if (action == ButtonHoldAction::EmergencyStop) {
+            buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::EmergencyStop);
             emergencyStop();
             logger_->warn(TAG, "Stop button short-press >=1s — emergency stop");
         }
@@ -317,6 +393,10 @@ void Robot::tickButtonControl() {
     }
 
     stopButtonPrev_ = pressed;
+}
+
+void Robot::tickUserFeedback() {
+    buzzerSequencer_.tick(*hw_, now_ms_);
 }
 
 void Robot::tickManualDrive() {
@@ -343,15 +423,29 @@ void Robot::tickSafetyStop(OpContext& ctx) {
         if (Op* op = opMgr_.activeOp()) {
             if ((sensors_.bumperLeft  && !previousSensors_.bumperLeft) ||
                 (sensors_.bumperRight && !previousSensors_.bumperRight)) {
+                const std::string message = messages::humanReadableReasonMessage("bumper_triggered");
+                recordEvent("warn", "safety_event", "bumper_triggered", message);
+                showUiNotice(message, "warn", "bumper_triggered", 4000);
                 op->onObstacle(ctx);
             }
             if (sensors_.lift && !previousSensors_.lift) {
+                const std::string message =
+                    messages::humanReadableReasonMessage("lift_triggered", "ERR_LIFT");
+                recordEvent("error", "safety_event", "lift_triggered", message, "ERR_LIFT");
+                showUiNotice(message, "error", "lift_triggered", 12000);
                 op->onLiftTriggered(ctx);
             }
             if (sensors_.motorFault && !previousSensors_.motorFault) {
+                const std::string message =
+                    messages::humanReadableReasonMessage("motor_fault", "ERR_MOTOR_FAULT");
+                recordEvent("error", "safety_event", "motor_fault", message, "ERR_MOTOR_FAULT");
+                showUiNotice(message, "error", "motor_fault", 12000);
                 op->onMotorError(ctx);
             }
             if (sensors_.rain && !previousSensors_.rain) {
+                const std::string message = messages::humanReadableReasonMessage("rain_detected");
+                recordEvent("info", "safety_event", "rain_detected", message);
+                showUiNotice(message, "warn", "rain_detected", 6000);
                 op->onRainTriggered(ctx);
             }
         }
@@ -363,6 +457,42 @@ void Robot::tickTelemetry() {
     const auto td = buildTelemetry();
     if (ws_)   ws_->pushTelemetry(td);
     if (mqtt_) mqtt_->pushTelemetry(td);
+}
+
+void Robot::tickSessionTracking() {
+    if (!sessionActive_) return;
+
+    const float dx = stateEst_.x() - sessionLastX_;
+    const float dy = stateEst_.y() - sessionLastY_;
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    if (distance > 0.02f) {
+        currentSession_.distanceM += distance;
+        sessionLastX_ = stateEst_.x();
+        sessionLastY_ = stateEst_.y();
+    }
+
+    currentSession_.batteryEndV = battery_.voltage;
+    currentSession_.durationMs = wallClockNowMs() - currentSession_.startedAtMs;
+
+    if (lastGps_.hAccuracy > 0.0f) {
+        sessionGpsAccuracySum_ += static_cast<double>(lastGps_.hAccuracy);
+        sessionGpsAccuracyCount_++;
+        currentSession_.meanGpsAccuracyM = static_cast<float>(
+            sessionGpsAccuracySum_ / static_cast<double>(sessionGpsAccuracyCount_));
+        if (lastGps_.hAccuracy > currentSession_.maxGpsAccuracyM) {
+            currentSession_.maxGpsAccuracyM = lastGps_.hAccuracy;
+        }
+    }
+
+    persistCurrentSession(false);
+}
+
+void Robot::persistCurrentSession(bool force) {
+    if (!sessionActive_) return;
+    if (!force && now_ms_ - sessionLastPersist_ms_ < 2000UL) return;
+    if (historyDb_.upsertSession(currentSession_, *logger_)) {
+        sessionLastPersist_ms_ = now_ms_;
+    }
 }
 
 void Robot::stop() {
@@ -415,7 +545,32 @@ static OpContext makeCommandCtx(HardwareInterface& hw, Config& config, Logger& l
     return ctx;
 }
 
+bool Robot::canStartMowingMission() {
+    if (!map_.isLoaded()) {
+        rejectStartMowingMission("start_rejected_no_map",
+                                 "Start verweigert: keine aktive Karte geladen");
+        return false;
+    }
+    if (map_.mowPoints().empty()) {
+        rejectStartMowingMission("start_rejected_no_mow_points",
+                                 "Start verweigert: Karte hat keine Mähpunkte");
+        return false;
+    }
+    return true;
+}
+
+void Robot::rejectStartMowingMission(const std::string& eventReason,
+                                     const std::string& message) {
+    logger_->warn(TAG, message);
+    showUiNotice(message, "warn", eventReason);
+    buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::StartRejected);
+    recordEvent("warn", "start_rejected", eventReason, message);
+}
+
 void Robot::startMowing() {
+    if (!canStartMowingMission()) return;
+    clearActiveMissionTracking();
+
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
     auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
@@ -423,10 +578,15 @@ void Robot::startMowing() {
                               stateEst_.x(), stateEst_.y(), stateEst_.heading(),
                               age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
     armMissionResumeGuard();
+    recordEvent("info", "operator_command", "operator_start_mowing",
+                "Mähauftrag wurde gestartet");
     opMgr_.changeOperationTypeByOperator(ctx, "Mow");
 }
 
 void Robot::startMowingZones(const std::vector<std::string>& zoneIds) {
+    if (!canStartMowingMission()) return;
+    clearActiveMissionTracking();
+
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
     auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
@@ -435,10 +595,15 @@ void Robot::startMowingZones(const std::vector<std::string>& zoneIds) {
                               age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
     armMissionResumeGuard();
     map_.startMowingZones(stateEst_.x(), stateEst_.y(), zoneIds);
+    recordEvent("info", "operator_command", "operator_start_mowing_zones",
+                "Zonen-Mähauftrag wurde gestartet");
     opMgr_.changeOperationTypeByOperator(ctx, "Mow");
 }
 
-void Robot::startDocking() {
+void Robot::startMowingMission(const std::string& missionId,
+                               const std::vector<std::string>& zoneIds) {
+    if (!canStartMowingMission()) return;
+
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
     auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
@@ -446,10 +611,35 @@ void Robot::startDocking() {
                               stateEst_.x(), stateEst_.y(), stateEst_.heading(),
                               age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
     armMissionResumeGuard();
+    activeMissionId_ = missionId;
+    activeMissionZoneIds_ = zoneIds;
+    if (activeMissionZoneIds_.empty()) {
+        for (const auto& zone : map_.zones()) activeMissionZoneIds_.push_back(zone.id);
+    }
+    activeMissionZoneIndex_ = 0;
+    map_.startMowingZones(stateEst_.x(), stateEst_.y(), activeMissionZoneIds_);
+    refreshActiveMissionProgress();
+    recordEvent("info", "operator_command", "operator_start_mission",
+                "Mission wurde gestartet");
+    opMgr_.changeOperationTypeByOperator(ctx, "Mow");
+}
+
+void Robot::startDocking() {
+    clearActiveMissionTracking();
+    unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
+                   : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
+    auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
+                              sensors_, battery_, odometry_, now_ms_,
+                              stateEst_.x(), stateEst_.y(), stateEst_.heading(),
+                              age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+    armMissionResumeGuard();
+    recordEvent("info", "operator_command", "operator_start_docking",
+                "Docking wurde gestartet");
     opMgr_.changeOperationTypeByOperator(ctx, "Dock");
 }
 
 void Robot::emergencyStop() {
+    clearActiveMissionTracking();
     hw_->setMotorPwm(0, 0, 0);
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
@@ -457,6 +647,8 @@ void Robot::emergencyStop() {
                               sensors_, battery_, odometry_, now_ms_,
                               stateEst_.x(), stateEst_.y(), stateEst_.heading(),
                               age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+    recordEvent("warn", "operator_command", "operator_emergency_stop",
+                "Not-Stopp wurde ausgelöst");
     opMgr_.changeOperationTypeByOperator(ctx, "Idle");
     resumeBlockedByMapChange_ = false;
     activeMissionMapFingerprint_.clear();
@@ -477,6 +669,46 @@ bool Robot::loadMap(const std::filesystem::path& path) {
     }
     logger_->error(TAG, "Map load failed: " + path.string());
     return false;
+}
+
+void Robot::clearActiveMissionTracking() {
+    activeMissionId_.clear();
+    activeMissionZoneIds_.clear();
+    activeMissionZoneIndex_ = 0;
+}
+
+void Robot::refreshActiveMissionProgress() {
+    if (activeMissionId_.empty()) return;
+    if (activeMissionZoneIds_.empty()) {
+        activeMissionZoneIndex_ = 0;
+        return;
+    }
+
+    const std::string zoneId =
+        map_.zoneIdForPoint(map_.targetPoint.x, map_.targetPoint.y, activeMissionZoneIds_);
+    if (zoneId.empty()) {
+        if (activeMissionZoneIndex_ == 0) activeMissionZoneIndex_ = 1;
+        return;
+    }
+
+    for (std::size_t index = 0; index < activeMissionZoneIds_.size(); ++index) {
+        if (activeMissionZoneIds_[index] == zoneId) {
+            activeMissionZoneIndex_ = static_cast<int>(index) + 1;
+            return;
+        }
+    }
+}
+
+nlohmann::json Robot::getHistoryEvents(unsigned limit) const {
+    return historyDb_.listEvents(limit, *logger_);
+}
+
+nlohmann::json Robot::getHistorySessions(unsigned limit) const {
+    return historyDb_.listSessions(limit, *logger_);
+}
+
+nlohmann::json Robot::getHistoryStatisticsSummary() const {
+    return historyDb_.buildSummary(*logger_);
 }
 
 void Robot::setPose(float x, float y, float heading) {
@@ -518,6 +750,133 @@ std::string Robot::computeMapFingerprint(const std::filesystem::path& path) {
     return std::to_string(std::hash<std::string>{}(buffer.str()));
 }
 
+long long Robot::wallClockNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+EventRecord Robot::makeEventRecord(const std::string& level,
+                                   const std::string& eventType,
+                                   const std::string& eventReason,
+                                   const std::string& message,
+                                   const std::string& errorCode) const {
+    EventRecord event;
+    event.ts_ms = now_ms_;
+    event.level = level;
+    event.module = TAG;
+    event.eventType = eventType;
+    event.statePhase = currentStatePhase();
+    event.eventReason = eventReason;
+    event.errorCode = errorCode;
+    event.message = message;
+    if (battery_.voltage > 0.0f) event.batteryV = battery_.voltage;
+    event.gpsSol = currentGpsSolutionCode();
+    event.x = stateEst_.x();
+    event.y = stateEst_.y();
+    return event;
+}
+
+void Robot::recordEvent(const std::string& level,
+                        const std::string& eventType,
+                        const std::string& eventReason,
+                        const std::string& message,
+                        const std::string& errorCode) {
+    eventRecorder_.record(makeEventRecord(level, eventType, eventReason, message, errorCode));
+}
+
+int Robot::currentGpsSolutionCode() const {
+    if (stateEst_.gpsHasFix()) return 4;
+    if (stateEst_.gpsHasFloat()) return 5;
+    return 0;
+}
+
+std::string Robot::currentErrorCode() const {
+    const float criticalV = config_->get<float>("battery_critical_v", 18.9f);
+    if (battery_.voltage > 0.1f && !battery_.chargerConnected && battery_.voltage < criticalV) {
+        return "ERR_BATTERY_CRITICAL";
+    }
+    if (sensors_.lift) return "ERR_LIFT";
+    if (sensors_.motorFault) return "ERR_MOTOR_FAULT";
+    if (gpsFixTimeoutLatched_) return "ERR_GPS_TIMEOUT";
+    return "ERR_GENERIC";
+}
+
+std::string Robot::currentDominantEventReason() const {
+    const std::string opName = activeOpName();
+    const float lowV      = config_->get<float>("battery_low_v",      25.5f);
+    const float criticalV = config_->get<float>("battery_critical_v", 18.9f);
+
+    if (uiMessageUntil_ms_ > now_ms_ && uiEventReason_ != "none") {
+        return uiEventReason_;
+    }
+    if (resumeBlockedByMapChange_) return "resume_blocked_map_changed";
+    if (battery_.voltage > 0.1f && !battery_.chargerConnected && battery_.voltage < criticalV) {
+        return "battery_critical";
+    }
+    if (battery_.voltage > 0.1f && !battery_.chargerConnected && battery_.voltage < lowV) {
+        return "battery_low";
+    }
+    if (sensors_.rain) return "rain_detected";
+    if (sensors_.lift) return "lift_triggered";
+    if (sensors_.motorFault) return "motor_fault";
+    if (sensors_.bumperLeft || sensors_.bumperRight) return "bumper_triggered";
+    if (battery_.chargerConnected) return "charger_connected";
+    if (lineTracker_.kidnapped()) return "kidnap_detected";
+    if (gpsFixTimeoutLatched_) return "gps_fix_timeout";
+    if (gpsNoSignalLatched_) return "gps_signal_lost";
+    if (opName == "Undock") return "undocking";
+    if (opName == "NavToStart") return "navigating_to_start";
+    if (opName == "Mow") return "mission_active";
+    if (opName == "Dock") return "docking";
+    if (opName == "Charge") return "charging";
+    if (opName == "WaitRain") return "waiting_for_rain";
+    if (opName == "GpsWait") return "gps_recovery_wait";
+    if (opName == "EscapeReverse" || opName == "EscapeForward") return "obstacle_recovery";
+    return "none";
+}
+
+std::string Robot::transitionEventReason(const std::string& beforeOp,
+                                         const std::string& afterOp) const {
+    if (afterOp == "Error") {
+        if (beforeOp == "Dock") {
+            if (sensors_.lift) return "lift_triggered";
+            if (sensors_.motorFault) return "motor_fault";
+            if (gpsFixTimeoutLatched_) return "gps_fix_timeout";
+            return "dock_failed";
+        }
+        if (beforeOp == "Undock") {
+            if (sensors_.lift) return "lift_triggered";
+            if (sensors_.motorFault) return "motor_fault";
+            if (battery_.chargerConnected) return "undock_charger_timeout";
+            return "undock_failed";
+        }
+        return currentDominantEventReason();
+    }
+
+    if (beforeOp == "Dock" && afterOp == "GpsWait") return "gps_signal_lost";
+    if (beforeOp == "Mow" && afterOp == "Dock" && batteryLowEventLatched_) return "battery_low";
+    if (beforeOp == "NavToStart" && afterOp == "Dock" && gpsFixTimeoutLatched_) return "gps_fix_timeout";
+    if (beforeOp == "Mow" && afterOp == "GpsWait") return "gps_signal_lost";
+    if (beforeOp == "NavToStart" && afterOp == "GpsWait") return "gps_signal_lost";
+    if (beforeOp == "Mow" && afterOp == "WaitRain") return "rain_detected";
+    if ((beforeOp == "Mow" || beforeOp == "NavToStart" || beforeOp == "Dock")
+        && afterOp == "EscapeReverse") {
+        return "bumper_triggered";
+    }
+    return currentDominantEventReason();
+}
+
+void Robot::showUiNotice(const std::string& message,
+                         const std::string& severity,
+                         const std::string& eventReason,
+                         uint64_t durationMs) {
+    uiMessage_ = message;
+    uiSeverity_ = severity;
+    uiEventReason_ = eventReason;
+    uiMessageUntil_ms_ = now_ms_ + durationMs;
+}
+
 // ── Accessors ─────────────────────────────────────────────────────────────────
 
 OdometryData Robot::lastOdometry() const { return odometry_; }
@@ -551,7 +910,6 @@ void Robot::updateStatusLeds() {
 WebSocketServer::TelemetryData Robot::buildTelemetry() const {
     WebSocketServer::TelemetryData d;
     const std::string opName = activeOpName();
-    const float lowV      = config_->get<float>("battery_low_v",      25.5f);
     const float criticalV = config_->get<float>("battery_critical_v", 18.9f);
 
     d.op        = activeOpName();
@@ -595,47 +953,33 @@ WebSocketServer::TelemetryData Robot::buildTelemetry() const {
     }
     d.state_phase = currentStatePhase();
     d.resume_target = currentResumeTarget();
+    if (uiMessageUntil_ms_ > now_ms_) {
+        d.ui_message = uiMessage_;
+        d.ui_severity = uiSeverity_;
+    }
 
-    if (resumeBlockedByMapChange_) {
-        d.event_reason = "resume_blocked_map_changed";
-    } else if (battery_.voltage > 0.1f && !battery_.chargerConnected && battery_.voltage < criticalV) {
-        d.event_reason = "battery_critical";
-    } else if (battery_.voltage > 0.1f && !battery_.chargerConnected && battery_.voltage < lowV) {
-        d.event_reason = "battery_low";
-    } else if (sensors_.rain) {
-        d.event_reason = "rain_detected";
-    } else if (sensors_.lift) {
-        d.event_reason = "lift_triggered";
-    } else if (sensors_.motorFault) {
-        d.event_reason = "motor_fault";
-    } else if (sensors_.bumperLeft || sensors_.bumperRight) {
-        d.event_reason = "bumper_triggered";
-    } else if (battery_.chargerConnected) {
-        d.event_reason = "charger_connected";
-    } else if (lineTracker_.kidnapped()) {
-        d.event_reason = "kidnap_detected";
-    } else if (gpsFixTimeoutLatched_) {
-        d.event_reason = "gps_fix_timeout";
-    } else if (gpsNoSignalLatched_) {
-        d.event_reason = "gps_signal_lost";
-    } else if (opName == "Undock") {
-        d.event_reason = "undocking";
-    } else if (opName == "NavToStart") {
-        d.event_reason = "navigating_to_start";
-    } else if (opName == "Mow") {
-        d.event_reason = "mission_active";
-    } else if (opName == "Dock") {
-        d.event_reason = "docking";
-    } else if (opName == "Charge") {
-        d.event_reason = "charging";
-    } else if (opName == "WaitRain") {
-        d.event_reason = "waiting_for_rain";
-    } else if (opName == "GpsWait") {
-        d.event_reason = "gps_recovery_wait";
-    } else if (opName == "EscapeReverse" || opName == "EscapeForward") {
-        d.event_reason = "obstacle_recovery";
-    } else {
-        d.event_reason = "none";
+    d.event_reason = currentDominantEventReason();
+    d.history_backend_ready = historyDb_.enabled() && historyDb_.available();
+    if (sessionActive_) {
+        d.session_id = currentSession_.id;
+        d.session_started_at_ms = currentSession_.startedAtMs;
+    }
+    d.mission_id = activeMissionId_;
+    d.mission_zone_count = static_cast<int>(activeMissionZoneIds_.size());
+    d.mission_zone_index = activeMissionZoneIndex_;
+    if (!activeMissionId_.empty() && !activeMissionZoneIds_.empty()) {
+        const std::string zoneId =
+            map_.zoneIdForPoint(map_.targetPoint.x, map_.targetPoint.y, activeMissionZoneIds_);
+        if (!zoneId.empty()) {
+            for (std::size_t index = 0; index < activeMissionZoneIds_.size(); ++index) {
+                if (activeMissionZoneIds_[index] == zoneId) {
+                    d.mission_zone_index = static_cast<int>(index) + 1;
+                    break;
+                }
+            }
+        } else if (d.mission_zone_index == 0) {
+            d.mission_zone_index = 1;
+        }
     }
 
     if (opName == "Error") {
@@ -665,9 +1009,21 @@ void Robot::checkBattery(OpContext& ctx) {
     const float criticalV = config_->get<float>("battery_critical_v", 18.9f);
 
     if (battery_.voltage < 0.1f) return;  // no MCU data yet
-    if (battery_.chargerConnected) return; // charging — no guard needed
+    if (battery_.chargerConnected) {
+        batteryLowEventLatched_ = false;
+        batteryCriticalEventLatched_ = false;
+        return; // charging — no guard needed
+    }
 
     if (battery_.voltage < criticalV) {
+        if (!batteryCriticalEventLatched_) {
+            const std::string message =
+                messages::humanReadableReasonMessage("battery_critical", "ERR_BATTERY_CRITICAL");
+            recordEvent("error", "battery_event", "battery_critical",
+                        message, "ERR_BATTERY_CRITICAL");
+            showUiNotice(message, "error", "battery_critical", 12000);
+            batteryCriticalEventLatched_ = true;
+        }
         logger_->error(TAG, "Battery critical (" + std::to_string(battery_.voltage) + "V)");
         hw_->setMotorPwm(0, 0, 0);
         hw_->setBuzzer(true);   // BUG-002 fix: alert user on critical battery
@@ -675,8 +1031,17 @@ void Robot::checkBattery(OpContext& ctx) {
         running_.store(false);
         if (Op* op = opMgr_.activeOp()) op->onBatteryUndervoltage(ctx);  // BUG-001 fix
     } else if (battery_.voltage < lowV) {
+        if (!batteryLowEventLatched_) {
+            const std::string message = messages::humanReadableReasonMessage("battery_low");
+            recordEvent("warn", "battery_event", "battery_low", message);
+            showUiNotice(message, "warn", "battery_low", 6000);
+            batteryLowEventLatched_ = true;
+        }
         logger_->warn(TAG, "Battery low (" + std::to_string(battery_.voltage) + "V) — docking");
         if (Op* op = opMgr_.activeOp()) op->onBatteryLowShouldDock(ctx);  // BUG-001 fix
+    } else {
+        batteryLowEventLatched_ = false;
+        batteryCriticalEventLatched_ = false;
     }
 }
 
@@ -701,6 +1066,9 @@ void Robot::monitorGpsResilience(OpContext& ctx) {
             (ctx.now_ms - gpsRecoveryStart_ms_ >= recoverHysteresisMs)) {
             gpsNoSignalLatched_ = false;
             gpsFixTimeoutLatched_ = false;
+            const std::string message = messages::humanReadableReasonMessage("gps_recovered");
+            recordEvent("info", "gps_event", "gps_recovered", message);
+            showUiNotice(message, "info", "gps_recovered", 4000);
             logger_->info(TAG, "GPS recovered (hysteresis passed)");
         }
         return;
@@ -715,6 +1083,11 @@ void Robot::monitorGpsResilience(OpContext& ctx) {
     if (!gpsFixTimeoutLatched_ && ctx.gpsFixAge_ms >= fixTimeoutMs) {
         gpsFixTimeoutLatched_ = true;
         gpsNoSignalLatched_ = true;
+        const std::string message =
+            messages::humanReadableReasonMessage("gps_fix_timeout", "ERR_GPS_TIMEOUT");
+        recordEvent("error", "gps_event", "gps_fix_timeout",
+                    message, "ERR_GPS_TIMEOUT");
+        showUiNotice(message, "error", "gps_fix_timeout", 12000);
         op->onGpsFixTimeout(ctx);
         return;
     }
@@ -722,6 +1095,9 @@ void Robot::monitorGpsResilience(OpContext& ctx) {
     // Short outage: degrade to GPS wait.
     if (!gpsNoSignalLatched_ && ctx.gpsFixAge_ms >= noSignalMs) {
         gpsNoSignalLatched_ = true;
+        const std::string message = messages::humanReadableReasonMessage("gps_signal_lost");
+        recordEvent("warn", "gps_event", "gps_signal_lost", message);
+        showUiNotice(message, "warn", "gps_signal_lost", 6000);
         op->onGpsNoSignal(ctx);
     }
 }

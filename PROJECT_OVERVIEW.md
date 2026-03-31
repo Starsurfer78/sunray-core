@@ -1,13 +1,14 @@
 # PROJECT_OVERVIEW
 
-Last updated: 2026-03-28
+Last updated: 2026-03-31
 
 ## Purpose
 
 `sunray-core` is a Linux-first robot controller for an RTK-GPS lawn mower running on Raspberry Pi. The repository contains:
 
 - a C++17 runtime for robot control, navigation, mission/state logic, hardware access, HTTP/WebSocket API, and optional MQTT
-- a Vue 3 + TypeScript WebUI served as static files by the C++ backend
+- an active Svelte + TypeScript WebUI under `webui-svelte/`
+- an archived Vue WebUI under `ALTE_DATEIEN/webui-vue-reference/` kept only as reference
 - a simulation mode for development without physical hardware
 - native and frontend tests
 
@@ -32,8 +33,10 @@ The codebase is organized around one central runtime object: `sunray::Robot`, wh
   - navigation and map handling
   - Crow-based HTTP/WebSocket server
   - optional MQTT client
-- `webui/`
-  Vue frontend with dashboard, map editor, scheduler, diagnostics, simulator, history, and settings
+- `webui-svelte/`
+  Active Svelte frontend with dashboard, map, mission page, diagnostics, and supporting stores/components.
+- `ALTE_DATEIEN/webui-vue-reference/`
+  Archived Vue frontend kept only for reference to avoid future confusion.
 
 ### Central control flow
 
@@ -84,27 +87,23 @@ The codebase is organized around one central runtime object: `sunray::Robot`, wh
 
 ### Frontend
 
-- [`webui/src/main.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/main.ts)
-- [`webui/src/router/index.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/router/index.ts)
+- [`webui-svelte/src/main.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/src/main.ts)
+- [`webui-svelte/src/App.svelte`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/src/App.svelte)
 - views:
   - Dashboard
-  - MapEditor
-  - Scheduler
-  - History
-  - Statistics
+  - Map
+  - Mission
   - Diagnostics
-  - Simulator
-  - Settings
 
 ### Tests
 
 - native tests: [`tests/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/tests/CMakeLists.txt)
-- frontend tests: [`webui/src/composables/useMowPath.test.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/composables/useMowPath.test.ts)
+- frontend checks: `npm run check` in `webui-svelte/`
 
 Verification observed during this scan:
 
 - `ctest --test-dir build_linux --output-on-failure`: 175/175 passed
-- `npm test` in `webui/`: 6/6 passed
+- `npm run check` in `webui-svelte/`: current Svelte frontend validation path
 
 ## Build Process
 

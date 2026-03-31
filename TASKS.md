@@ -13,6 +13,7 @@ Dieses Dokument ist die zusammengeführte Aufgabenübersicht aus:
 - [`TASK.md`](/mnt/LappiDaten/Projekte/sunray-core/TASK.md) ist fachlich abgelöst und verweist nur noch auf `TODO.md`.
 - [`TODO.md`](/mnt/LappiDaten/Projekte/sunray-core/TODO.md) bleibt die detaillierte, taskgenaue Quelle inklusive `<!-- ctx: -->` Profilen.
 - Diese `TASKS.md` ist die verdichtete Arbeits- und Prioritätenliste für Menschen.
+- Die aktive WebUI-Basis ist `webui-svelte/`; die alte Vue-WebUI liegt nur noch als Referenz unter `ALTE_DATEIEN/webui-vue-reference/`.
 
 ## Aktueller Stand
 
@@ -110,22 +111,50 @@ Wichtige Dateien:
 
 ## Priorität 3
 
+### C.18 Missions-UX — Karten / Zonen / Missionen Redesign
+
+Dieses Thema sollte vor den restlichen offenen C.16-UX-Punkten kommen, weil
+es das fachliche Missionsmodell neu ordnet. Viele spätere Dashboard- und
+Setup-Verbesserungen sollten darauf aufbauen statt vorher doppelt gebaut zu
+werden.
+
+Offene Aufgaben:
+
+- [ ] C.18-a: Zone-Datenmodell erweitern
+- [ ] C.18-b: Mission-Interface + Store anlegen
+- [ ] C.18-c: Backend-API `/api/missions`
+- [ ] C.18-d: Missions-Seite neu aufbauen
+- [ ] C.18-e: Bahnvorschau-Canvas
+- [ ] C.18-f: Zonen-Einstellungspanel
+- [ ] C.18-g: Zeitplan je Mission
+- [ ] C.18-h: Dashboard-Widget für Missionen
+- [ ] C.18-i: `start` um `missionId` erweitern
+- [ ] C.18-j: Telemetrie um Missions-Fortschritt erweitern
+
+Wichtige Dateien:
+
+- [`webui/design/missions_concept.html`](/mnt/LappiDaten/Projekte/sunray-core/webui/design/missions_concept.html)
+- [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
+- [`core/WebSocketServer.h`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.h)
+- [`core/op/MowOp.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/op/MowOp.cpp)
+- [`core/Robot.h`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.h)
+
+## Priorität 4
+
 ### C.16 Benutzererlebnis / Nutzerführung
 
-Das ist der sichtbarste offene Produktblock und der naheliegendste nächste Schritt nach Hardware-Validierung.
+Der Block bleibt wichtig, sollte jetzt aber auf dem neuen Missionsmodell aus
+`C.18` aufsetzen statt davor detailliert ausgebaut zu werden.
 
 Offene Aufgaben:
 
 - [ ] C.16-a: Dashboard-Preflight als echte Startfreigabe ergänzen
-- [ ] C.16-b: Nutzerfreundliche Statussprache statt interner Op-Namen
 - [ ] C.16-c: Direkte Handlungsempfehlungen für Blocker und Warnzustände
 - [ ] C.16-d: Fehler- und Recovery-Karten vereinheitlichen
 - [ ] C.16-e: Geführten Erststart-/Setup-Flow anlegen
 - [ ] C.16-f: Mapping-Workflow als Assistent denken
 - [ ] C.16-g: Kartenerstellung vor Freigabe validieren
-- [ ] C.16-h: Ereignis- und Missionshistorie verständlich aufbauen
 - [ ] C.16-i: Primäransicht klarer von Diagnoseansicht trennen
-- [ ] C.16-j: UX-nahe Ereignistimeline ergänzen
 
 Wichtige Dateien:
 
@@ -133,11 +162,10 @@ Wichtige Dateien:
 - [`webui/src/components/RobotSidebar.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/components/RobotSidebar.vue)
 - [`webui/src/views/MapEditor.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/views/MapEditor.vue)
 - [`webui/src/views/Diagnostics.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/views/Diagnostics.vue)
-- [`webui/src/views/History.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/views/History.vue)
 - [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
 - [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
 
-## Priorität 4
+## Priorität 5
 
 ### C.8-b Energie-Budget + Rückkehr-Berechnung
 
@@ -161,7 +189,7 @@ Wichtige Dateien:
 
 Diese Punkte sind weniger reine Implementierungsaufgaben als offene Feld- und Integrationsthemen.
 
-## Priorität 5
+## Priorität 6
 
 ### B Pico-Driver
 
@@ -180,7 +208,7 @@ Wichtige Dateien:
 - [`hal/HardwareInterface.h`](/mnt/LappiDaten/Projekte/sunray-core/hal/HardwareInterface.h)
 - [`platform/I2C.h`](/mnt/LappiDaten/Projekte/sunray-core/platform/I2C.h)
 
-## Priorität 6
+## Priorität 7
 
 ### Größere Erweiterungen
 

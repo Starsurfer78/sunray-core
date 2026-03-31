@@ -5,6 +5,12 @@ Stand: 2026-03-30
 Diese Datei ist die laufende Task-Liste fuer den Neustart der WebUI auf Basis
 von `Svelte + Vite`.
 
+Wichtig:
+
+- die aktive Frontend-Basis ist ausschliesslich `webui-svelte/`
+- die fruehere Vue-WebUI liegt nur noch als Referenz unter
+  `ALTE_DATEIEN/webui-vue-reference/`
+
 Regel:
 
 - kurz halten
@@ -14,8 +20,8 @@ Regel:
 
 Design-Referenzen:
 
-- `webui/design/dashboard_reference.html`
-- `webui/design/sunray_dashboard_v5.html`
+- `ALTE_DATEIEN/webui-vue-reference/design/dashboard_reference.html`
+- `ALTE_DATEIEN/webui-vue-reference/design/sunray_dashboard_v5.html`
 
 ## Sinnvolle Reihenfolge
 

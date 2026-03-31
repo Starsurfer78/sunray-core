@@ -15,6 +15,7 @@ add_executable(sunray_tests
     test_mqtt_client.cpp
     test_navigation.cpp
     test_op_machine.cpp
+    test_history_database.cpp
 )
 
 target_link_libraries(sunray_tests PRIVATE

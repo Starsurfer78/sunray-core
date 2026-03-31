@@ -30,6 +30,12 @@ Dieses Projekt baut auf dem grossartigen Ardumower-Sunray-Projekt auf:
 
 Der Code bildet heute den echten Ist-Zustand ab. Aeltere Konzept- und Architekturdateien sind teilweise noch als Hintergrundmaterial im Repo vorhanden, aber nicht alle beschreiben den aktuellen Code 1:1.
 
+## Betriebsdoku
+
+Wichtige Bedien- und Fehlersuchdokumente:
+
+- [Robot Button, Buzzer, Error](docs/ROBOT_BUTTON_BUZZER_ERROR.md)
+
 ## Kernfunktionen
 
 - Hardware-Abstraktion fuer echten Roboter und Simulation
@@ -52,7 +58,7 @@ Das Projekt ist in drei Hauptschichten aufgebaut:
 - `core/`
   `Robot`, State-Machine, Navigation, WebSocket/HTTP-Server, MQTT, Konfiguration
 
-Die WebUI liegt separat unter `webui/` und wird im Produktionsbetrieb als statische Anwendung vom C++-Server aus `webui/dist` ausgeliefert.
+Die aktive WebUI liegt separat unter `webui-svelte/` und wird dort als neues Frontend weiterentwickelt. Die fruehere Vue-WebUI wurde als Referenz nach `ALTE_DATEIEN/webui-vue-reference/` verschoben, damit es keine Verwechslung mehr mit der aktiven Frontend-Basis gibt.
 
 ## Repository-Struktur
 
@@ -62,9 +68,9 @@ sunray-core/
 ├── hal/                   Hardware-Treiber und Simulation
 ├── platform/              Linux-nahe Hilfsbibliotheken
 ├── tests/                 Catch2-Test-Suite
-├── webui/                 Vue 3 + TypeScript Frontend
+├── webui-svelte/          aktive Svelte + TypeScript WebUI
 ├── docs/                  aktuelle Projektdokumentation
-├── ALTE_DATEIEN/          Alt-Dokumente und Analysen
+├── ALTE_DATEIEN/          Alt-Dokumente, Analysen und archivierte Vue-WebUI
 ├── config.example.json    Beispielkonfiguration
 ├── main.cpp               Einstiegspunkt
 └── CMakeLists.txt         Top-Level-Build
@@ -265,7 +271,7 @@ Die WebUI bietet:
 - Verlauf und Statistiken
 - Simulator-Steuerung
 
-Weitere Frontend-Details stehen in [webui/README.md](webui/README.md).
+Weitere Frontend-Details stehen in [webui-svelte/README.md](webui-svelte/README.md).
 
 ## API und Telemetrie
 

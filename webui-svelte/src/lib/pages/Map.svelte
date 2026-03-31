@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import MapCanvas from '../components/Map/MapCanvas.svelte'
-  import { getMapDocument, saveMapDocument } from '../api/rest'
+  import { getMapDocument, saveMapDocument, type MapZone } from '../api/rest'
   import { mapStore, type MapTool, type Point, type Zone } from '../stores/map'
 
   let busy = false
@@ -21,6 +21,23 @@
   function normalizePoints(points: Array<[number, number]> | Point[] | undefined): Point[] {
     if (!points) return []
     return points.map((p) => Array.isArray(p) ? { x: p[0], y: p[1] } : p)
+  }
+
+  function normalizeZone(zone: MapZone, index: number): Zone {
+    return {
+      id: zone.id,
+      order: zone.order ?? index + 1,
+      polygon: normalizePoints(zone.polygon),
+      settings: {
+        name: zone.settings.name ?? `Zone ${index + 1}`,
+        stripWidth: zone.settings.stripWidth ?? 0.18,
+        angle: zone.settings.angle ?? 0,
+        edgeMowing: zone.settings.edgeMowing ?? true,
+        edgeRounds: zone.settings.edgeRounds ?? 1,
+        speed: zone.settings.speed ?? 1.0,
+        pattern: zone.settings.pattern ?? 'stripe',
+      },
+    }
   }
 
   function orientation(a: Point, b: Point, c: Point) {
@@ -81,9 +98,7 @@
         dock: normalizePoints(map.dock),
         mow: normalizePoints(map.mow),
         exclusions: (map.exclusions ?? []).map((e) => normalizePoints(e as Array<[number, number]>)),
-        zones: (map.zones ?? []).map((zone: Zone) => ({
-          ...zone, polygon: normalizePoints(zone.polygon),
-        })),
+        zones: (map.zones ?? []).map((zone, index) => normalizeZone(zone, index)),
       })
       showInfo('Geladen')
     } catch (err) {
@@ -148,9 +163,7 @@
           dock: normalizePoints(data.dock),
           mow: normalizePoints(data.mow ?? []),
           exclusions: (data.exclusions ?? []).map((e: Array<[number, number]>) => normalizePoints(e)),
-          zones: (data.zones ?? []).map((zone: Zone) => ({
-            ...zone, polygon: normalizePoints(zone.polygon),
-          })),
+          zones: (data.zones ?? []).map((zone: MapZone, index: number) => normalizeZone(zone, index)),
         })
         showInfo('Importiert')
       } catch {

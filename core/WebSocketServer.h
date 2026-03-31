@@ -80,6 +80,14 @@ public:
         std::string  resume_target = "";   ///< explicit resume op when state is recoverable
         std::string  event_reason = "none"; ///< human/machine-readable dominant event reason
         std::string  error_code = "";       ///< stable error code when a fault state is active
+        std::string  ui_message = "";       ///< transient user-facing message for WebUI
+        std::string  ui_severity = "info";  ///< info | warn | error
+        bool         history_backend_ready = false; ///< true when central history DB is available
+        std::string  session_id = "";       ///< backend-led active mowing session id
+        long long    session_started_at_ms = 0; ///< unix epoch ms of active session start
+        std::string  mission_id = "";       ///< active mission id if started from Mission UI
+        int          mission_zone_index = 0; ///< 1-based active mission zone index
+        int          mission_zone_count = 0; ///< total number of zones in active mission
     };
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -96,6 +104,8 @@ public:
     using ScheduleGetCallback = std::function<nlohmann::json()>;
     /// Schedule PUT callback: receives new schedule JSON array, returns {"ok":true/false} (C.11).
     using SchedulePutCallback = std::function<nlohmann::json(const nlohmann::json&)>;
+    using HistoryGetCallback = std::function<nlohmann::json(unsigned limit)>;
+    using StatisticsGetCallback = std::function<nlohmann::json()>;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -154,6 +164,9 @@ public:
     /// Register callbacks for GET/PUT /api/schedule (C.11).
     void onScheduleGet(ScheduleGetCallback cb);
     void onSchedulePut(SchedulePutCallback cb);
+    void onHistoryEventsGet(HistoryGetCallback cb);
+    void onHistorySessionsGet(HistoryGetCallback cb);
+    void onStatisticsSummaryGet(StatisticsGetCallback cb);
 
     // ── Map API ───────────────────────────────────────────────────────────────
 
@@ -166,6 +179,10 @@ public:
     /// Returns true on success (reported back to the HTTP caller).
     using MapReloadCallback = std::function<bool()>;
     void onMapReload(MapReloadCallback cb);
+
+    /// Set the path of the missions JSON file served by /api/missions.
+    /// Must be called before start().
+    void setMissionPath(const std::string& missionPath);
 
     // ── Testable helper ───────────────────────────────────────────────────────
 
@@ -216,9 +233,14 @@ private:
     std::mutex            schedCbMutex_;
     ScheduleGetCallback   schedGetCb_;
     SchedulePutCallback   schedPutCb_;
+    std::mutex            historyCbMutex_;
+    HistoryGetCallback    historyEventsGetCb_;
+    HistoryGetCallback    historySessionsGetCb_;
+    StatisticsGetCallback statisticsSummaryGetCb_;
 
     // Map file path + reload callback (GET/POST /api/map)
     std::string      mapPath_;
+    std::string      missionPath_;
     std::mutex       mapReloadMutex_;
     MapReloadCallback mapReloadCallback_;
 

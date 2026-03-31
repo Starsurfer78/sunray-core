@@ -32,6 +32,11 @@ export interface Telemetry {
   resume_target: string
   event_reason: string
   error_code: string
+  ui_message: string
+  ui_severity: string
+  history_backend_ready: boolean
+  session_id: string
+  session_started_at_ms: number
 }
 
 const defaultTelemetry: Telemetry = {
@@ -40,7 +45,9 @@ const defaultTelemetry: Telemetry = {
   gps_acc: 0, gps_lat: 0, gps_lon: 0, bumper_l: false, bumper_r: false, lift: false,
   motor_err: false, uptime_s: 0, diag_active: false, diag_ticks: 0,
   mcu_v: '', pi_v: '', imu_h: 0, imu_r: 0, imu_p: 0, ekf_health: 'Odo',
-  state_phase: 'idle', resume_target: '', event_reason: 'none', error_code: ''
+  state_phase: 'idle', resume_target: '', event_reason: 'none', error_code: '',
+  ui_message: '', ui_severity: 'info', history_backend_ready: false,
+  session_id: '', session_started_at_ms: 0
 }
 
 // ── Singleton state ───────────────────────────────────────────────────────────

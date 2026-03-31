@@ -17,7 +17,6 @@
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', enabled: true },
     { id: 'map', label: 'Karten', enabled: true },
-    { id: null, label: 'Zeitplaene', enabled: false },
     { id: null, label: 'Verlauf', enabled: false },
     { id: 'diagnostics', label: 'Diagnose', enabled: true },
     { id: null, label: 'Simulator', enabled: false },

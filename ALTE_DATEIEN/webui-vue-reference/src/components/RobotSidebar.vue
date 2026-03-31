@@ -48,6 +48,11 @@ const headingDeg = computed(() =>
 const canStart = computed(() => connected.value && ['idle', 'charging'].includes(telemetry.value.state_phase ?? 'idle'))
 const canDock  = computed(() => connected.value && ['mowing', 'navigating_to_start', 'gps_recovery', 'obstacle_recovery', 'waiting_for_rain'].includes(telemetry.value.state_phase ?? 'idle'))
 const canStop  = computed(() => connected.value && !['idle', 'charging', 'fault'].includes(telemetry.value.state_phase ?? 'idle'))
+const uiNoticeClass = computed(() => {
+  if (telemetry.value.ui_severity === 'error') return 'sr-notice sr-notice-error'
+  if (telemetry.value.ui_severity === 'warn') return 'sr-notice sr-notice-warn'
+  return 'sr-notice sr-notice-info'
+})
 </script>
 
 <template>
@@ -64,6 +69,7 @@ const canStop  = computed(() => connected.value && !['idle', 'charging', 'fault'
         <div class="sr-lbl">Status</div>
         <div class="sr-stbig">{{ opLabel }}</div>
         <div class="sr-stsub">{{ telemetry.state_phase === 'mowing' ? 'Zone 1 — Hauptfläche' : '—' }}</div>
+        <div v-if="telemetry.ui_message" :class="uiNoticeClass">{{ telemetry.ui_message }}</div>
         <div class="sr-pos">
           X {{ telemetry.x.toFixed(2) }} m &nbsp;
           Y {{ telemetry.y.toFixed(2) }} m &nbsp;
@@ -227,6 +233,29 @@ const canStop  = computed(() => connected.value && !['idle', 'charging', 'fault'
 /* Status */
 .sr-stbig { font-size: 20px; font-weight: 500; color: #60a5fa !important; }
 .sr-stsub { font-size: 11px; color: #64748b !important; margin-top: 2px; }
+.sr-notice {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  border: 1px solid transparent;
+}
+.sr-notice-info {
+  background: #0f2340 !important;
+  border-color: #1d4ed8;
+  color: #bfdbfe !important;
+}
+.sr-notice-warn {
+  background: #2a1704 !important;
+  border-color: #d97706;
+  color: #fde68a !important;
+}
+.sr-notice-error {
+  background: #2b0b0b !important;
+  border-color: #dc2626;
+  color: #fecaca !important;
+}
 .sr-pos   { font-family: monospace; font-size: 11px; color: #64748b !important; margin-top: 5px; }
 
 /* GPS */

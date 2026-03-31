@@ -55,7 +55,8 @@ let lastY      = 0
 // ── Core watch (module-level, lives for the lifetime of the app) ──────────────
 
 watch(_telemetry, (t) => {
-  const mowing = (t.state_phase === 'mowing')
+  const backendSessionActive = t.history_backend_ready && t.session_id.length > 0
+  const mowing = backendSessionActive || t.state_phase === 'mowing'
 
   // ── Session start ───────────────────────────────────────────────────────────
   if (mowing && !recording.value) {
@@ -63,8 +64,13 @@ watch(_telemetry, (t) => {
     lastX = t.x; lastY = t.y
     lastPathTs = Date.now()
     cur = {
-      id:        new Date().toISOString(),
-      startedAt: Date.now(),
+      // During migration to the backend history DB we keep localStorage only as
+      // a compatibility cache for the old History/Statistics views. The stable
+      // session identity should come from the backend whenever available.
+      id:        backendSessionActive ? t.session_id : new Date().toISOString(),
+      startedAt: backendSessionActive && t.session_started_at_ms > 0
+        ? t.session_started_at_ms
+        : Date.now(),
       battStart: t.battery_v,
       distanceM: 0,
       path:      [[t.x, t.y]],
@@ -89,7 +95,8 @@ watch(_telemetry, (t) => {
           battEnd:    t.battery_v,
           path:       cur.path,
         }
-        sessions.value = [session, ...sessions.value].slice(0, MAX_SESSIONS)
+        sessions.value = [session, ...sessions.value.filter(s => s.id !== session.id)]
+          .slice(0, MAX_SESSIONS)
         saveSessions(sessions.value)
       }
     }

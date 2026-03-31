@@ -37,6 +37,7 @@ function saveApiToken() {
   <div class="sr-app">
     <header class="sr-top">
       <span class="sr-logo">Sunray</span>
+      <span class="sr-dev-marker">VUE-DEV 2026-03-31</span>
 
       <span class="sr-pill" :class="connected ? 'sr-pill-conn' : 'sr-pill-err'">
         <span class="sr-dot"></span>{{ connected ? 'Verbunden' : 'Getrennt' }}
@@ -111,6 +112,20 @@ function saveApiToken() {
   font-size: 15px;
   font-weight: 500;
   color: #60a5fa !important;
+  flex-shrink: 0;
+}
+
+.sr-dev-marker {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #3f6212 !important;
+  border: 1px solid #84cc16;
+  color: #ecfccb !important;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   flex-shrink: 0;
 }
 

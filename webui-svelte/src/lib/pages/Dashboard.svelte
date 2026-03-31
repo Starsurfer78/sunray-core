@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
   import DashboardSidebar from "../components/Dashboard/DashboardSidebar.svelte";
-  import { getMapDocument } from "../api/rest";
+  import { getMapDocument, type MapZone } from "../api/rest";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
 
@@ -18,6 +18,23 @@
     );
   }
 
+  function normalizeZone(zone: MapZone, index: number): Zone {
+    return {
+      id: zone.id,
+      order: zone.order ?? index + 1,
+      polygon: normalizePoints(zone.polygon),
+      settings: {
+        name: zone.settings.name ?? `Zone ${index + 1}`,
+        stripWidth: zone.settings.stripWidth ?? 0.18,
+        angle: zone.settings.angle ?? 0,
+        edgeMowing: zone.settings.edgeMowing ?? true,
+        edgeRounds: zone.settings.edgeRounds ?? 1,
+        speed: zone.settings.speed ?? 1.0,
+        pattern: zone.settings.pattern ?? "stripe",
+      },
+    };
+  }
+
   async function loadOverviewMap() {
     try {
       const map = await getMapDocument();
@@ -28,10 +45,7 @@
         exclusions: (map.exclusions ?? []).map((exclusion) =>
           normalizePoints(exclusion as Array<[number, number]>),
         ),
-        zones: (map.zones ?? []).map((zone: Zone) => ({
-          ...zone,
-          polygon: normalizePoints(zone.polygon),
-        })),
+        zones: (map.zones ?? []).map((zone, index) => normalizeZone(zone, index)),
       });
       mapStatus = "Synchron";
     } catch {

@@ -1,6 +1,6 @@
-export async function postJson<TResponse>(
+export async function postJson<TResponse, TPayload = Record<string, unknown>>(
   path: string,
-  payload: Record<string, unknown>,
+  payload: TPayload,
 ): Promise<TResponse> {
   const response = await fetch(path, {
     method: 'POST',
@@ -18,9 +18,9 @@ export async function postJson<TResponse>(
   return response.json() as Promise<TResponse>
 }
 
-export async function putJson<TResponse>(
+export async function putJson<TResponse, TPayload = Record<string, unknown>>(
   path: string,
-  payload: Record<string, unknown>,
+  payload: TPayload,
 ): Promise<TResponse> {
   const response = await fetch(path, {
     method: 'PUT',
@@ -67,6 +67,9 @@ export interface MapZone {
   settings: {
     name: string
     stripWidth: number
+    angle?: number
+    edgeMowing?: boolean
+    edgeRounds?: number
     speed: number
     pattern: 'stripe' | 'spiral'
   }
@@ -79,6 +82,31 @@ export interface MapDocument {
   exclusions: Array<Array<[number, number]>>
   zones?: MapZone[]
  }
+
+export interface MissionScheduleDocument {
+  enabled: boolean
+  days: number[]
+  startTime: string
+  endTime: string
+  rainDelayMinutes: number
+}
+
+export interface MissionZoneOverridesDocument {
+  stripWidth?: number
+  angle?: number
+  edgeMowing?: boolean
+  edgeRounds?: number
+  speed?: number
+  pattern?: 'stripe' | 'spiral'
+}
+
+export interface MissionDocument {
+  id: string
+  name: string
+  zoneIds: string[]
+  overrides: Record<string, MissionZoneOverridesDocument>
+  schedule?: MissionScheduleDocument
+}
 
 export function runMotorDiag(params: {
   motor: 'left' | 'right' | 'mow'
@@ -118,4 +146,32 @@ export async function getMapDocument(): Promise<MapDocument> {
 
 export function saveMapDocument(payload: Record<string, unknown>) {
   return postJson<ConfigUpdateResponse>('/api/map', payload)
+}
+
+export async function getMissions(): Promise<MissionDocument[]> {
+  const response = await fetch('/api/missions')
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<MissionDocument[]>
+}
+
+export function createMissionDocument(payload: MissionDocument) {
+  return postJson<ConfigUpdateResponse, MissionDocument>('/api/missions', payload)
+}
+
+export function updateMissionDocument(missionId: string, payload: MissionDocument) {
+  return putJson<ConfigUpdateResponse, MissionDocument>(`/api/missions/${encodeURIComponent(missionId)}`, payload)
+}
+
+export async function deleteMissionDocument(missionId: string): Promise<ConfigUpdateResponse> {
+  const response = await fetch(`/api/missions/${encodeURIComponent(missionId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<ConfigUpdateResponse>
 }

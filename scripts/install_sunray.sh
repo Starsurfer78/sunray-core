@@ -136,7 +136,9 @@ ensure_dependencies() {
     ca-certificates \
     nodejs \
     npm \
-    libmosquitto-dev
+    libmosquitto-dev \
+    sqlite3 \
+    libsqlite3-dev
 }
 
 check_node_version() {

@@ -18,161 +18,249 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <unistd.h>
 
-namespace sunray {
+namespace sunray
+{
 
-// ── Impl ──────────────────────────────────────────────────────────────────────
+    // ── Impl ──────────────────────────────────────────────────────────────────────
 
-struct MqttClient::Impl {
-    // Connection parameters (set in start())
-    std::string host      = "localhost";
-    int         port      = 1883;
-    int         keepalive = 60;
-    std::string prefix    = "sunray";
-    int         qos       = 0;
+    struct MqttClient::Impl
+    {
+        // Connection parameters (set in start())
+        std::string host = "localhost";
+        int port = 1883;
+        int keepalive = 60;
+        std::string prefix = "sunray";
+        int qos = 0;
 
-    // Telemetry snapshot (producer: pushTelemetry / consumer: push thread)
-    std::mutex                     telMutex;
-    WebSocketServer::TelemetryData latestTel;
-    bool                           hasTel = false;
+        // Home Assistant discovery
+        bool haDiscovery = false;
+        std::string haPrefix = "homeassistant";
 
-    // Command callback (set by onCommand(), called from mosquitto message cb)
-    std::mutex              cmdMutex;
-    MqttClient::CommandCallback onCmd;
+        // Telemetry snapshot (producer: pushTelemetry / consumer: push thread)
+        std::mutex telMutex;
+        WebSocketServer::TelemetryData latestTel;
+        bool hasTel = false;
 
-    // Push thread
-    std::thread pushThread;
+        // Command callback (set by onCommand(), called from mosquitto message cb)
+        std::mutex cmdMutex;
+        MqttClient::CommandCallback onCmd;
 
-    // Back-pointer for callbacks (set in start() before loop_start)
-    std::atomic<bool>* running = nullptr;
-    Logger*            log     = nullptr;
+        // Push thread
+        std::thread pushThread;
+
+        // Back-pointer for callbacks (set in start() before loop_start)
+        std::atomic<bool> *running = nullptr;
+        Logger *log = nullptr;
 
 #ifdef SUNRAY_HAVE_MOSQUITTO
-    struct mosquitto* mosq = nullptr;
+        struct mosquitto *mosq = nullptr;
 
-    // ── Static mosquitto callbacks ─────────────────────────────────────────
+        // ── Static mosquitto callbacks ─────────────────────────────────────────
 
-    static void onConnectCb(struct mosquitto* /*mosq*/, void* ud, int rc) {
-        auto* impl = static_cast<Impl*>(ud);
-        if (rc == MOSQ_ERR_SUCCESS) {
-            impl->log->info("MqttClient",
-                "Connected to " + impl->host + ":" + std::to_string(impl->port)
-                + " prefix=" + impl->prefix);
-            const std::string cmdTopic = impl->prefix + "/cmd";
-            mosquitto_subscribe(impl->mosq, nullptr, cmdTopic.c_str(), impl->qos);
-        } else {
-            impl->log->warn("MqttClient",
-                "Connect failed rc=" + std::to_string(rc)
-                + " (" + mosquitto_strerror(rc) + ") — will retry");
+        static void onConnectCb(struct mosquitto * /*mosq*/, void *ud, int rc)
+        {
+            auto *impl = static_cast<Impl *>(ud);
+            if (rc == MOSQ_ERR_SUCCESS)
+            {
+                impl->log->info("MqttClient",
+                                "Connected to " + impl->host + ":" + std::to_string(impl->port) + " prefix=" + impl->prefix);
+                const std::string cmdTopic = impl->prefix + "/cmd";
+                mosquitto_subscribe(impl->mosq, nullptr, cmdTopic.c_str(), impl->qos);
+
+                // Publish Home Assistant discovery if enabled
+                impl->publishDiscovery();
+            }
+            else
+            {
+                impl->log->warn("MqttClient",
+                                "Connect failed rc=" + std::to_string(rc) + " (" + mosquitto_strerror(rc) + ") — will retry");
+            }
         }
-    }
 
-    static void onDisconnectCb(struct mosquitto* /*mosq*/, void* ud, int rc) {
-        auto* impl = static_cast<Impl*>(ud);
-        if (rc != 0 && impl->running && impl->running->load()) {
-            impl->log->warn("MqttClient",
-                "Disconnected unexpectedly (rc=" + std::to_string(rc)
-                + ") — reconnecting");
+        static void onDisconnectCb(struct mosquitto * /*mosq*/, void *ud, int rc)
+        {
+            auto *impl = static_cast<Impl *>(ud);
+            if (rc != 0 && impl->running && impl->running->load())
+            {
+                impl->log->warn("MqttClient",
+                                "Disconnected unexpectedly (rc=" + std::to_string(rc) + ") — reconnecting");
+            }
         }
-    }
 
-    static void onMessageCb(struct mosquitto* /*mosq*/, void* ud,
-                             const struct mosquitto_message* msg) {
-        if (!msg || !msg->payload || msg->payloadlen <= 0) return;
-        auto* impl = static_cast<Impl*>(ud);
-        const std::string payload(static_cast<const char*>(msg->payload),
-                                  static_cast<size_t>(msg->payloadlen));
-        std::lock_guard<std::mutex> lk(impl->cmdMutex);
-        if (impl->onCmd) {
-            impl->onCmd(payload, nlohmann::json{});
+        static void onMessageCb(struct mosquitto * /*mosq*/, void *ud,
+                                const struct mosquitto_message *msg)
+        {
+            if (!msg || !msg->payload || msg->payloadlen <= 0)
+                return;
+            auto *impl = static_cast<Impl *>(ud);
+            const std::string payload(static_cast<const char *>(msg->payload),
+                                      static_cast<size_t>(msg->payloadlen));
+            std::lock_guard<std::mutex> lk(impl->cmdMutex);
+            if (impl->onCmd)
+            {
+                impl->onCmd(payload, nlohmann::json{});
+            }
         }
-    }
 
-    // ── Publish helper ────────────────────────────────────────────────────
+        // ── Publish helper ────────────────────────────────────────────────────
 
-    void publish(const std::string& subtopic, const std::string& payload) {
-        if (!mosq) return;
-        const std::string topic = prefix + "/" + subtopic;
-        mosquitto_publish(mosq, nullptr, topic.c_str(),
-                          static_cast<int>(payload.size()),
-                          payload.c_str(), qos, /*retain=*/false);
-    }
+        void publish(const std::string &subtopic, const std::string &payload)
+        {
+            if (!mosq)
+                return;
+            const std::string topic = prefix + "/" + subtopic;
+            mosquitto_publish(mosq, nullptr, topic.c_str(),
+                              static_cast<int>(payload.size()),
+                              payload.c_str(), qos, /*retain=*/false);
+        }
+
+        // ── Home Assistant discovery ───────────────────────────────────────────
+
+        void publishDiscovery()
+        {
+            if (!mosq || !haDiscovery)
+                return;
+
+            // Device info for all entities
+            const std::string deviceId = "sunray-core-" + getHostname();
+            const nlohmann::json device = {
+                {"identifiers", {deviceId}},
+                {"name", "Sunray Robot"},
+                {"model", "Sunray Core"},
+                {"manufacturer", "Ardumower"},
+                {"sw_version", SUNRAY_VERSION}};
+
+            // Binary sensor: Mowing status
+            publishDiscoveryEntity("binary_sensor", "mowing", {{"name", "Sunray Robot Mowing"}, {"unique_id", "sunray_mowing"}, {"state_topic", prefix + "/op"}, {"payload_on", "Mow"}, {"payload_off", "Idle"}, {"device", device}, {"icon", "mdi:robot-mower"}});
+
+            // Sensor: Battery level
+            publishDiscoveryEntity("sensor", "battery", {{"name", "Sunray Robot Battery"}, {"unique_id", "sunray_battery"}, {"state_topic", prefix + "/state"}, {"value_template", "{{ value_json.battery_v | float / 29.4 * 100 | round(1) }}"}, {"unit_of_measurement", "%"}, {"device_class", "battery"}, {"device", device}});
+
+            // Sensor: GPS accuracy
+            publishDiscoveryEntity("sensor", "gps_accuracy", {{"name", "Sunray Robot GPS Accuracy"}, {"unique_id", "sunray_gps_accuracy"}, {"state_topic", prefix + "/state"}, {"value_template", "{{ value_json.gps_acc | float * 100 | round(2) }}"}, {"unit_of_measurement", "cm"}, {"icon", "mdi:crosshairs-gps"}, {"device", device}});
+
+            // Device tracker: Position
+            publishDiscoveryEntity("device_tracker", "position", {{"name", "Sunray Robot Position"}, {"unique_id", "sunray_position"}, {"json_attributes_topic", prefix + "/state"}, {"json_attributes_template", R"({ "latitude": {{ value_json.gps_lat }}, "longitude": {{ value_json.gps_lon }}, "gps_accuracy": {{ value_json.gps_acc }} })"}, {"device", device}});
+
+            // Button: Start mowing
+            publishDiscoveryEntity("button", "start_mowing", {{"name", "Start Mowing"}, {"unique_id", "sunray_start_mowing"}, {"command_topic", prefix + "/cmd"}, {"payload_press", "start"}, {"icon", "mdi:play"}, {"device", device}});
+
+            // Button: Stop
+            publishDiscoveryEntity("button", "stop", {{"name", "Stop Robot"}, {"unique_id", "sunray_stop"}, {"command_topic", prefix + "/cmd"}, {"payload_press", "stop"}, {"icon", "mdi:stop"}, {"device", device}});
+
+            // Button: Return to dock
+            publishDiscoveryEntity("button", "dock", {{"name", "Return to Dock"}, {"unique_id", "sunray_dock"}, {"command_topic", prefix + "/cmd"}, {"payload_press", "dock"}, {"icon", "mdi:home-import-outline"}, {"device", device}});
+
+            log->info("MqttClient", "Published Home Assistant discovery for " + deviceId);
+        }
+
+        void publishDiscoveryEntity(const std::string &component,
+                                    const std::string &objectId,
+                                    const nlohmann::json &config)
+        {
+            if (!mosq)
+                return;
+            const std::string topic = haPrefix + "/" + component + "/sunray/" + objectId + "/config";
+            const std::string payload = config.dump();
+            mosquitto_publish(mosq, nullptr, topic.c_str(),
+                              static_cast<int>(payload.size()),
+                              payload.c_str(), qos, /*retain=*/true);
+        }
+
+        std::string getHostname()
+        {
+            char hostname[256];
+            if (gethostname(hostname, sizeof(hostname)) == 0)
+            {
+                return std::string(hostname);
+            }
+            return "unknown";
+        }
 #endif // SUNRAY_HAVE_MOSQUITTO
-};
+    };
 
-// ── Construction ──────────────────────────────────────────────────────────────
+    // ── Construction ──────────────────────────────────────────────────────────────
 
-MqttClient::MqttClient(std::shared_ptr<Config> config,
-                       std::shared_ptr<Logger> logger)
-    : config_(std::move(config))
-    , logger_(std::move(logger))
-    , impl_(std::make_unique<Impl>())
-{}
-
-MqttClient::~MqttClient() {
-    stop();
-}
-
-// ── Lifecycle ─────────────────────────────────────────────────────────────────
-
-void MqttClient::start() {
-    if (!config_->get<bool>("mqtt_enabled", false)) {
-        logger_->info(TAG, "MQTT disabled (mqtt_enabled=false)");
-        return;
+    MqttClient::MqttClient(std::shared_ptr<Config> config,
+                           std::shared_ptr<Logger> logger)
+        : config_(std::move(config)), logger_(std::move(logger)), impl_(std::make_unique<Impl>())
+    {
     }
+
+    MqttClient::~MqttClient()
+    {
+        stop();
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+    void MqttClient::start()
+    {
+        if (!config_->get<bool>("mqtt_enabled", false))
+        {
+            logger_->info(TAG, "MQTT disabled (mqtt_enabled=false)");
+            return;
+        }
 
 #ifndef SUNRAY_HAVE_MOSQUITTO
-    logger_->warn(TAG,
-        "MQTT not available — libmosquitto was not found at build time. "
-        "On Raspberry Pi: sudo apt install libmosquitto-dev, then rebuild.");
-    return;
-#else
-    impl_->host      = config_->get<std::string>("mqtt_host",         "localhost");
-    impl_->port      = config_->get<int>        ("mqtt_port",         1883);
-    impl_->keepalive = config_->get<int>        ("mqtt_keepalive_s",  60);
-    impl_->prefix    = config_->get<std::string>("mqtt_topic_prefix", "sunray");
-    impl_->running   = &running_;
-    impl_->log       = logger_.get();
-
-    mosquitto_lib_init();
-
-    impl_->mosq = mosquitto_new(/*id=*/nullptr, /*clean_session=*/true,
-                                /*userdata=*/impl_.get());
-    if (!impl_->mosq) {
-        logger_->error(TAG, "mosquitto_new() failed — out of memory?");
-        mosquitto_lib_cleanup();
-        return;
-    }
-
-    const std::string user = config_->get<std::string>("mqtt_user", "");
-    const std::string pass = config_->get<std::string>("mqtt_pass", "");
-    if (!user.empty()) {
-        mosquitto_username_pw_set(impl_->mosq, user.c_str(), pass.c_str());
-    }
-
-    mosquitto_connect_callback_set(   impl_->mosq, Impl::onConnectCb);
-    mosquitto_disconnect_callback_set(impl_->mosq, Impl::onDisconnectCb);
-    mosquitto_message_callback_set(   impl_->mosq, Impl::onMessageCb);
-
-    // Exponential backoff reconnect: 1 s → 30 s
-    mosquitto_reconnect_delay_set(impl_->mosq, 1, 30, /*exponential=*/true);
-
-    const int rc = mosquitto_connect_async(impl_->mosq,
-                                           impl_->host.c_str(),
-                                           impl_->port,
-                                           impl_->keepalive);
-    if (rc != MOSQ_ERR_SUCCESS) {
         logger_->warn(TAG,
-            "Initial connect attempt: " + std::string(mosquitto_strerror(rc))
-            + " — will retry in background");
-    }
+                      "MQTT not available — libmosquitto was not found at build time. "
+                      "On Raspberry Pi: sudo apt install libmosquitto-dev, then rebuild.");
+        return;
+#else
+        impl_->host = config_->get<std::string>("mqtt_host", "localhost");
+        impl_->port = config_->get<int>("mqtt_port", 1883);
+        impl_->keepalive = config_->get<int>("mqtt_keepalive_s", 60);
+        impl_->prefix = config_->get<std::string>("mqtt_topic_prefix", "sunray");
+        impl_->haDiscovery = config_->get<bool>("mqtt_homeassistant_discovery", false);
+        impl_->haPrefix = config_->get<std::string>("mqtt_homeassistant_prefix", "homeassistant");
+        impl_->running = &running_;
+        impl_->log = logger_.get();
 
-    // Start network I/O thread (handles connect, keepalive, reconnect)
-    mosquitto_loop_start(impl_->mosq);
-    running_.store(true);
+        mosquitto_lib_init();
 
-    // Start 10 Hz publish thread
-    impl_->pushThread = std::thread([this] {
+        impl_->mosq = mosquitto_new(/*id=*/nullptr, /*clean_session=*/true,
+                                    /*userdata=*/impl_.get());
+        if (!impl_->mosq)
+        {
+            logger_->error(TAG, "mosquitto_new() failed — out of memory?");
+            mosquitto_lib_cleanup();
+            return;
+        }
+
+        const std::string user = config_->get<std::string>("mqtt_user", "");
+        const std::string pass = config_->get<std::string>("mqtt_pass", "");
+        if (!user.empty())
+        {
+            mosquitto_username_pw_set(impl_->mosq, user.c_str(), pass.c_str());
+        }
+
+        mosquitto_connect_callback_set(impl_->mosq, Impl::onConnectCb);
+        mosquitto_disconnect_callback_set(impl_->mosq, Impl::onDisconnectCb);
+        mosquitto_message_callback_set(impl_->mosq, Impl::onMessageCb);
+
+        // Exponential backoff reconnect: 1 s → 30 s
+        mosquitto_reconnect_delay_set(impl_->mosq, 1, 30, /*exponential=*/true);
+
+        const int rc = mosquitto_connect_async(impl_->mosq,
+                                               impl_->host.c_str(),
+                                               impl_->port,
+                                               impl_->keepalive);
+        if (rc != MOSQ_ERR_SUCCESS)
+        {
+            logger_->warn(TAG,
+                          "Initial connect attempt: " + std::string(mosquitto_strerror(rc)) + " — will retry in background");
+        }
+
+        // Start network I/O thread (handles connect, keepalive, reconnect)
+        mosquitto_loop_start(impl_->mosq);
+        running_.store(true);
+
+        // Start 10 Hz publish thread
+        impl_->pushThread = std::thread([this]
+                                        {
         while (running_.load()) {
             WebSocketServer::TelemetryData td;
             bool hasTel = false;
@@ -193,42 +281,47 @@ void MqttClient::start() {
             }
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(PUSH_INTERVAL_MS));
-        }
-    });
+        } });
 
-    logger_->info(TAG, "Started");
+        logger_->info(TAG, "Started");
 #endif // SUNRAY_HAVE_MOSQUITTO
-}
+    }
 
-void MqttClient::stop() {
-    if (!running_.exchange(false)) return;  // already stopped / never started
+    void MqttClient::stop()
+    {
+        if (!running_.exchange(false))
+            return; // already stopped / never started
 
 #ifdef SUNRAY_HAVE_MOSQUITTO
-    if (impl_->pushThread.joinable()) impl_->pushThread.join();
+        if (impl_->pushThread.joinable())
+            impl_->pushThread.join();
 
-    if (impl_->mosq) {
-        mosquitto_disconnect(impl_->mosq);
-        mosquitto_loop_stop(impl_->mosq, /*force=*/true);
-        mosquitto_destroy(impl_->mosq);
-        impl_->mosq = nullptr;
-    }
-    mosquitto_lib_cleanup();
+        if (impl_->mosq)
+        {
+            mosquitto_disconnect(impl_->mosq);
+            mosquitto_loop_stop(impl_->mosq, /*force=*/true);
+            mosquitto_destroy(impl_->mosq);
+            impl_->mosq = nullptr;
+        }
+        mosquitto_lib_cleanup();
 #endif
-}
+    }
 
-// ── Data feed ─────────────────────────────────────────────────────────────────
+    // ── Data feed ─────────────────────────────────────────────────────────────────
 
-void MqttClient::pushTelemetry(const WebSocketServer::TelemetryData& data) {
-    std::lock_guard<std::mutex> lk(impl_->telMutex);
-    impl_->latestTel = data;
-    impl_->hasTel    = true;
-}
+    void MqttClient::pushTelemetry(const WebSocketServer::TelemetryData &data)
+    {
+        std::lock_guard<std::mutex> lk(impl_->telMutex);
+        impl_->latestTel = data;
+        impl_->hasTel = true;
+    }
 
-// ── Command registration ──────────────────────────────────────────────────────
+    // ── Command registration ──────────────────────────────────────────────────────
 
-void MqttClient::onCommand(CommandCallback cb) {
-    std::lock_guard<std::mutex> lk(impl_->cmdMutex);
-    impl_->onCmd = std::move(cb);
-}
+    void MqttClient::onCommand(CommandCallback cb)
+    {
+        std::lock_guard<std::mutex> lk(impl_->cmdMutex);
+        impl_->onCmd = std::move(cb);
+    }
 
 } // namespace sunray

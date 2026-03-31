@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <vector>
 
@@ -51,7 +52,7 @@ static std::string resolveWebRoot() {
     namespace fs = std::filesystem;
 
     std::vector<fs::path> candidates;
-    candidates.emplace_back(fs::current_path() / "webui" / "dist");
+    candidates.emplace_back(fs::current_path() / "webui-svelte" / "dist");
 
     const fs::path procExe = "/proc/self/exe";
     std::error_code ec;
@@ -59,8 +60,8 @@ static std::string resolveWebRoot() {
         const fs::path exePath = fs::read_symlink(procExe, ec);
         if (!ec && !exePath.empty()) {
             const fs::path exeDir = exePath.parent_path();
-            candidates.emplace_back(exeDir / "webui" / "dist");
-            candidates.emplace_back(exeDir.parent_path() / "webui" / "dist");
+            candidates.emplace_back(exeDir / "webui-svelte" / "dist");
+            candidates.emplace_back(exeDir.parent_path() / "webui-svelte" / "dist");
         }
     }
 
@@ -71,7 +72,33 @@ static std::string resolveWebRoot() {
     }
 
     // Fall back to the historical relative path if nothing was found yet.
-    return "webui/dist";
+    return "webui-svelte/dist";
+}
+
+static std::vector<std::string> loadMissionZoneIds(const std::string& missionPath,
+                                                   const std::string& missionId) {
+    if (missionId.empty() || !std::filesystem::exists(missionPath)) return {};
+
+    std::ifstream file(missionPath);
+    if (!file.is_open()) return {};
+
+    const std::string raw((std::istreambuf_iterator<char>(file)), {});
+    if (raw.empty()) return {};
+
+    std::vector<std::string> zoneIds;
+    const auto missions = nlohmann::json::parse(raw);
+    if (!missions.is_array()) return {};
+
+    for (const auto& mission : missions) {
+        if (mission.value("id", std::string()) != missionId) continue;
+        if (mission.contains("zoneIds") && mission["zoneIds"].is_array()) {
+            for (const auto& zoneId : mission["zoneIds"]) {
+                zoneIds.push_back(zoneId.get<std::string>());
+            }
+        }
+        break;
+    }
+    return zoneIds;
 }
 
 // ── main ───────────────────────────────────────────────────────────────────────
@@ -144,15 +171,29 @@ int main(int argc, char* argv[]) {
     // Map file: read/written by GET/POST /api/map; reloaded into Robot on POST
     const std::string mapPath =
         config->get<std::string>("map_path", (configDir / "map.json").string());
+    const std::string missionPath =
+        config->get<std::string>("mission_path", (configDir / "missions.json").string());
     wsServer->setMapPath(mapPath);
+    wsServer->setMissionPath(missionPath);
     wsServer->onMapReload([&robot, mapPath]() {
         return robot.loadMap(mapPath);
     });
 
     // WebSocket commands → Robot
-    wsServer->onCommand([&robot](const std::string& cmd,
+    wsServer->onCommand([&robot, missionPath](const std::string& cmd,
                                   const nlohmann::json& params) {
-        if      (cmd == "start")  { robot.startMowing(); }
+        if      (cmd == "start")  {
+            const std::string missionId = params.value("missionId", std::string());
+            if (!missionId.empty()) {
+                try {
+                    robot.startMowingMission(missionId, loadMissionZoneIds(missionPath, missionId));
+                } catch (...) {
+                    robot.startMowing();
+                }
+            } else {
+                robot.startMowing();
+            }
+        }
         else if (cmd == "stop")   { robot.emergencyStop(); }
         else if (cmd == "dock")   { robot.startDocking(); }
         else if (cmd == "charge") { robot.startDocking(); }  // alias
@@ -210,6 +251,17 @@ int main(int argc, char* argv[]) {
         });
     }
 
+    // History/statistics API (C.17-i)
+    wsServer->onHistoryEventsGet([&robot](unsigned limit) -> nlohmann::json {
+        return robot.getHistoryEvents(limit);
+    });
+    wsServer->onHistorySessionsGet([&robot](unsigned limit) -> nlohmann::json {
+        return robot.getHistorySessions(limit);
+    });
+    wsServer->onStatisticsSummaryGet([&robot]() -> nlohmann::json {
+        return robot.getHistoryStatisticsSummary();
+    });
+
     // Simulator commands → SimulationDriver (only wired in --sim mode)
     if (simDrv) {
         wsServer->onSimCommand([simDrv](const std::string& action,
@@ -247,9 +299,20 @@ int main(int argc, char* argv[]) {
 
     // ── 7. MQTT client (optional — enabled via mqtt_enabled=true in config) ───
     auto mqttClient = std::make_unique<sunray::MqttClient>(config, logger);
-    mqttClient->onCommand([&robot](const std::string& cmd,
-                                   const nlohmann::json& /*params*/) {
-        if      (cmd == "start")  { robot.startMowing(); }
+    mqttClient->onCommand([&robot, missionPath](const std::string& cmd,
+                                   const nlohmann::json& params) {
+        if      (cmd == "start")  {
+            const std::string missionId = params.value("missionId", std::string());
+            if (!missionId.empty()) {
+                try {
+                    robot.startMowingMission(missionId, loadMissionZoneIds(missionPath, missionId));
+                } catch (...) {
+                    robot.startMowing();
+                }
+            } else {
+                robot.startMowing();
+            }
+        }
         else if (cmd == "stop")   { robot.emergencyStop(); }
         else if (cmd == "dock")   { robot.startDocking(); }
         else if (cmd == "charge") { robot.startDocking(); }

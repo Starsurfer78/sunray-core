@@ -1,6 +1,6 @@
 # TODO
 
-Last updated: 2026-03-28
+Last updated: 2026-03-31
 
 Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
 
@@ -12,6 +12,8 @@ Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
   - [`PROJECT_MAP.md`](/mnt/LappiDaten/Projekte/sunray-core/PROJECT_MAP.md)
   - [`WORKING_RULES.md`](/mnt/LappiDaten/Projekte/sunray-core/WORKING_RULES.md)
   - [`TASKS.md`](/mnt/LappiDaten/Projekte/sunray-core/TASKS.md)
+  - [`Analyse.md`](/mnt/LappiDaten/Projekte/sunray-core/Analyse.md)
+
 
 > **Hinweis:** Die vorhandenen `<!-- ctx: -->` Profile sind Legacy-Metadaten aus einem älteren Claude-Workflow.
 > Sie können als grobe Orientierung nützlich sein, sind aber nicht mehr der primäre Einstiegspunkt.
@@ -23,6 +25,12 @@ Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
 
 - [x] A.1–A.8, A.10 — C++ Fundament, SerialRobotDriver, Robot+DI, SimulationDriver, Op-State-Machine, Navigation, WebSocket-Server, Konfiguration, GPS-Treiber, Pi-Version
 - [x] C.1–C.5, C.7, C.9–C.12 — WebUI, MQTT-Client, On-The-Fly Obstacles, Dashboard, Diagnose, Zeitplan, Zonen-Auswahl
+- [x] C.13 — IMU-Integration, EKF-Telemetrie und IMU-Diagnose
+- [x] C.14 — RTK-gestützte Kartenaufnahme, Sampling, Capture-Metadaten und Karteneditor-Nachbearbeitung
+- [x] C.15 — Fachliches Zustandsmodell, Recovery, Resume-Schutz und Telemetrie-Vertrag für UI/Core
+- [x] C.16 (teilweise) — Nutzerfreundliche Statussprache sowie verständliche Ereignis-/Missionshistorie und Timeline
+- [x] C.18 — Missions-UX auf `webui-svelte`: Missionsmodell, Backend-API, Missionsseite, Bahnvorschau, Zonen-Overrides, Missions-Zeitplan, Dashboard-Widget, Mission-Start per `missionId` und Telemetrie-Fortschritt
+- [x] C.17 — Ereignishistorie-/Statistik-Backend mit SQLite, Events, Sessions, History-API, WebUI-Umstellung, Retention und Tests
 - [x] P0 Blocker (A.9) — STM32 Flashen via Pi, CRC-Verifikation, Motor-API
 - [x] 2026-03-28 Architektur Commit 1 — `Robot::run()` in private Schritte zerlegt, Telemetrie-Smoke-Test ergänzt, Diag-Early-Return gegen stilles Drift abgesichert
 - [x] 2026-03-28 Architektur Commit 2 — Telemetrie-Vertrag explizit dokumentiert, WebSocket-Op-Contract vervollständigt, Frontend-Typen an immer gelieferte Felder angepasst
@@ -60,15 +68,6 @@ Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
 
 ## C — Erweiterte Funktionen
 
-### C.13 IMU-Integration ✅ Abgeschlossen (2026-03-24)
-
-- [x] `hal/Imu/Mpu6050Driver.h + .cpp`
-- [x] `Robot::run()` IMU-Tick
-- [x] `TelemetryData` imu_heading/pitch/roll
-- [x] StateEstimator Kalmanfilter GPS + Odo + IMU
-- [x] `POST /api/diag/imu_calib`
-- [x] Diagnostics.vue Kompassrose
-
 ### C.8 Später
 
 - [x] C.8-a: WebUI auf C++ WebSocket-Server umstellen
@@ -76,68 +75,60 @@ Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
 - [ ] C.8-b: Energie-Budget + Rückkehr-Berechnung
   <!-- ctx: module:robot, module:navigation | files:core/Robot.h, core/navigation/Map.h | model:sonnet -->
 
-### C.14 RTK-gestützte Punktaufnahme / Kartenaufnahme
+### C.18 Missions-UX — Karten / Zonen / Missionen Redesign
 
-- [x] C.14-a: Neuer Kartenaufnahme-Flow in der WebUI: "Neue Karte starten" + Punktaufnahme-Modus
-  <!-- ctx: module:webui, module:websocket_server | files:webui/src/views/Dashboard.vue, webui/src/views/MapEditor.vue, core/WebSocketServer.cpp | model:sonnet -->
-- [x] C.14-b: Dashboard-Button "Aktuellen GPS-Punkt speichern" für manuelle Grenzaufnahme
-  <!-- ctx: module:webui, module:websocket_server | files:webui/src/views/Dashboard.vue, webui/src/composables/useTelemetry.ts, core/WebSocketServer.cpp | model:sonnet -->
-- [x] C.14-c: Punktaufnahme mit RTK-abhängiger UI-Entscheidung: FIX direkt speichern, FLOAT nur nach Bestätigung, INVALID klar blockieren
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, core/WebSocketServer.cpp, core/Robot.cpp | model:haiku -->
-- [x] C.14-d: 3s-Sampling mit Mittelwertbildung vor Punkt-Commit, statt Sofort-Speichern
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, core/WebSocketServer.cpp, core/Robot.h, core/Robot.cpp | model:sonnet -->
-- [x] C.14-e: Sampling-Fortschritt 0–100% im UI anzeigen; erfolgreicher Punkt erscheint sofort als Marker
-  <!-- ctx: module:webui | files:webui/src/views/Dashboard.vue, webui/src/views/MapEditor.vue | model:haiku -->
-- [x] C.14-f: Aufgenommene Punkte als `perimeter`-Punkte in die aktuelle Karte übernehmen und via `/api/map` persistieren
-  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui/src/views/Dashboard.vue, core/WebSocketServer.cpp, core/navigation/Map.h | model:sonnet -->
-- [x] C.14-g: Kartenaufnahme-Metadaten vorsehen: `fix_duration_ms`, `sample_variance`, `mean_accuracy`
-  <!-- ctx: module:websocket_server, module:robot | files:core/WebSocketServer.h, core/WebSocketServer.cpp, core/Robot.h | model:sonnet -->
-- [x] C.14-h: Karten-Editor für Nachbearbeitung der aufgenommenen Punkte vervollständigen: Punkt löschen + Punkt auf Kante einfügen
-  <!-- ctx: module:webui | files:webui/src/views/MapEditor.vue | model:sonnet -->
+Konzept: `docs/missions_concept.html`
 
-### C.15 Zustandsmodell / WebUI / Recovery nachziehen
+Aktive Frontend-Basis fuer diese Tasks: `webui-svelte/`
 
-- [x] C.15-a: Expliziten Startpfad modellieren: `Idle -> Undock -> NavToStart -> Mow`
-  <!-- ctx: module:robot, module:op_statemachine, module:navigation | files:core/Robot.cpp, core/op/Op.h, core/op/Op.cpp | model:sonnet -->
-- [x] C.15-b: `UndockOp` als eigene Operation implementieren
-  <!-- ctx: module:op_statemachine, module:navigation | files:core/op/Op.h, core/op/Op.cpp, core/navigation/Map.h | model:sonnet -->
-- [x] C.15-c: `NavToStartOp` als eigene Operation implementieren
-  <!-- ctx: module:op_statemachine, module:navigation | files:core/op/Op.h, core/op/Op.cpp, core/navigation/LineTracker.cpp | model:sonnet -->
-- [x] C.15-d: GPS-Recovery schärfen: `GpsWait` fachlich von hartem Fehler trennen, mit klarem Resume-Pfad
-  <!-- ctx: module:robot, module:op_statemachine | files:core/Robot.cpp, core/op/GpsWaitFixOp.cpp, core/op/Op.h | model:sonnet -->
-- [x] C.15-e: `WaitRainOp` als eigener Zustand statt reinem Dock-Shortcut vorbereiten
-  <!-- ctx: module:op_statemachine, module:robot | files:core/op/Op.h, core/op/MowOp.cpp, core/Robot.cpp | model:sonnet -->
-- [x] C.15-f: Kidnap-/Cross-Track-Recovery als expliziteren Verhaltensbaustein modellieren
-  <!-- ctx: module:navigation, module:op_statemachine | files:core/navigation/LineTracker.cpp, core/op/Op.h, core/op/MowOp.cpp | model:sonnet -->
-- [x] C.15-g: WebUI und Core-Zustandsmodell angleichen: UI soll fachliche Phasen nicht aus Telemetrie erraten müssen
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/components/RobotSidebar.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
-- [x] C.15-h: Telemetrie weiter fachlich stabilisieren: Übergangsgründe, Fehlercodes und Zustandsphasen als bewusstes Modell
-  <!-- ctx: module:websocket_server, module:robot | files:core/WebSocketServer.h, core/WebSocketServer.cpp, core/Robot.cpp | model:sonnet -->
-- [x] C.15-i: Warm-Start-/Resume-Grundlagen prüfen: Kartenänderung erkennen und unsicheres Resume blockieren
-  <!-- ctx: module:robot, module:navigation | files:core/Robot.h, core/Robot.cpp, core/navigation/Map.h | model:sonnet -->
+Kernidee: Zone = benannte Fläche + Defaults. Mission = benannter, wiederholbarer Auftrag mit Zonenliste, Reihenfolge, Einstellungs-Overrides und eigenem Zeitplan.
+
+- [x] C.18-a: Zone-Datenmodell erweitern — `angle` (0–179°), `edgeMowing`, `edgeRounds` zu `Zone.settings` hinzufügen; `order` vorerst nur noch als Legacy-Editorfeld bis Missionen die Reihenfolge übernehmen
+  <!-- ctx: module:webui, module:navigation | files:webui-svelte/src/lib/stores/map.ts, core/navigation/Map.h | model:haiku -->
+
+- [x] C.18-b: `Mission`-Interface + Store anlegen — `{ id, name, zoneIds[], overrides, schedule? }`; separates `missions.ts` in `webui-svelte/src/lib/stores/`
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/stores/map.ts | model:haiku -->
+
+- [x] C.18-c: Backend-API `/api/missions` — GET (alle), POST (neu), PUT (update), DELETE; persistiert als JSON neben der Kartendatei
+  <!-- ctx: module:websocket_server | files:core/WebSocketServer.cpp, core/WebSocketServer.h | model:sonnet -->
+
+- [x] C.18-d: Missions-Seite aufbauen — große Bahnvorschau (Mitte), Einstellungspanel (unten, bei Zonen-Auswahl), Editor-Sidebar (rechts: Missionen-Liste + Editor + Zeitplan); ersetzt die aktuelle `Mission.svelte`
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Mission.svelte | model:sonnet -->
+
+- [x] C.18-e: Bahnvorschau-Canvas (`PathPreview.svelte`) — zeichnet Zonen-Polygone mit Mähstreifen (Winkel, Randbahnen, Muster), Zoom/Pan per Scroll/Drag
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Mission.svelte | model:sonnet -->
+
+- [x] C.18-f: Zonen-Einstellungspanel (`ZoneSettings.svelte`) — Schnittbreite, Winkel-Slider (live in Vorschau), Muster, Randmähen-Toggle, Randbahnen, Geschwindigkeit; öffnet sich unten bei Klick auf Zone
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Mission.svelte | model:haiku -->
+
+- [x] C.18-g: Zeitplan je Mission — Wochentage, Start/Endzeit, Regenverzögerung, Aktiv-Toggle; integriert in die Editor-Sidebar; "Zeitpläne"-Tab in Nav deaktivieren/entfernen
+  <!-- ctx: module:webui, module:websocket_server | files:webui-svelte/src/App.svelte, core/WebSocketServer.cpp | model:haiku -->
+
+- [x] C.18-h: Dashboard-Widget — zeigt "Nächste Mission" (Name, Zeit, Zonen, Jetzt-starten-Dropdown) oder "Mission läuft" (Fortschrittsbalken, aktuelle Zone, Verbleibend, Abbrechen)
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Dashboard.svelte | model:sonnet -->
+
+- [x] C.18-i: `start`-Befehl um `missionId` erweitern — Backend löst Zone-Sequenz aus Mission auf und übergibt sie an `MowOp`
+  <!-- ctx: module:websocket_server, module:op_statemachine | files:core/WebSocketServer.cpp, core/op/MowOp.cpp, core/Robot.h | model:sonnet -->
+
+- [x] C.18-j: Telemetrie um Missions-Fortschritt erweitern — `mission_id`, `mission_zone_index`, `mission_zone_count` für Fortschrittsanzeige im Dashboard-Widget
+  <!-- ctx: module:websocket_server, module:robot | files:core/WebSocketServer.h, core/Robot.cpp, webui-svelte/src/lib/stores/telemetry.ts | model:haiku -->
 
 ### C.16 Benutzererlebnis / Nutzerführung
 
 - [ ] C.16-a: Dashboard-Preflight als echte Startfreigabe ergänzen: GPS, Akku, Karte, Dock, Fehlerstatus, Verbindungsstatus sichtbar und verständlich bündeln
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/components/RobotSidebar.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
-- [ ] C.16-b: Nutzerfreundliche Statussprache statt rein interner Op-Namen im Haupt-Dashboard etablieren (`Bereit`, `Fährt zum Startpunkt`, `Lädt`, `Wartet auf GPS`, ...)
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/composables/useTelemetry.ts, core/WebSocketServer.h, core/Robot.cpp | model:haiku -->
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
 - [ ] C.16-c: Für Start-Blocker und Warnzustände direkte Handlungsempfehlungen im UI anzeigen, nicht nur Rohstatus
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/components/RobotSidebar.vue, core/Robot.cpp | model:sonnet -->
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte, core/Robot.cpp | model:sonnet -->
 - [ ] C.16-d: Fehler- und Recovery-Karten vereinheitlichen: `Error`, `GpsWait`, `WaitRain`, `Dock`, `Charge` mit Ursache, Kritikalität und nächstem sinnvollen Schritt darstellen
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/views/Diagnostics.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Diagnostics.svelte, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
 - [ ] C.16-e: Geführten Erststart-/Setup-Flow in der WebUI anlegen: Verbindung, GPS, Karte, Dock, Testfahrt, Startfreigabe
-  <!-- ctx: module:webui, module:websocket_server | files:webui/src/views/Dashboard.vue, webui/src/router/index.ts, webui/src/components/RobotSidebar.vue | model:opus -->
+  <!-- ctx: module:webui, module:websocket_server | files:webui-svelte/src/App.svelte, webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:opus -->
 - [ ] C.16-f: Mapping-Workflow als Assistent statt nur als Editor denken: neue Karte, RTK-Prüfung, Grenzaufnahme, Validierung, Docking-Pfad, Speichern
-  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui/src/views/Dashboard.vue, webui/src/views/MapEditor.vue, core/navigation/Map.h | model:sonnet -->
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Map.svelte, core/navigation/Map.h | model:sonnet -->
 - [ ] C.16-g: Kartenerstellung vor Freigabe validieren: Perimeter geschlossen, ausreichend Punkte, Docking plausibel, Start grundsätzlich möglich
-  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui/src/views/MapEditor.vue, core/WebSocketServer.cpp, core/navigation/Map.h, core/navigation/Map.cpp | model:sonnet -->
-- [ ] C.16-h: Ereignis- und Missionshistorie mit verständlichen Sessions und Abbruchgründen aufbauen, statt nur Live-Telemetrie anzuzeigen
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/History.vue, webui/src/composables/useSessionTracker.ts, core/Robot.cpp, core/WebSocketServer.h | model:sonnet -->
+  <!-- ctx: module:webui, module:websocket_server, module:navigation | files:webui-svelte/src/lib/pages/Map.svelte, core/WebSocketServer.cpp, core/navigation/Map.h, core/navigation/Map.cpp | model:sonnet -->
 - [ ] C.16-i: Primäransicht und Diagnoseansicht stärker trennen, damit das Dashboard Betriebsoberfläche bleibt und Rohdaten in Diagnose landen
-  <!-- ctx: module:webui | files:webui/src/views/Dashboard.vue, webui/src/views/Diagnostics.vue, webui/src/components/RobotSidebar.vue | model:haiku -->
-- [ ] C.16-j: UX-nahe Ereignistimeline im Dashboard oder in History ergänzen (`Mission gestartet`, `GPS verloren`, `Docking begonnen`, `Laden begonnen`, ...)
-  <!-- ctx: module:webui, module:websocket_server, module:robot | files:webui/src/views/Dashboard.vue, webui/src/views/History.vue, core/WebSocketServer.h, core/Robot.cpp | model:sonnet -->
+  <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Diagnostics.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:haiku -->
 
 ---
 

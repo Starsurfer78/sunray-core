@@ -80,13 +80,16 @@ struct OnTheFlyObstacle {
 struct ZoneSettings {
     std::string name        = "Zone";
     float       stripWidth  = 0.18f;   ///< mowing strip width in metres
+    float       angle       = 0.0f;    ///< local preview stripe angle in degrees
+    bool        edgeMowing  = true;    ///< local preview headland enabled
+    int         edgeRounds  = 1;       ///< local preview headland rounds
     float       speed       = 1.0f;    ///< target speed in m/s
     ZonePattern pattern     = ZonePattern::STRIPE;
 };
 
 struct Zone {
     std::string  id;
-    int          order = 1;
+    int          order = 1;  ///< legacy editor ordering until mission sequencing replaces it
     PolygonPoints polygon;
     ZoneSettings  settings;
 };
@@ -216,6 +219,8 @@ public:
     const std::vector<Zone>&               zones()           const { return zones_; }
     const std::vector<OnTheFlyObstacle>&   obstacles()       const { return obstacles_; }  ///< C.7
     const nlohmann::json&                  captureMeta()     const { return captureMeta_; }
+    std::string zoneIdForPoint(float x, float y,
+                               const std::vector<std::string>& preferredOrder = {}) const;
 
     int mowPointsIdx  = 0;
     int dockPointsIdx = 0;

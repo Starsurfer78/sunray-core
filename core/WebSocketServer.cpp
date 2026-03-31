@@ -70,6 +70,8 @@ static std::string readFile(const std::filesystem::path& p) {
 static constexpr const char* kDefaultMapJson =
     R"({"perimeter":[],"mow":[],"dock":[],"exclusions":[],"zones":[]})";
 
+static constexpr const char* kDefaultMissionsJson = R"([])";
+
 /// Serve a file from webRoot, guarding against path traversal.
 /// Returns 200+body on success, 404 on missing, 403 on traversal attempt.
 static crow::response serveStatic(const std::filesystem::path& webRoot,
@@ -142,6 +144,21 @@ void WebSocketServer::onSchedulePut(SchedulePutCallback cb) {
     schedPutCb_ = std::move(cb);
 }
 
+void WebSocketServer::onHistoryEventsGet(HistoryGetCallback cb) {
+    std::lock_guard<std::mutex> lk(historyCbMutex_);
+    historyEventsGetCb_ = std::move(cb);
+}
+
+void WebSocketServer::onHistorySessionsGet(HistoryGetCallback cb) {
+    std::lock_guard<std::mutex> lk(historyCbMutex_);
+    historySessionsGetCb_ = std::move(cb);
+}
+
+void WebSocketServer::onStatisticsSummaryGet(StatisticsGetCallback cb) {
+    std::lock_guard<std::mutex> lk(historyCbMutex_);
+    statisticsSummaryGetCb_ = std::move(cb);
+}
+
 void WebSocketServer::setMapPath(const std::string& mapPath) {
     mapPath_ = mapPath;
 }
@@ -151,11 +168,25 @@ void WebSocketServer::onMapReload(MapReloadCallback cb) {
     mapReloadCallback_ = std::move(cb);
 }
 
+void WebSocketServer::setMissionPath(const std::string& missionPath) {
+    missionPath_ = missionPath;
+}
+
 // ── HTTP route setup ──────────────────────────────────────────────────────────
 
 void WebSocketServer::setupHttpRoutes() {
     auto& app = impl_->app;
     const std::string apiToken = config_ ? config_->get<std::string>("api_token", "") : "";
+    auto parseLimit = [](const crow::request& req, unsigned fallback) -> unsigned {
+        const char* raw = req.url_params.get("limit");
+        if (raw == nullptr || *raw == '\0') return fallback;
+        try {
+            const unsigned parsed = static_cast<unsigned>(std::stoul(raw));
+            return parsed == 0 ? fallback : parsed;
+        } catch (...) {
+            return fallback;
+        }
+    };
     auto isAuthorized = [apiToken](const crow::request& req) -> bool {
         return isHttpAuthorizedForToken(apiToken,
                                         req.get_header_value("X-Api-Token"),
@@ -254,6 +285,144 @@ void WebSocketServer::setupHttpRoutes() {
             } catch (...) {
                 logger_->error(TAG, std::string("GET /api/map failed for path '") + mapPath_ + "': unknown error");
                 return crow::response(500, R"({"error":"map read failed"})");
+            }
+        }
+    );
+
+    // ── GET /api/missions ──────────────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/missions")(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            try {
+                const std::string raw = missionPath_.empty() ? std::string() : readFile(missionPath_);
+                const std::string body = raw.empty() ? std::string(kDefaultMissionsJson) : raw;
+                auto parsed = nlohmann::json::parse(body);
+                if (!parsed.is_array()) parsed = nlohmann::json::array();
+                crow::response res(200, parsed.dump());
+                res.set_header("Content-Type", "application/json");
+                res.set_header("Access-Control-Allow-Origin", "*");
+                return res;
+            } catch (const std::exception& e) {
+                logger_->error(TAG, std::string("GET /api/missions failed for path '") + missionPath_ + "': " + e.what());
+                return crow::response(500, R"({"error":"missions read failed"})");
+            } catch (...) {
+                logger_->error(TAG, std::string("GET /api/missions failed for path '") + missionPath_ + "': unknown error");
+                return crow::response(500, R"({"error":"missions read failed"})");
+            }
+        }
+    );
+
+    // ── POST /api/missions ─────────────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/missions").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (missionPath_.empty()) return crow::response(503);
+            try {
+                auto incoming = nlohmann::json::parse(req.body);
+                if (!incoming.is_object()) return crow::response(400, R"({"error":"expected mission object"})");
+
+                nlohmann::json missions = nlohmann::json::array();
+                const std::string raw = readFile(missionPath_);
+                if (!raw.empty()) {
+                    missions = nlohmann::json::parse(raw);
+                    if (!missions.is_array()) missions = nlohmann::json::array();
+                }
+
+                const std::string missionId = incoming.value("id", std::string());
+                if (missionId.empty()) return crow::response(400, R"({"error":"mission id required"})");
+                for (const auto& mission : missions) {
+                    if (mission.value("id", std::string()) == missionId) {
+                        return crow::response(409, R"({"error":"mission already exists"})");
+                    }
+                }
+                missions.push_back(incoming);
+
+                std::filesystem::create_directories(std::filesystem::path(missionPath_).parent_path());
+                std::ofstream f(missionPath_);
+                if (!f.is_open()) return crow::response(500, R"({"error":"cannot write missions"})");
+                f << missions.dump(2);
+                logger_->info(TAG, "Mission created via REST: " + missionId);
+                return crow::response(200, R"({"ok":true})");
+            } catch (const std::exception& e) {
+                logger_->warn(TAG, std::string("POST /api/missions error: ") + e.what());
+                return crow::response(400, R"({"error":"bad mission payload"})");
+            }
+        }
+    );
+
+    // ── PUT /api/missions/<id> ────────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/missions/<string>").methods(crow::HTTPMethod::PUT)(
+        [this, isAuthorized](const crow::request& req, const std::string& missionId) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (missionPath_.empty()) return crow::response(503);
+            try {
+                auto incoming = nlohmann::json::parse(req.body);
+                if (!incoming.is_object()) return crow::response(400, R"({"error":"expected mission object"})");
+                incoming["id"] = missionId;
+
+                nlohmann::json missions = nlohmann::json::array();
+                const std::string raw = readFile(missionPath_);
+                if (!raw.empty()) {
+                    missions = nlohmann::json::parse(raw);
+                    if (!missions.is_array()) missions = nlohmann::json::array();
+                }
+
+                bool updated = false;
+                for (auto& mission : missions) {
+                    if (mission.value("id", std::string()) == missionId) {
+                        mission = incoming;
+                        updated = true;
+                        break;
+                    }
+                }
+                if (!updated) missions.push_back(incoming);
+
+                std::filesystem::create_directories(std::filesystem::path(missionPath_).parent_path());
+                std::ofstream f(missionPath_);
+                if (!f.is_open()) return crow::response(500, R"({"error":"cannot write missions"})");
+                f << missions.dump(2);
+                logger_->info(TAG, "Mission updated via REST: " + missionId);
+                return crow::response(200, R"({"ok":true})");
+            } catch (const std::exception& e) {
+                logger_->warn(TAG, std::string("PUT /api/missions error: ") + e.what());
+                return crow::response(400, R"({"error":"bad mission payload"})");
+            }
+        }
+    );
+
+    // ── DELETE /api/missions/<id> ─────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/missions/<string>").methods(crow::HTTPMethod::DELETE)(
+        [this, isAuthorized](const crow::request& req, const std::string& missionId) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (missionPath_.empty()) return crow::response(503);
+            try {
+                nlohmann::json missions = nlohmann::json::array();
+                const std::string raw = readFile(missionPath_);
+                if (!raw.empty()) {
+                    missions = nlohmann::json::parse(raw);
+                    if (!missions.is_array()) missions = nlohmann::json::array();
+                }
+
+                const auto originalSize = missions.size();
+                missions.erase(
+                    std::remove_if(missions.begin(), missions.end(),
+                        [&missionId](const nlohmann::json& mission) {
+                            return mission.value("id", std::string()) == missionId;
+                        }),
+                    missions.end());
+
+                std::filesystem::create_directories(std::filesystem::path(missionPath_).parent_path());
+                std::ofstream f(missionPath_);
+                if (!f.is_open()) return crow::response(500, R"({"error":"cannot write missions"})");
+                f << missions.dump(2);
+                logger_->info(TAG, "Mission deleted via REST: " + missionId);
+                if (missions.size() == originalSize) {
+                    return crow::response(200, R"({"ok":false,"error":"mission not found"})");
+                }
+                return crow::response(200, R"({"ok":true})");
+            } catch (const std::exception& e) {
+                logger_->warn(TAG, std::string("DELETE /api/missions error: ") + e.what());
+                return crow::response(400, R"({"error":"mission delete failed"})");
             }
         }
     );
@@ -595,6 +764,82 @@ void WebSocketServer::setupHttpRoutes() {
         }
     );
 
+    // ── GET /api/history/events ───────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/history/events")(
+        [this, isAuthorized, parseLimit](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            const unsigned limit = parseLimit(req, 100);
+            nlohmann::json result;
+            {
+                std::lock_guard<std::mutex> lk(historyCbMutex_);
+                result = historyEventsGetCb_
+                    ? historyEventsGetCb_(limit)
+                    : nlohmann::json{{"ok", false}, {"error", "history events callback not set"}};
+            }
+            crow::response res(result.value("ok", true) ? 200 : 503, result.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── GET /api/history/sessions ─────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/history/sessions")(
+        [this, isAuthorized, parseLimit](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            const unsigned limit = parseLimit(req, 100);
+            nlohmann::json result;
+            {
+                std::lock_guard<std::mutex> lk(historyCbMutex_);
+                result = historySessionsGetCb_
+                    ? historySessionsGetCb_(limit)
+                    : nlohmann::json{{"ok", false}, {"error", "history sessions callback not set"}};
+            }
+            crow::response res(result.value("ok", true) ? 200 : 503, result.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── GET /api/history/export ───────────────────────────────────────────────
+    CROW_ROUTE(app, "/api/history/export")(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (!config_) return crow::response(503, R"({"error":"config unavailable"})");
+
+            const bool enabled = config_->get<bool>("history_db_enabled", true);
+            const bool exportEnabled = config_->get<bool>("history_db_export_enabled", true);
+            const std::filesystem::path historyPath =
+                config_->get<std::string>("history_db_path", "/var/lib/sunray/history.db");
+
+            if (!enabled) return crow::response(503, R"({"error":"history database disabled"})");
+            if (!exportEnabled) return crow::response(403, R"({"error":"history export disabled"})");
+            if (!std::filesystem::exists(historyPath)) return crow::response(404, R"({"error":"history database not found"})");
+
+            const std::string body = readFile(historyPath);
+            crow::response res(200, body);
+            res.set_header("Content-Type", "application/octet-stream");
+            res.set_header("Content-Disposition", "attachment; filename=\"sunray-history.db\"");
+            return res;
+        }
+    );
+
+    // ── GET /api/statistics/summary ───────────────────────────────────────────
+    CROW_ROUTE(app, "/api/statistics/summary")(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            nlohmann::json result;
+            {
+                std::lock_guard<std::mutex> lk(historyCbMutex_);
+                result = statisticsSummaryGetCb_
+                    ? statisticsSummaryGetCb_()
+                    : nlohmann::json{{"ok", false}, {"error", "statistics summary callback not set"}};
+            }
+            crow::response res(result.value("ok", true) ? 200 : 503, result.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
     // ── POST /api/diag/<action> ───────────────────────────────────────────────
     // Void-return async handler: the blocking robot op runs in a detached thread
     // so the ASIO I/O thread is never stalled. Without this, motor/drive/IMU tests
@@ -890,6 +1135,14 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"resume_target\":\""; s += esc(d.resume_target); s += "\"";
     s += ",\"event_reason\":\""; s += esc(d.event_reason); s += "\"";
     s += ",\"error_code\":\"";   s += esc(d.error_code); s += "\"";
+    s += ",\"ui_message\":\"";   s += esc(d.ui_message); s += "\"";
+    s += ",\"ui_severity\":\"";  s += esc(d.ui_severity); s += "\"";
+    s += ",\"history_backend_ready\":"; s += bl(d.history_backend_ready);
+    s += ",\"session_id\":\""; s += esc(d.session_id); s += "\"";
+    s += ",\"session_started_at_ms\":"; s += std::to_string(d.session_started_at_ms);
+    s += ",\"mission_id\":\""; s += esc(d.mission_id); s += "\"";
+    s += ",\"mission_zone_index\":"; s += std::to_string(d.mission_zone_index);
+    s += ",\"mission_zone_count\":"; s += std::to_string(d.mission_zone_count);
     s += "}";
     return s;
 }

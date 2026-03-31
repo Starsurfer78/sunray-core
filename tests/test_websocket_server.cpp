@@ -86,7 +86,8 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — mandatory debug keys present"
         "bumper_l", "bumper_r", "motor_err", "uptime_s",
         "mcu_v", "pi_v", "imu_h", "imu_r", "imu_p",
         "diag_active", "diag_ticks", "ekf_health",
-        "ts_ms", "state_since_ms", "state_phase", "resume_target", "event_reason", "error_code"
+        "ts_ms", "state_since_ms", "state_phase", "resume_target", "event_reason", "error_code",
+        "ui_message", "ui_severity", "history_backend_ready", "session_id", "session_started_at_ms"
     };
     for (const auto& key : required) {
         INFO("Checking key: " << key);
@@ -122,6 +123,11 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — debug fields pass through", "
     d.resume_target = "Mow";
     d.event_reason = "gps_signal_lost";
     d.error_code = "ERR_GPS_TIMEOUT";
+    d.ui_message = "GPS-Signal verloren";
+    d.ui_severity = "warn";
+    d.history_backend_ready = true;
+    d.session_id = "session-123";
+    d.session_started_at_ms = 1700000000000LL;
 
     auto j = nlohmann::json::parse(WebSocketServer::buildTelemetryJson(d));
     REQUIRE(j["ts_ms"] == 12345);
@@ -130,6 +136,11 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — debug fields pass through", "
     REQUIRE(j["resume_target"] == "Mow");
     REQUIRE(j["event_reason"] == "gps_signal_lost");
     REQUIRE(j["error_code"] == "ERR_GPS_TIMEOUT");
+    REQUIRE(j["ui_message"] == "GPS-Signal verloren");
+    REQUIRE(j["ui_severity"] == "warn");
+    REQUIRE(j["history_backend_ready"] == true);
+    REQUIRE(j["session_id"] == "session-123");
+    REQUIRE(j["session_started_at_ms"] == 1700000000000LL);
 }
 
 // ── API surface ───────────────────────────────────────────────────────────────

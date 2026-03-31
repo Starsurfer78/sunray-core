@@ -1,0 +1,998 @@
+<!--
+  DESIGN MOCK — Karten / Zonen / Missionen Konzept
+  Erstellt: März 2026
+  Farbschema: Dark Blue (identisch zu dashboard_reference.html)
+  Screens (per Tab):
+    1. Missionen — große Bahnvorschau zentral, Einstellungen unten, Menü rechts
+    2. Dashboard: Nächste Mission
+    3. Dashboard: Mission läuft
+-->
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+body { background: #111827; display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 16px; }
+
+/* Screen-Switcher */
+.sc-switch { display: flex; gap: 8px; }
+.sc-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.sc-btn.on { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+.screen { display: none; }
+.screen.on { display: block; }
+
+/* ── App Shell ─────────────────────────────────── */
+.sr-app * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+.sr-app { display: flex; flex-direction: column; height: 680px; width: 1100px; border-radius: 12px; overflow: hidden; background: #0a0f1a !important; color: #e2e8f0 !important; }
+
+/* Topbar (identisch zur Referenz) */
+.sr-top { display: flex; align-items: center; gap: 10px; padding: 9px 16px; background: #0f1829 !important; border-bottom: 1px solid #1e3a5f; flex-shrink: 0; }
+.sr-logo { font-size: 15px; font-weight: 500; color: #60a5fa !important; flex-shrink: 0; }
+.sr-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 9px; border-radius: 20px; font-weight: 500; flex-shrink: 0; }
+.sr-pill-conn { background: #052e16 !important; color: #4ade80 !important; border: 1px solid #166534; }
+.sr-pill-op   { background: #0c1a3a !important; color: #93c5fd !important; border: 1px solid #1e40af; }
+.sr-pill-bat  { background: #1e1b30 !important; color: #c4b5fd !important; border: 1px solid #312e81; }
+.sr-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.sr-notaus { background: #450a0a !important; border: 1.5px solid #dc2626 !important; color: #fca5a5 !important; border-radius: 7px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; flex-shrink: 0; margin-left: auto; }
+.sr-div { width: 1px; height: 22px; background: #1e3a5f; flex-shrink: 0; }
+.sr-nav { display: flex; gap: 1px; background: #060c17 !important; border-radius: 7px; padding: 2px; border: 1px solid #1e3a5f; }
+.sr-nb { font-size: 12px; padding: 5px 11px; border-radius: 5px; border: none; cursor: pointer; background: transparent !important; color: #e2e8f0 !important; white-space: nowrap; }
+.sr-nb.on { background: #1e3a5f !important; color: #93c5fd !important; font-weight: 500; }
+
+/* ── Body ──────────────────────────────────────── */
+.sr-main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── MISSIONS PAGE layout ─────────────────────── */
+.ms-body { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.ms-row  { display: flex; flex: 1; overflow: hidden; }
+
+/* Center: Bahnvorschau */
+.ms-canvas-wrap { flex: 1; position: relative; background: #070d18 !important; overflow: hidden; }
+#mainCanvas { display: block; }
+
+/* Zone-Klick-Targets (transparent overlay auf Zonen) */
+.ms-zone-hit { position: absolute; cursor: pointer; }
+
+/* Zoom-Buttons (wie Dashboard) */
+.ms-zoom { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 5px; }
+.ms-zoom-btn { background: #0f1829 !important; border: 1px solid #1e3a5f; color: #60a5fa !important; border-radius: 6px; padding: 5px 9px; font-size: 13px; cursor: pointer; }
+
+/* Zone-Legende oben links im Canvas */
+.ms-legend { position: absolute; top: 10px; left: 10px; display: flex; flex-direction: column; gap: 5px; }
+.ms-leg-item { display: flex; align-items: center; gap: 6px; background: rgba(15,24,41,0.85); border: 1px solid #1e3a5f; border-radius: 6px; padding: 5px 9px; font-size: 11px; cursor: pointer; transition: border-color 0.15s; }
+.ms-leg-item:hover { border-color: #2563eb; }
+.ms-leg-item.sel { border-color: #2563eb !important; background: rgba(12,26,58,0.92) !important; }
+.ms-leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.ms-leg-name { color: #e2e8f0; }
+.ms-leg-angle { color: #475569; font-size: 10px; font-family: monospace; }
+
+/* ── Einstellungs-Panel (unten, schmal) ───────── */
+.ms-settings { flex-shrink: 0; background: #0a1020 !important; border-top: 1px solid #1e3a5f; height: 108px; display: flex; flex-direction: column; overflow: hidden; transition: height 0.2s; }
+.ms-settings.hidden { height: 0; border-top: none; }
+.ms-set-header { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid #1e3a5f; flex-shrink: 0; }
+.ms-set-zone-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.ms-set-title { font-size: 12px; font-weight: 500; color: #e2e8f0; flex: 1; }
+.ms-set-hint  { font-size: 11px; color: #475569; }
+.ms-set-close { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 16px; padding: 0 2px; }
+.ms-set-close:hover { color: #94a3b8; }
+.ms-set-body  { display: flex; align-items: center; gap: 14px; padding: 9px 14px; overflow-x: auto; }
+.ms-set-field { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+.ms-set-lbl   { font-size: 10px; color: #475569; white-space: nowrap; }
+.ms-set-in    { background: #0f1829 !important; border: 1px solid #1e3a5f; color: #e2e8f0 !important; border-radius: 5px; padding: 4px 8px; font-size: 12px; width: 80px; }
+.ms-set-in:focus { outline: none; border-color: #2563eb; }
+select.ms-set-in { width: 94px; }
+.ms-set-in option { background: #0f1829; }
+
+/* Angle slider in settings panel */
+.ms-ang-row { display: flex; align-items: center; gap: 5px; width: 130px; }
+.ms-ang-row input[type=range] { flex: 1; accent-color: #60a5fa; height: 3px; cursor: pointer; }
+.ms-ang-val { font-size: 11px; color: #60a5fa; font-family: monospace; width: 30px; text-align: right; flex-shrink: 0; }
+
+/* Toggle */
+.ms-toggle { position: relative; width: 30px; height: 17px; flex-shrink: 0; }
+.ms-toggle input { opacity: 0; width: 0; height: 0; }
+.ms-toggle-slider { position: absolute; inset: 0; background: #1e3a5f; border-radius: 17px; cursor: pointer; transition: .2s; }
+.ms-toggle-slider:before { content: ''; position: absolute; height: 11px; width: 11px; left: 3px; top: 3px; background: #475569; border-radius: 50%; transition: .2s; }
+.ms-toggle input:checked + .ms-toggle-slider { background: #2563eb; }
+.ms-toggle input:checked + .ms-toggle-slider:before { transform: translateX(13px); background: #e2e8f0; }
+.ms-toggle-lbl { font-size: 12px; color: #94a3b8; }
+.ms-set-vdiv { width: 1px; height: 46px; background: #1e3a5f; flex-shrink: 0; }
+
+/* ── RIGHT SIDEBAR (Missionen-Menü) ───────────── */
+.ms-sidebar { width: 262px; background: #0a1020 !important; border-left: 1px solid #1e3a5f; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; overflow-x: hidden; }
+.ms-sb-hd   { padding: 10px 14px; border-bottom: 1px solid #1e3a5f; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.ms-sb-title { font-size: 12px; font-weight: 500; color: #e2e8f0; }
+.ms-add-btn  { background: #0c1a3a !important; border: 1px solid #2563eb; color: #93c5fd !important; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+
+/* Mission-Karten (kompakt) */
+.ms-sb-list { padding: 8px; display: flex; flex-direction: column; gap: 5px; border-bottom: 1px solid #1e3a5f; flex-shrink: 0; }
+.ms-mcard   { background: #0f1829 !important; border: 1px solid #1a2a40; border-radius: 7px; padding: 8px 10px; cursor: pointer; }
+.ms-mcard.sel { border-color: #2563eb !important; background: #0c1a3a !important; }
+.ms-mc-row  { display: flex; align-items: center; gap: 6px; }
+.ms-mc-name { font-size: 12px; font-weight: 500; color: #e2e8f0; flex: 1; }
+.ms-mc-run  { background: #0c1a3a !important; border: 1px solid #2563eb; color: #93c5fd !important; border-radius: 5px; padding: 2px 8px; font-size: 11px; cursor: pointer; flex-shrink: 0; }
+.ms-mc-meta { font-size: 10px; color: #64748b; margin-top: 2px; }
+.ms-mc-tag  { display: inline-flex; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-top: 3px; }
+.tag-s { background: #0c1a3a; border: 1px solid #1e40af; color: #93c5fd; }
+.tag-m { background: #111827; border: 1px solid #374151; color: #6b7280; }
+
+/* Mission-Editor (scrollbar) */
+.ms-editor { flex-shrink: 0; display: flex; flex-direction: column; }
+.ms-ed-hd   { padding: 9px 12px; border-bottom: 1px solid #1e3a5f; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ms-ed-name { flex: 1; background: #0f1829 !important; border: 1px solid #1e3a5f; color: #e2e8f0 !important; border-radius: 6px; padding: 5px 9px; font-size: 13px; font-weight: 500; }
+.ms-ed-name:focus { outline: none; border-color: #2563eb; }
+.ms-save-btn { background: #0c1a3a !important; border: 1px solid #2563eb; color: #93c5fd !important; border-radius: 5px; padding: 5px 10px; font-size: 11px; cursor: pointer; }
+.ms-del-btn  { background: #1a0808 !important; border: 1px solid #7f1d1d; color: #f87171 !important; border-radius: 5px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+
+/* Zone-Liste im Sidebar-Editor */
+.ms-ed-sec  { padding: 7px 12px; border-bottom: 1px solid #1a2a40; }
+.ms-ed-slbl { font-size: 10px; font-weight: 500; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+.ms-add-zone { font-size: 10px; background: transparent; border: 1px solid #1e3a5f; color: #60a5fa; border-radius: 4px; padding: 1px 6px; cursor: pointer; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.ms-zrow    { display: flex; align-items: center; gap: 5px; padding: 4px 0; border-bottom: 1px solid #0a1020; overflow: hidden; min-width: 0; }
+.ms-zrow:last-child { border-bottom: none; }
+.ms-zrow.sel { background: #0c1a3a; border-radius: 5px; padding: 4px 4px; margin: 0 -4px; }
+.ms-zdrag   { color: #475569; font-size: 12px; cursor: grab; flex-shrink: 0; }
+.ms-znum    { font-size: 10px; color: #475569; width: 14px; text-align: center; flex-shrink: 0; }
+.ms-zdot    { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.ms-zname   { font-size: 12px; color: #e2e8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-zgear   { background: transparent; border: 1px solid #1e3a5f; color: #60a5fa; border-radius: 4px; padding: 2px 5px; font-size: 11px; cursor: pointer; flex-shrink: 0; }
+.ms-zgear.active { background: #0c1a3a !important; border-color: #2563eb; }
+.ms-zdel    { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 12px; flex-shrink: 0; }
+
+/* Zeitplan */
+.ms-days { display: flex; gap: 3px; margin-bottom: 7px; }
+.ms-day  { flex: 1; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 11px; font-weight: 500; cursor: pointer; border: 1px solid #1e3a5f; background: #0a1020 !important; color: #64748b !important; }
+.ms-day.on { background: #0c1a3a !important; border-color: #2563eb; color: #93c5fd !important; }
+.ms-timeg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-width: 100%; }
+.ms-tfield { display: flex; flex-direction: column; gap: 2px; }
+.ms-tlbl   { font-size: 10px; color: #475569; }
+.ms-tin    { background: #0f1829 !important; border: 1px solid #1e3a5f; color: #e2e8f0 !important; border-radius: 5px; padding: 4px 6px; font-size: 11px; width: 100%; }
+.ms-tin:focus { outline: none; border-color: #2563eb; }
+
+/* Zone dot colors */
+.zc1 { background: #a855f7; }
+.zc2 { background: #22d3ee; }
+.zc3 { background: #22c55e; }
+
+/* ── Dashboard Sidebar (Screen 2+3) ─────────────── */
+.sr-side { width: 252px; background: #0a1020 !important; border-left: 1px solid #1e3a5f; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+.sr-sec  { padding: 11px 14px; border-bottom: 1px solid #0f1829; }
+.sr-lbl  { font-size: 10px; font-weight: 500; color: #475569 !important; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.sr-stbig { font-size: 20px; font-weight: 500; color: #60a5fa !important; }
+.sr-stsub { font-size: 11px; color: #64748b !important; margin-top: 2px; }
+.sr-pos   { font-family: monospace; font-size: 11px; color: #64748b !important; margin-top: 5px; }
+.sr-gps   { background: #0f1829 !important; border-radius: 7px; padding: 9px 10px; border: 1px solid #1e3a5f; }
+.sr-gps-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sr-fix   { font-size: 13px; font-weight: 500; color: #4ade80 !important; display: flex; align-items: center; gap: 5px; }
+.sr-fixdot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; }
+.sr-sol   { font-size: 10px; color: #475569 !important; font-family: monospace; background: #0a1020; padding: 2px 6px; border-radius: 4px; }
+.sr-satrow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
+.sr-sat   { background: #070d18 !important; border-radius: 5px; padding: 7px 9px; border: 1px solid #1e3a5f; }
+.sr-satlbl { font-size: 10px; color: #64748b !important; margin-bottom: 3px; }
+.sr-satval { font-size: 18px; font-weight: 500; color: #60a5fa !important; font-family: monospace; }
+.sr-satsub { font-size: 10px; color: #475569 !important; }
+.sr-coords { font-size: 10px; color: #475569 !important; font-family: monospace; line-height: 1.7; }
+.sr-sg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sr-sc { background: #0f1829 !important; border-radius: 6px; padding: 8px 10px; border: 1px solid #1a2a40; }
+.sr-slbl { font-size: 10px; color: #475569 !important; margin-bottom: 3px; }
+.sr-sval { font-size: 15px; font-weight: 500; }
+.blue  { color: #60a5fa !important; }
+.amber { color: #fbbf24 !important; }
+.sr-bar  { height: 4px; background: #0a1020; border-radius: 2px; overflow: hidden; margin-top: 5px; }
+.sr-barf { height: 100%; width: 72%; background: #2563eb; border-radius: 2px; }
+.sr-sensg { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.sr-sens { background: #0f1829 !important; border-radius: 5px; padding: 6px 8px; font-size: 11px; display: flex; align-items: center; gap: 6px; color: #94a3b8 !important; border: 1px solid #1a2a40; }
+.dok { width: 7px; height: 7px; border-radius: 50%; background: #166534; border: 1.5px solid #4ade80; flex-shrink: 0; }
+.sr-ctrlrow { display: flex; gap: 6px; }
+.sr-cb { flex: 1; padding: 8px 4px; border-radius: 7px; font-size: 12px; font-weight: 500; cursor: pointer; text-align: center; }
+.cb-start { background: #0c1a3a !important; border: 1px solid #2563eb; color: #93c5fd !important; }
+.cb-dock  { background: #1c1200 !important; border: 1px solid #d97706; color: #fbbf24 !important; }
+.cb-stop  { background: #1a0808 !important; border: 1px solid #dc2626; color: #fca5a5 !important; }
+
+/* Map (Dashboard) */
+.sr-map  { flex: 1; position: relative; background: #070d18 !important; }
+.sr-mctrl { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 5px; }
+.sr-mcb  { background: #0f1829 !important; border: 1px solid #1e3a5f; color: #60a5fa !important; border-radius: 6px; padding: 5px 9px; font-size: 13px; cursor: pointer; }
+
+/* Mission Widget */
+.sr-mwrap { position: absolute; top: 10px; left: 10px; width: 240px; }
+.sr-mcard { background: rgba(15,24,41,0.95); border: 1px solid #1e3a5f; border-radius: 8px; padding: 10px 12px; }
+.sr-mcard-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #475569; margin-bottom: 4px; }
+.sr-mcard-name  { font-size: 13px; font-weight: 600; color: #93c5fd !important; margin-bottom: 2px; }
+.sr-mcard-meta  { font-size: 11px; color: #64748b; margin-bottom: 8px; }
+.sr-mcard-prog  { height: 5px; background: #0a1020; border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+.sr-mcard-fill  { height: 100%; border-radius: 3px; background: #2563eb; }
+.sr-mcard-zones { font-size: 10px; color: #64748b; display: flex; justify-content: space-between; margin-bottom: 8px; }
+.sr-mcard-btns  { display: flex; gap: 5px; }
+.sr-mcard-btn   { flex: 1; padding: 5px 4px; border-radius: 6px; font-size: 11px; font-weight: 500; cursor: pointer; text-align: center; border: 1px solid; }
+.btn-green { background: #052e16 !important; border-color: #166534; color: #4ade80 !important; }
+.btn-red   { background: #1a0808 !important; border-color: #dc2626; color: #fca5a5 !important; }
+.btn-gray  { background: #0f1829 !important; border-color: #1e3a5f; color: #64748b !important; }
+.sr-dd { border: 1px solid #1e3a5f; border-radius: 6px; margin-top: 6px; overflow: hidden; }
+.sr-dd-item { padding: 6px 10px; font-size: 11px; color: #94a3b8; border-bottom: 1px solid #1e3a5f; cursor: pointer; display: flex; justify-content: space-between; background: #0f1829; }
+.sr-dd-item:last-child { border-bottom: none; }
+.sr-dd-tag { font-size: 10px; color: #475569; }
+</style>
+
+<div class="sc-switch">
+  <button class="sc-btn on" onclick="show(0)">1 — Missionen (Vorschau + Einstellungen)</button>
+  <button class="sc-btn"    onclick="show(1)">2 — Dashboard: Nächste Mission</button>
+  <button class="sc-btn"    onclick="show(2)">3 — Dashboard: Mission läuft</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 1 — MISSIONEN
+     ═══════════════════════════════════════════════ -->
+<div class="screen on" id="sc0">
+<div class="sr-app">
+  <!-- Topbar -->
+  <div class="sr-top">
+    <span class="sr-logo">Sunray</span>
+    <span class="sr-pill sr-pill-conn"><span class="sr-dot"></span>Verbunden</span>
+    <span class="sr-pill sr-pill-op">Idle</span>
+    <span class="sr-pill sr-pill-bat">25.1 V · 94%</span>
+    <button class="sr-notaus">NOTAUS</button>
+    <span class="sr-div"></span>
+    <div class="sr-nav">
+      <button class="sr-nb">Dashboard</button>
+      <button class="sr-nb">Karte</button>
+      <button class="sr-nb on">Missionen</button>
+      <button class="sr-nb">Verlauf</button>
+      <button class="sr-nb">Statistiken</button>
+      <button class="sr-nb">Diagnose</button>
+      <button class="sr-nb">Einstellungen</button>
+    </div>
+  </div>
+
+  <div class="sr-main">
+    <!-- Center: Canvas + Settings-Panel -->
+    <div class="ms-body">
+      <div class="ms-row">
+        <!-- Bahnvorschau -->
+        <div class="ms-canvas-wrap" id="canvasWrap">
+          <canvas id="mainCanvas"></canvas>
+
+          <!-- Zone-Legende / Klick-Targets -->
+          <div class="ms-legend">
+            <div class="ms-leg-item sel" id="leg0" onclick="selectZone(0)">
+              <span class="ms-leg-dot zc1"></span>
+              <span class="ms-leg-name">Hauptfläche</span>
+              <span class="ms-leg-angle" id="la0">45°</span>
+            </div>
+            <div class="ms-leg-item" id="leg1" onclick="selectZone(1)">
+              <span class="ms-leg-dot zc2"></span>
+              <span class="ms-leg-name">Vorgarten</span>
+              <span class="ms-leg-angle" id="la1">0°</span>
+            </div>
+            <div class="ms-leg-item" id="leg2" onclick="selectZone(2)">
+              <span class="ms-leg-dot zc3"></span>
+              <span class="ms-leg-name">Seitenstreifen</span>
+              <span class="ms-leg-angle" id="la2">90°</span>
+            </div>
+          </div>
+
+          <div class="ms-zoom">
+            <button class="ms-zoom-btn">+</button>
+            <button class="ms-zoom-btn">−</button>
+            <button class="ms-zoom-btn">⊙</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Einstellungs-Panel (unten) -->
+      <div class="ms-settings" id="settingsPanel">
+        <div class="ms-set-header">
+          <span class="ms-set-zone-dot zc1" id="setDot"></span>
+          <span class="ms-set-title" id="setTitle">Zone 1 — Hauptfläche</span>
+          <span class="ms-set-hint">Änderungen wirken auf diese Zone in der aktuellen Mission</span>
+          <button class="ms-set-close" onclick="closeSettings()">✕</button>
+        </div>
+        <div class="ms-set-body">
+
+          <div class="ms-set-field">
+            <label class="ms-set-lbl">Schnittbreite</label>
+            <input class="ms-set-in" id="sw" value="0.15 m" oninput="redraw()" style="width:76px" />
+          </div>
+
+          <div class="ms-set-vdiv"></div>
+
+          <div class="ms-set-field">
+            <label class="ms-set-lbl">Winkel</label>
+            <div class="ms-ang-row">
+              <input type="range" min="0" max="179" value="45" id="angleSlider"
+                oninput="document.getElementById('angleVal').textContent=this.value+'°'; redraw();" />
+              <span class="ms-ang-val" id="angleVal">45°</span>
+            </div>
+          </div>
+
+          <div class="ms-set-vdiv"></div>
+
+          <div class="ms-set-field">
+            <label class="ms-set-lbl">Muster</label>
+            <select class="ms-set-in" id="pattern" onchange="redraw()">
+              <option value="stripe" selected>Streifen</option>
+              <option value="spiral">Spirale</option>
+            </select>
+          </div>
+
+          <div class="ms-set-vdiv"></div>
+
+          <div class="ms-set-field">
+            <label class="ms-set-lbl">Randmähen</label>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+              <label class="ms-toggle">
+                <input type="checkbox" id="edgeMow" checked onchange="toggleEdge()" />
+                <span class="ms-toggle-slider"></span>
+              </label>
+              <span class="ms-toggle-lbl" id="edgeLbl">An</span>
+            </div>
+          </div>
+
+          <div class="ms-set-field">
+            <label class="ms-set-lbl">Randbahnen</label>
+            <input class="ms-set-in" type="number" min="1" max="5" value="2" id="edgeRounds"
+              oninput="redraw()" style="width:60px" />
+          </div>
+
+          <div class="ms-set-vdiv"></div>
+
+          <div class="ms-set-field">
+            <label class="ms-set-lbl">Geschwindigkeit</label>
+            <input class="ms-set-in" value="0.5 m/s" style="width:76px" />
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /ms-body -->
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="ms-sidebar">
+      <div class="ms-sb-hd">
+        <span class="ms-sb-title">Missionen</span>
+        <button class="ms-add-btn">+ Neu</button>
+      </div>
+
+      <!-- Mission-Karten -->
+      <div class="ms-sb-list">
+        <div class="ms-mcard sel">
+          <div class="ms-mc-row">
+            <span class="ms-mc-name">Wochenmähung</span>
+            <button class="ms-mc-run">▶ Start</button>
+          </div>
+          <div class="ms-mc-meta">3 Zonen · ~95 min · zuletzt gestern</div>
+          <span class="ms-mc-tag tag-s">🕐 Mo, Mi, Fr · 09:00</span>
+        </div>
+        <div class="ms-mcard">
+          <div class="ms-mc-row">
+            <span class="ms-mc-name">Schnellrunde</span>
+            <button class="ms-mc-run">▶ Start</button>
+          </div>
+          <div class="ms-mc-meta">1 Zone · ~25 min · vor 5 Tagen</div>
+          <span class="ms-mc-tag tag-m">Manuell</span>
+        </div>
+        <div class="ms-mcard">
+          <div class="ms-mc-row">
+            <span class="ms-mc-name">Wochenende</span>
+            <button class="ms-mc-run">▶ Start</button>
+          </div>
+          <div class="ms-mc-meta">2 Zonen · ~60 min · Sa 08:02</div>
+          <span class="ms-mc-tag tag-s">🕐 Sa, So · 08:00</span>
+        </div>
+      </div>
+
+      <!-- Mission-Editor -->
+      <div class="ms-editor">
+        <div class="ms-ed-hd">
+          <input class="ms-ed-name" value="Wochenmähung" />
+          <button class="ms-save-btn">Speichern</button>
+          <button class="ms-del-btn">✕</button>
+        </div>
+
+        <!-- Zonen -->
+        <div class="ms-ed-sec">
+          <div class="ms-ed-slbl">
+            <span>Zonen</span>
+            <button class="ms-add-zone">+ hinzufügen</button>
+          </div>
+          <div class="ms-zrow sel" id="zr0" onclick="selectZone(0)">
+            <span class="ms-zdrag">⠿</span>
+            <span class="ms-znum">1</span>
+            <span class="ms-zdot zc1"></span>
+            <span class="ms-zname">Hauptfläche</span>
+            <button class="ms-zgear active" id="zg0">⚙</button>
+            <button class="ms-zdel">✕</button>
+          </div>
+          <div class="ms-zrow" id="zr1" onclick="selectZone(1)">
+            <span class="ms-zdrag">⠿</span>
+            <span class="ms-znum">2</span>
+            <span class="ms-zdot zc2"></span>
+            <span class="ms-zname">Vorgarten</span>
+            <button class="ms-zgear" id="zg1">⚙</button>
+            <button class="ms-zdel">✕</button>
+          </div>
+          <div class="ms-zrow" id="zr2" onclick="selectZone(2)">
+            <span class="ms-zdrag">⠿</span>
+            <span class="ms-znum">3</span>
+            <span class="ms-zdot zc3"></span>
+            <span class="ms-zname">Seitenstreifen</span>
+            <button class="ms-zgear" id="zg2">⚙</button>
+            <button class="ms-zdel">✕</button>
+          </div>
+        </div>
+
+        <!-- Zeitplan -->
+        <div class="ms-ed-sec" style="border-bottom:none">
+          <div class="ms-ed-slbl"><span>Zeitplan</span></div>
+          <div class="ms-days">
+            <div class="ms-day">So</div>
+            <div class="ms-day on">Mo</div>
+            <div class="ms-day">Di</div>
+            <div class="ms-day on">Mi</div>
+            <div class="ms-day">Do</div>
+            <div class="ms-day on">Fr</div>
+            <div class="ms-day">Sa</div>
+          </div>
+          <div class="ms-timeg">
+            <div class="ms-tfield"><label class="ms-tlbl">Startzeit</label><input class="ms-tin" type="time" value="09:00" /></div>
+            <div class="ms-tfield"><label class="ms-tlbl">Endzeit</label><input class="ms-tin" type="time" value="12:00" /></div>
+            <div class="ms-tfield"><label class="ms-tlbl">Regenverzög.</label><input class="ms-tin" value="60 min" /></div>
+            <div class="ms-tfield"><label class="ms-tlbl">Aktiv</label>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+                <label class="ms-toggle"><input type="checkbox" checked /><span class="ms-toggle-slider"></span></label>
+                <span style="font-size:11px;color:#94a3b8">An</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /ms-editor -->
+    </div><!-- /ms-sidebar -->
+  </div><!-- /sr-main -->
+</div><!-- /sr-app -->
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 2 — DASHBOARD: Nächste Mission
+     ═══════════════════════════════════════════════ -->
+<div class="screen" id="sc1">
+<div class="sr-app">
+  <div class="sr-top">
+    <span class="sr-logo">Sunray</span>
+    <span class="sr-pill sr-pill-conn"><span class="sr-dot"></span>Verbunden</span>
+    <span class="sr-pill sr-pill-op">Laden</span>
+    <span class="sr-pill sr-pill-bat">25.8 V · 100%</span>
+    <button class="sr-notaus">NOTAUS</button>
+    <span class="sr-div"></span>
+    <div class="sr-nav">
+      <button class="sr-nb on">Dashboard</button>
+      <button class="sr-nb">Karte</button>
+      <button class="sr-nb">Missionen</button>
+      <button class="sr-nb">Verlauf</button>
+      <button class="sr-nb">Statistiken</button>
+      <button class="sr-nb">Diagnose</button>
+      <button class="sr-nb">Einstellungen</button>
+    </div>
+  </div>
+  <div class="sr-main">
+    <div class="sr-map">
+      <svg id="mapSvg2" width="100%" height="100%" viewBox="0 0 700 580" preserveAspectRatio="xMidYMid meet" style="cursor:grab">
+        <defs><pattern id="ga" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5"/></pattern></defs>
+        <rect x="-9999" y="-9999" width="19999" height="19999" fill="#070d18"/>
+        <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#ga)"/>
+        <polygon fill="#1d4ed808" stroke="#2563eb" stroke-width="1.5" points="80,80 580,80 580,460 320,480 80,460"/>
+        <polygon fill="#dc262612" stroke="#dc2626" stroke-width="1" stroke-dasharray="5 3" points="200,180 300,180 300,260 200,260"/>
+        <polygon fill="#a855f720" stroke="#a855f7" stroke-width="1.2" points="80,80 580,80 580,240 80,240"/>
+        <polygon fill="#22d3ee18" stroke="#22d3ee" stroke-width="1.2" points="80,240 580,240 580,360 80,360"/>
+        <polygon fill="#22c55e18" stroke="#22c55e" stroke-width="1.2" points="80,360 580,360 580,460 80,460"/>
+        <text x="330" y="165" text-anchor="middle" font-size="12" fill="#a855f7" font-family="sans-serif">Hauptfläche</text>
+        <text x="330" y="305" text-anchor="middle" font-size="12" fill="#22d3ee" font-family="sans-serif">Vorgarten</text>
+        <text x="330" y="415" text-anchor="middle" font-size="12" fill="#22c55e" font-family="sans-serif">Seitenstreifen</text>
+        <g transform="translate(105,445)"><rect x="-14" y="-12" width="28" height="24" rx="4" fill="#d97706"/><text x="0" y="6" text-anchor="middle" font-size="12" fill="#0a0f1a" font-weight="600">D</text></g>
+        <g transform="translate(105,445)"><circle r="10" fill="#0f1829" stroke="#3b82f6" stroke-width="2"/><circle r="3.5" fill="#60a5fa"/></g>
+      </svg>
+      <div class="sr-mwrap">
+        <div class="sr-mcard">
+          <div class="sr-mcard-title">Nächste Mission</div>
+          <div class="sr-mcard-name">Wochenmähung</div>
+          <div class="sr-mcard-meta">Mo 09:00 · 3 Zonen · ~95 min</div>
+          <div class="sr-mcard-btns">
+            <button class="sr-mcard-btn btn-green" style="flex:2">▶ Jetzt starten ▾</button>
+            <button class="sr-mcard-btn btn-gray">Überspr.</button>
+          </div>
+          <div class="sr-dd">
+            <div class="sr-dd-item"><span>Wochenmähung</span><span class="sr-dd-tag">3 Zonen</span></div>
+            <div class="sr-dd-item"><span>Schnellrunde</span><span class="sr-dd-tag">1 Zone</span></div>
+            <div class="sr-dd-item"><span>Wochenende</span><span class="sr-dd-tag">2 Zonen</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="sr-mctrl" id="ctrl2"><button class="sr-mcb">+</button><button class="sr-mcb">−</button><button class="sr-mcb">⊙</button></div>
+    </div>
+    <div class="sr-side">
+      <div class="sr-sec"><div class="sr-lbl">Status</div><div class="sr-stbig">Laden</div><div class="sr-stsub">Dock-Station</div><div class="sr-pos">X 0.00 m &nbsp; Y 0.00 m</div></div>
+      <div class="sr-sec"><div class="sr-lbl">GPS</div><div class="sr-gps"><div class="sr-gps-top"><div class="sr-fix"><span class="sr-fixdot"></span>RTK-Fix</div><span class="sr-sol">sol: 4</span></div><div class="sr-satrow"><div class="sr-sat"><div class="sr-satlbl">Rover</div><div class="sr-satval">14</div><div class="sr-satsub">Satelliten</div></div><div class="sr-sat"><div class="sr-satlbl">Base</div><div class="sr-satval">12</div><div class="sr-satsub">Satelliten</div></div></div><div class="sr-coords">48.50012345°N &nbsp; 8.12345678°E</div></div></div>
+      <div class="sr-sec"><div class="sr-lbl">Akku</div><div class="sr-sg"><div class="sr-sc"><div class="sr-slbl">Spannung</div><div class="sr-sval blue">25.8 V</div><div class="sr-bar"><div class="sr-barf" style="width:100%"></div></div></div><div class="sr-sc"><div class="sr-slbl">Ladespannung</div><div class="sr-sval amber">29.1 V</div></div></div></div>
+      <div class="sr-sec"><div class="sr-lbl">Steuerung</div><div class="sr-ctrlrow"><button class="sr-cb cb-start">Start</button><button class="sr-cb cb-dock" style="opacity:.4">Dock</button></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 3 — DASHBOARD: Mission läuft
+     ═══════════════════════════════════════════════ -->
+<div class="screen" id="sc2">
+<div class="sr-app">
+  <div class="sr-top">
+    <span class="sr-logo">Sunray</span>
+    <span class="sr-pill sr-pill-conn"><span class="sr-dot"></span>Verbunden</span>
+    <span class="sr-pill sr-pill-op">Mähend</span>
+    <span class="sr-pill sr-pill-bat">23.4 V · 72%</span>
+    <button class="sr-notaus">NOTAUS</button>
+    <span class="sr-div"></span>
+    <div class="sr-nav">
+      <button class="sr-nb on">Dashboard</button>
+      <button class="sr-nb">Karte</button>
+      <button class="sr-nb">Missionen</button>
+      <button class="sr-nb">Verlauf</button>
+      <button class="sr-nb">Statistiken</button>
+      <button class="sr-nb">Diagnose</button>
+      <button class="sr-nb">Einstellungen</button>
+    </div>
+  </div>
+  <div class="sr-main">
+    <div class="sr-map">
+      <svg id="mapSvg3" width="100%" height="100%" viewBox="0 0 700 580" preserveAspectRatio="xMidYMid meet" style="cursor:grab">
+        <defs><pattern id="gb" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5"/></pattern></defs>
+        <rect x="-9999" y="-9999" width="19999" height="19999" fill="#070d18"/>
+        <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#gb)"/>
+        <polygon fill="#1d4ed808" stroke="#2563eb" stroke-width="1.5" points="80,80 580,80 580,460 320,480 80,460"/>
+        <!-- Zone 1: erledigt -->
+        <polygon fill="#a855f710" stroke="#a855f730" points="80,80 580,80 580,240 80,240"/>
+        <text x="330" y="165" text-anchor="middle" font-size="12" fill="#a855f750" font-family="sans-serif">Hauptfläche ✓</text>
+        <!-- Zone 2: aktiv + Bahnen -->
+        <polygon fill="#22d3ee1a" stroke="#22d3ee" stroke-width="1.5" points="80,240 580,240 580,360 80,360"/>
+        <text x="480" y="258" text-anchor="middle" font-size="11" fill="#22d3ee" font-family="sans-serif" font-weight="600">Vorgarten ◀</text>
+        <polyline fill="none" stroke="#22d3ee" stroke-width="1.2" opacity="0.5" points="87,247 573,247 573,353 87,353"/>
+        <polyline fill="none" stroke="#22d3ee" stroke-width="1.2" opacity="0.35" points="94,254 566,254 566,346 94,346"/>
+        <line x1="100" y1="360" x2="340" y2="240" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <line x1="120" y1="360" x2="380" y2="240" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <line x1="150" y1="360" x2="420" y2="240" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <line x1="180" y1="360" x2="460" y2="240" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <line x1="210" y1="360" x2="500" y2="240" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <line x1="240" y1="360" x2="540" y2="240" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <line x1="270" y1="360" x2="570" y2="270" stroke="#22d3ee" stroke-width="0.9" opacity="0.45"/>
+        <!-- gefahren -->
+        <polyline fill="none" stroke="#22d3ee" stroke-width="1.4" opacity="0.9" points="100,360 340,240 340,258 100,258 100,275 340,275 340,293 100,293"/>
+        <!-- Zone 3 -->
+        <polygon fill="#22c55e10" stroke="#22c55e50" points="80,360 580,360 580,460 80,460"/>
+        <text x="330" y="415" text-anchor="middle" font-size="12" fill="#22c55e50" font-family="sans-serif">Seitenstreifen</text>
+        <!-- Robot -->
+        <g transform="translate(100,293)"><circle r="12" fill="#0f1829" stroke="#3b82f6" stroke-width="2"/><circle r="4.5" fill="#60a5fa"/><line x1="0" y1="-12" x2="0" y2="-26" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round"/><polygon points="0,-30 -5,-21 5,-21" fill="#60a5fa"/></g>
+        <g transform="translate(105,445)"><rect x="-14" y="-12" width="28" height="24" rx="4" fill="#d97706"/><text x="0" y="6" text-anchor="middle" font-size="12" fill="#0a0f1a" font-weight="600">D</text></g>
+      </svg>
+      <div class="sr-mwrap">
+        <div class="sr-mcard">
+          <div class="sr-mcard-title">Mission läuft</div>
+          <div class="sr-mcard-name">Wochenmähung</div>
+          <div class="sr-mcard-meta">Zone 2 / 3 — Vorgarten</div>
+          <div class="sr-mcard-prog"><div class="sr-mcard-fill" style="width:45%"></div></div>
+          <div class="sr-mcard-zones"><span>45% gesamt</span><span>~48 min verbleibend</span></div>
+          <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center">
+            <span style="font-size:10px;color:#475569;margin-right:2px">Zonen:</span>
+            <span style="font-size:10px;color:#a855f750;display:flex;align-items:center;gap:2px"><span style="width:7px;height:7px;border-radius:50%;background:#a855f750;display:inline-block"></span>✓</span>
+            <span style="font-size:10px;color:#22d3ee;font-weight:600;display:flex;align-items:center;gap:2px"><span style="width:7px;height:7px;border-radius:50%;background:#22d3ee;display:inline-block"></span>aktiv</span>
+            <span style="font-size:10px;color:#475569;display:flex;align-items:center;gap:2px"><span style="width:7px;height:7px;border-radius:50%;background:#22c55e30;display:inline-block"></span>–</span>
+          </div>
+          <div class="sr-mcard-btns">
+            <button class="sr-mcard-btn btn-gray">⏸ Pause</button>
+            <button class="sr-mcard-btn btn-red">✕ Abbrechen</button>
+          </div>
+        </div>
+      </div>
+      <div class="sr-mctrl" id="ctrl3"><button class="sr-mcb">+</button><button class="sr-mcb">−</button><button class="sr-mcb">⊙</button></div>
+    </div>
+    <div class="sr-side">
+      <div class="sr-sec"><div class="sr-lbl">Status</div><div class="sr-stbig">Mähend</div><div class="sr-stsub">Zone 2 — Vorgarten</div><div class="sr-pos">X 12.34 m &nbsp; Y 5.67 m &nbsp; 090°</div></div>
+      <div class="sr-sec"><div class="sr-lbl">GPS</div><div class="sr-gps"><div class="sr-gps-top"><div class="sr-fix"><span class="sr-fixdot"></span>RTK-Fix</div><span class="sr-sol">sol: 4</span></div><div class="sr-satrow"><div class="sr-sat"><div class="sr-satlbl">Rover</div><div class="sr-satval">14</div><div class="sr-satsub">Satelliten</div></div><div class="sr-sat"><div class="sr-satlbl">Base</div><div class="sr-satval">12</div><div class="sr-satsub">Satelliten</div></div></div><div class="sr-coords">48.50012345°N &nbsp; 8.12345678°E</div></div></div>
+      <div class="sr-sec"><div class="sr-lbl">Akku</div><div class="sr-sg"><div class="sr-sc"><div class="sr-slbl">Spannung</div><div class="sr-sval blue">23.4 V</div><div class="sr-bar"><div class="sr-barf" style="width:72%"></div></div></div><div class="sr-sc"><div class="sr-slbl">Ladespannung</div><div class="sr-sval amber">0.0 V</div></div></div></div>
+      <div class="sr-sec"><div class="sr-lbl">Sensoren</div><div class="sr-sensg"><div class="sr-sens"><span class="dok"></span>Bumper L</div><div class="sr-sens"><span class="dok"></span>Bumper R</div><div class="sr-sens"><span class="dok"></span>Lift</div><div class="sr-sens"><span class="dok"></span>Motor</div></div></div>
+      <div class="sr-sec"><div class="sr-lbl">Steuerung</div><div class="sr-ctrlrow"><button class="sr-cb cb-dock">Dock</button><button class="sr-cb cb-stop">Stop</button></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+/* ── Screen-Switcher ─────────────────────────────── */
+function show(i) {
+  document.querySelectorAll('.screen').forEach((s,j) => s.classList.toggle('on', j===i));
+  document.querySelectorAll('.sc-btn').forEach((b,j) => b.classList.toggle('on', j===i));
+}
+
+/* ── Zonen-Daten ─────────────────────────────────── */
+// Jede Zone hat: color, name, polygon (als Funktion von W,H), settings
+const ZONES = [
+  { name: 'Hauptfläche', color: '#a855f7', dot: 'zc1',
+    settings: { angle: 45, stripWidth: 0.15, pattern: 'stripe', edgeMowing: true, edgeRounds: 2, speed: 0.5 } },
+  { name: 'Vorgarten',   color: '#22d3ee', dot: 'zc2',
+    settings: { angle: 0,  stripWidth: 0.15, pattern: 'stripe', edgeMowing: false, edgeRounds: 1, speed: 0.6 } },
+  { name: 'Seitenstreifen', color: '#22c55e', dot: 'zc3',
+    settings: { angle: 90, stripWidth: 0.12, pattern: 'stripe', edgeMowing: true, edgeRounds: 1, speed: 0.4 } },
+];
+
+let selectedZone = 0;
+
+/* Zone-Polygone als Funktion von Canvas-Größe (Normalkoordinaten 0-1) */
+function zonePolys(W, H) {
+  const pad = 18;
+  return [
+    // Zone 0: Hauptfläche (großes unregelmäßiges Polygon)
+    [ [pad,pad], [W*0.72,pad], [W-pad,pad+20], [W-pad,H*0.44], [W*0.6,H*0.47], [pad,H*0.45] ],
+    // Zone 1: Vorgarten
+    [ [pad,H*0.45], [W*0.6,H*0.47], [W-pad,H*0.44], [W-pad,H*0.70], [W*0.55,H*0.72], [pad,H*0.70] ],
+    // Zone 2: Seitenstreifen
+    [ [pad,H*0.70], [W*0.55,H*0.72], [W-pad,H*0.70], [W-pad*0.7,H-pad], [pad+4,H-pad] ],
+  ];
+}
+
+/* ── Canvas + Zoom/Pan ────────────────────────────── */
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+let vpZoom = 1;
+let vpX = 0;     // pan offset X
+let vpY = 0;     // pan offset Y
+let vpDrag = false;
+let vpLast = { x: 0, y: 0 };
+let worldPolys = null; // zone polygons in world coords (computed once)
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  vpX = mx - (mx - vpX) * factor;
+  vpY = my - (my - vpY) * factor;
+  vpZoom = Math.max(0.25, Math.min(10, vpZoom * factor));
+  redraw();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 0) { vpDrag = true; vpLast = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; }
+});
+canvas.addEventListener('mousemove', e => {
+  if (!vpDrag) return;
+  vpX += e.clientX - vpLast.x;
+  vpY += e.clientY - vpLast.y;
+  vpLast = { x: e.clientX, y: e.clientY };
+  redraw();
+});
+canvas.addEventListener('mouseup',    () => { vpDrag = false; canvas.style.cursor = 'grab'; });
+canvas.addEventListener('mouseleave', () => { vpDrag = false; canvas.style.cursor = 'grab'; });
+canvas.style.cursor = 'grab';
+
+// Zoom-Buttons
+document.querySelectorAll('.ms-zoom-btn').forEach((btn, i) => {
+  btn.addEventListener('click', () => {
+    if (i === 0) { const f = 1.3; vpX = canvas.width/2 - (canvas.width/2 - vpX)*f; vpY = canvas.height/2 - (canvas.height/2 - vpY)*f; vpZoom = Math.min(10, vpZoom*f); }
+    else if (i === 1) { const f = 1/1.3; vpX = canvas.width/2 - (canvas.width/2 - vpX)*f; vpY = canvas.height/2 - (canvas.height/2 - vpY)*f; vpZoom = Math.max(0.25, vpZoom*f); }
+    else { vpZoom = 1; vpX = 0; vpY = 0; } // reset
+    redraw();
+  });
+});
+
+function resizeCanvas() {
+  const wrap = document.getElementById('canvasWrap');
+  const newW = wrap.clientWidth, newH = wrap.clientHeight;
+  if (canvas.width !== newW || canvas.height !== newH) {
+    worldPolys = null; // recompute on resize
+    vpZoom = 1; vpX = 0; vpY = 0;
+    canvas.width  = newW;
+    canvas.height = newH;
+  }
+  redraw();
+}
+
+function redraw() {
+  const W = canvas.width, H = canvas.height;
+  if (W === 0 || H === 0) return;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#070d18';
+  ctx.fillRect(0, 0, W, H);
+  drawGrid(W, H);
+
+  // Apply zoom/pan transform
+  ctx.save();
+  ctx.translate(vpX, vpY);
+  ctx.scale(vpZoom, vpZoom);
+
+  if (!worldPolys) worldPolys = zonePolys(W, H);
+
+  ZONES.forEach((z, i) => {
+    const sel = (i === selectedZone);
+    const s = sel ? getSelectedSettings() : z.settings;
+    drawZone(worldPolys[i], z.color, s, sel);
+  });
+
+  ctx.restore();
+}
+
+function drawGrid(W, H) {
+  // Grid in screen space — adapts to zoom/pan like Dashboard
+  const step = 40;
+  // Offset grid lines with pan (modulo step) so grid follows pan
+  const ox = ((vpX % step) + step) % step;
+  const oy = ((vpY % step) + step) % step;
+  ctx.strokeStyle = '#1e3a5f';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  for (let x = ox - step; x < W + step; x += step) { ctx.moveTo(x,0); ctx.lineTo(x,H); }
+  for (let y = oy - step; y < H + step; y += step) { ctx.moveTo(0,y); ctx.lineTo(W,y); }
+  ctx.stroke();
+}
+
+function drawZone(poly, color, settings, isSelected) {
+  if (!poly || poly.length < 3) return;
+
+  // Clip to zone polygon
+  ctx.save();
+  ctx.beginPath();
+  poly.forEach(([x,y],i) => i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y));
+  ctx.closePath();
+  ctx.clip();
+
+  // Zone fill
+  ctx.fillStyle = color + (isSelected ? '22' : '14');
+  ctx.fill();
+
+  // Edge rings (Randbahnen)
+  if (settings.edgeMowing && settings.edgeRounds > 0) {
+    for (let r = 0; r < Math.min(settings.edgeRounds, 5); r++) {
+      const ip = insetPoly(poly, (r + 0.5) * 7);
+      if (!ip || ip.length < 3) break;
+      ctx.beginPath();
+      ip.forEach(([x,y],i) => i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y));
+      ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isSelected ? 1.8 : 1.2;
+      ctx.globalAlpha = isSelected ? (0.85 - r*0.1) : (0.4 - r*0.05);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Stripe / Spiral
+  const innerOffset = settings.edgeMowing ? settings.edgeRounds * 7 : 0;
+
+  if (settings.pattern === 'spiral') {
+    for (let r = 0; r < 14; r++) {
+      const ip = insetPoly(poly, innerOffset + r * 6 + 4);
+      if (!ip || ip.length < 3) break;
+      ctx.beginPath();
+      ip.forEach(([x,y],i) => i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y));
+      ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isSelected ? 1.5 : 1;
+      ctx.globalAlpha = isSelected ? (0.7 - r*0.04) : (0.35 - r*0.02);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  } else {
+    // Stripes at angle
+    const angRad = (settings.angle * Math.PI) / 180;
+    const cos = Math.cos(angRad), sin = Math.sin(angRad);
+    // Bounding box
+    const xs = poly.map(p=>p[0]), ys = poly.map(p=>p[1]);
+    const cx = (Math.min(...xs)+Math.max(...xs))/2;
+    const cy = (Math.min(...ys)+Math.max(...ys))/2;
+    const diag = Math.sqrt((Math.max(...xs)-Math.min(...xs))**2 + (Math.max(...ys)-Math.min(...ys))**2);
+
+    // Stripe direction & normal
+    const dx = cos, dy = sin;
+    const nx = -sin, ny = cos;
+
+    // pixel per metre (approximate: zone ~20m wide, canvas fills ~750px)
+    const ppm = Math.min(canvas.width, canvas.height) / 25;
+    const stripPx = Math.max(6, Math.min(22, settings.stripWidth * ppm));
+
+    const startT = innerOffset + stripPx / 2;
+    const alpha  = isSelected ? 0.65 : 0.30;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = isSelected ? 1.3 : 0.9;
+    ctx.globalAlpha = alpha;
+
+    for (let t = 0; t < diag + stripPx; t += stripPx) {
+      for (const sign of [1, -1]) {
+        if (t === 0 && sign === -1) continue;
+        const tt = t < startT ? startT : t;
+        const ox = cx + nx * tt * sign;
+        const oy = cy + ny * tt * sign;
+        ctx.beginPath();
+        ctx.moveTo(ox - dx * diag, oy - dy * diag);
+        ctx.lineTo(ox + dx * diag, oy + dy * diag);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+
+  // Zone outline (on top, no clip)
+  ctx.save();
+  ctx.beginPath();
+  poly.forEach(([x,y],i) => i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y));
+  ctx.closePath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = isSelected ? 2.0 : 1.2;
+  ctx.globalAlpha = isSelected ? 1 : 0.6;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ── Polygon Inset ────────────────────────────────── */
+function insetPoly(poly, d) {
+  const n = poly.length;
+  const res = [];
+  for (let i = 0; i < n; i++) {
+    const A = poly[(i + n - 1) % n];
+    const B = poly[i];
+    const C = poly[(i + 1) % n];
+    const e1 = norm2([B[0]-A[0], B[1]-A[1]]);
+    const e2 = norm2([C[0]-B[0], C[1]-B[1]]);
+    const n1 = [ e1[1], -e1[0]];
+    const n2 = [ e2[1], -e2[0]];
+    const bx = n1[0]+n2[0], by = n1[1]+n2[1];
+    const bl = Math.sqrt(bx*bx+by*by);
+    if (bl < 1e-6) { res.push([B[0]+n1[0]*d, B[1]+n1[1]*d]); continue; }
+    const dp = n1[0]*(bx/bl)+n1[1]*(by/bl);
+    if (Math.abs(dp) < 1e-6) { res.push(B); continue; }
+    res.push([B[0]+(bx/bl)*d/dp, B[1]+(by/bl)*d/dp]);
+  }
+  return res;
+}
+function norm2(v) {
+  const l = Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+  return l < 1e-9 ? [0,0] : [v[0]/l, v[1]/l];
+}
+
+/* ── Zone Selection ──────────────────────────────── */
+function selectZone(i) {
+  selectedZone = i;
+  const z = ZONES[i];
+  const s = z.settings;
+
+  // Update settings panel
+  document.getElementById('settingsPanel').classList.remove('hidden');
+  document.getElementById('setDot').className = 'ms-set-zone-dot ' + z.dot;
+  document.getElementById('setTitle').textContent = 'Zone ' + (i+1) + ' — ' + z.name;
+
+  // Load settings into inputs
+  document.getElementById('angleSlider').value = s.angle;
+  document.getElementById('angleVal').textContent = s.angle + '°';
+  document.getElementById('pattern').value = s.pattern;
+  document.getElementById('edgeMow').checked = s.edgeMowing;
+  document.getElementById('edgeLbl').textContent = s.edgeMowing ? 'An' : 'Aus';
+  document.getElementById('edgeRounds').disabled = !s.edgeMowing;
+  document.getElementById('edgeRounds').value = s.edgeRounds;
+
+  // Legend highlight
+  document.querySelectorAll('.ms-leg-item').forEach((el,j) => el.classList.toggle('sel', j===i));
+
+  // Sidebar zone rows
+  document.querySelectorAll('.ms-zrow').forEach((el,j) => el.classList.toggle('sel', j===i));
+  document.querySelectorAll('[id^="zg"]').forEach((el,j) => el.classList.toggle('active', j===i));
+
+  redraw();
+}
+
+function getSelectedSettings() {
+  const z = ZONES[selectedZone];
+  if (!z) return {};
+  return {
+    angle:      +(document.getElementById('angleSlider')?.value ?? z.settings.angle),
+    stripWidth: z.settings.stripWidth,
+    pattern:    document.getElementById('pattern')?.value ?? z.settings.pattern,
+    edgeMowing: document.getElementById('edgeMow')?.checked ?? z.settings.edgeMowing,
+    edgeRounds: +(document.getElementById('edgeRounds')?.value ?? z.settings.edgeRounds),
+    speed:      z.settings.speed,
+  };
+}
+
+function closeSettings() {
+  document.getElementById('settingsPanel').classList.add('hidden');
+  // Deselect
+  selectedZone = -1;
+  document.querySelectorAll('.ms-leg-item').forEach(el => el.classList.remove('sel'));
+  document.querySelectorAll('.ms-zrow').forEach(el => el.classList.remove('sel'));
+  document.querySelectorAll('[id^="zg"]').forEach(el => el.classList.remove('active'));
+  redraw();
+}
+
+function toggleEdge() {
+  const on = document.getElementById('edgeMow').checked;
+  document.getElementById('edgeLbl').textContent = on ? 'An' : 'Aus';
+  document.getElementById('edgeRounds').disabled = !on;
+  redraw();
+}
+
+// Update legend angle labels live
+const angSlider = document.getElementById('angleSlider');
+if (angSlider) {
+  angSlider.addEventListener('input', () => {
+    if (selectedZone >= 0)
+      document.getElementById('la'+selectedZone).textContent = angSlider.value + '°';
+  });
+}
+
+/* ── Init ─────────────────────────────────────────── */
+window.addEventListener('load', () => {
+  resizeCanvas();
+  selectZone(0);
+  setupSvgMap('mapSvg2', 'ctrl2');
+  setupSvgMap('mapSvg3', 'ctrl3');
+});
+window.addEventListener('resize', resizeCanvas);
+new ResizeObserver(resizeCanvas).observe(document.getElementById('canvasWrap'));
+
+/* ── SVG Zoom/Pan (Screen 2 + 3) ─────────────────── */
+function setupSvgMap(svgId, ctrlId) {
+  const svg = document.getElementById(svgId);
+  const ctrl = document.getElementById(ctrlId);
+  if (!svg) return;
+
+  // Viewport state in SVG world coords
+  const BASE_W = 700, BASE_H = 580;
+  const vp = { x: 0, y: 0, w: BASE_W, h: BASE_H };
+
+  function applyVp() {
+    svg.setAttribute('viewBox', `${vp.x} ${vp.y} ${vp.w} ${vp.h}`);
+  }
+
+  // Zoom centered on a point (in SVG viewport pixel coords)
+  function zoomAt(px, py, factor) {
+    const rect = svg.getBoundingClientRect();
+    // Point in world coords
+    const wx = vp.x + px / rect.width  * vp.w;
+    const wy = vp.y + py / rect.height * vp.h;
+    vp.w = Math.max(80, Math.min(2800, vp.w * factor));
+    vp.h = Math.max(60, Math.min(2200, vp.h * factor));
+    vp.x = wx - px / rect.width  * vp.w;
+    vp.y = wy - py / rect.height * vp.h;
+    applyVp();
+  }
+
+  // Wheel zoom
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 0.85 : 1/0.85);
+  }, { passive: false });
+
+  // Drag pan
+  let drag = false, last = { x: 0, y: 0 };
+  svg.addEventListener('mousedown', e => {
+    drag = true; last = { x: e.clientX, y: e.clientY };
+    svg.style.cursor = 'grabbing';
+  });
+  svg.addEventListener('mousemove', e => {
+    if (!drag) return;
+    const rect = svg.getBoundingClientRect();
+    vp.x -= (e.clientX - last.x) / rect.width  * vp.w;
+    vp.y -= (e.clientY - last.y) / rect.height * vp.h;
+    last = { x: e.clientX, y: e.clientY };
+    applyVp();
+  });
+  svg.addEventListener('mouseup',    () => { drag = false; svg.style.cursor = 'grab'; });
+  svg.addEventListener('mouseleave', () => { drag = false; svg.style.cursor = 'grab'; });
+
+  // Zoom buttons
+  if (ctrl) {
+    const btns = ctrl.querySelectorAll('button');
+    btns[0]?.addEventListener('click', () => zoomAt(BASE_W/2, BASE_H/2, 0.77));
+    btns[1]?.addEventListener('click', () => zoomAt(BASE_W/2, BASE_H/2, 1/0.77));
+    btns[2]?.addEventListener('click', () => { vp.x=0; vp.y=0; vp.w=BASE_W; vp.h=BASE_H; applyVp(); });
+  }
+}
+</script>

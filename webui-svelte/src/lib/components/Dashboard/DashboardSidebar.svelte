@@ -1,11 +1,13 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
+  import MissionWidget from "./MissionWidget.svelte";
   import RobotControls from "../RobotControls.svelte";
   import {
     gpsQuality,
     batteryPercent,
     telemetry,
   } from "../../stores/telemetry";
+  import { mapStore } from "../../stores/map";
 
   export let sidebarCollapsed = false;
 
@@ -115,6 +117,8 @@
         </div>
       </div>
     </section>
+
+    <MissionWidget zones={$mapStore.map.zones} />
 
     <RobotControls />
   </div>

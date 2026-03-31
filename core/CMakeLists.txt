@@ -2,10 +2,15 @@
 # No hardware includes. Depends only on HardwareInterface (via sunray_hal).
 
 add_library(sunray_core STATIC
+    ButtonActions.cpp
+    BuzzerSequencer.cpp
     Config.cpp
+    EventMessages.cpp
     Robot.cpp
     WebSocketServer.cpp
     MqttClient.cpp
+    storage/EventRecorder.cpp
+    storage/HistoryDatabase.cpp
     control/OpenLoopDriveController.cpp
     op/Op.cpp
     op/IdleOp.cpp
@@ -53,4 +58,15 @@ if(MOSQUITTO_FOUND)
 else()
     message(STATUS "MQTT: libmosquitto not found — MqttClient is a no-op stub "
                    "(install libmosquitto-dev to enable)")
+endif()
+
+find_path(SQLITE3_INCLUDE_DIR sqlite3.h)
+find_library(SQLITE3_LIBRARY sqlite3)
+if(SQLITE3_INCLUDE_DIR AND SQLITE3_LIBRARY)
+    message(STATUS "SQLite: found — history database support enabled")
+    target_compile_definitions(sunray_core PRIVATE SUNRAY_HAVE_SQLITE)
+    target_include_directories(sunray_core PRIVATE ${SQLITE3_INCLUDE_DIR})
+    target_link_libraries(sunray_core PRIVATE ${SQLITE3_LIBRARY})
+else()
+    message(STATUS "SQLite: not found — history database runs in disabled stub mode")
 endif()
