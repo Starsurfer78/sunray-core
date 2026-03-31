@@ -158,7 +158,7 @@ public:
     void onSimCommand(SimCommandCallback cb);
 
     /// Register the callback for POST /api/diag/<action> requests (C.10b).
-    /// Callback may block (runs in Crow HTTP thread). Returns JSON response body.
+    /// Callback may block and returns the JSON response body synchronously.
     void onDiag(DiagCallback cb);
 
     /// Register callbacks for GET/PUT /api/schedule (C.11).

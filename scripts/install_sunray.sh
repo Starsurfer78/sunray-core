@@ -7,9 +7,10 @@ INSTALL_DEPS="yes"
 START_AFTER_INSTALL="yes"
 AUTOSTART_MODE="ask"
 SIM_MODE="no"
-CONFIG_PATH="/etc/sunray/config.json"
-MAP_PATH="/etc/sunray/map.json"
+CONFIG_PATH="/etc/sunray-core/config.json"
+MAP_PATH="/etc/sunray-core/map.json"
 SERVICE_NAME="sunray-core"
+WEBUI_DIR="webui-svelte"
 
 if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
   BUILD_USER="${SUDO_USER}"
@@ -33,7 +34,7 @@ Usage: scripts/install_sunray.sh [options]
 
 Options:
   --sim                  Build and start in simulation mode
-  --config PATH          Config path for hardware mode (default: /etc/sunray/config.json)
+  --config PATH          Config path for hardware mode (default: /etc/sunray-core/config.json)
   --build-dir DIR        Build directory (default: build_linux)
   --skip-deps            Skip apt dependency installation
   --no-start             Build/install only, do not start afterward
@@ -134,11 +135,26 @@ ensure_dependencies() {
     git \
     curl \
     ca-certificates \
-    nodejs \
-    npm \
     libmosquitto-dev \
     sqlite3 \
     libsqlite3-dev
+
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    log "Node.js and npm already available — skipping apt install for JS toolchain"
+    return
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    log "Installing Node.js via apt"
+    run_with_root apt-get install -y --no-install-recommends nodejs
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    log "npm not found after Node.js install — trying apt package"
+    if ! run_with_root apt-get install -y --no-install-recommends npm; then
+      fail "npm could not be installed automatically. Please repair the Node.js/npm setup manually or rerun with --skip-deps once node and npm work."
+    fi
+  fi
 }
 
 check_node_version() {
@@ -186,13 +202,13 @@ build_webui() {
 
   log "Installing WebUI dependencies"
   (
-    cd "${ROOT_DIR}/webui"
+    cd "${ROOT_DIR}/${WEBUI_DIR}"
     run_as_build_user npm install
   )
 
   log "Building WebUI"
   (
-    cd "${ROOT_DIR}/webui"
+    cd "${ROOT_DIR}/${WEBUI_DIR}"
     run_as_build_user npm run build
   )
 }

@@ -4,6 +4,9 @@ Last updated: 2026-03-31
 
 Dieses Dokument ist der detaillierte Aufgaben-Backlog für `sunray-core`.
 
+- Hinweis fuer reale Alfred-Tests / Pi-Switchover:
+  [`docs/ALFRED_TEST_RUN_GUIDE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/ALFRED_TEST_RUN_GUIDE.md)
+
 - Die einzelnen Task-IDs hier sind der detaillierte Backlog.
 - [`TASKS.md`](/mnt/LappiDaten/Projekte/sunray-core/TASKS.md) ist die verdichtete Übersichts- und Prioritätenversion.
 - [`TASK.md`](/mnt/LappiDaten/Projekte/sunray-core/TASK.md) ist inhaltlich abgelöst.
@@ -133,6 +136,8 @@ Priorisierte Reihenfolge aktuell: `C.16-a` → `C.16-c` → `C.16-d` → `C.16-i
   <!-- ctx: module:webui | files:webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/pages/Diagnostics.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:haiku -->
 - [ ] C.16-e: Geführten Erststart-/Setup-Flow in der WebUI anlegen: Verbindung, GPS, Karte, Dock, Testfahrt, Startfreigabe
   <!-- ctx: module:webui, module:websocket_server | files:webui-svelte/src/App.svelte, webui-svelte/src/lib/pages/Dashboard.svelte, webui-svelte/src/lib/components/Dashboard/DashboardSidebar.svelte | model:opus -->
+- [ ] C.16-k: Gesicherten Software-Neustart aus der WebUI vorbereiten — nur im `Idle`, mit Bestätigung und vorzugsweise über `systemd`-Service statt Direkt-Exec
+  <!-- ctx: module:webui, module:websocket_server, module:system | files:webui-svelte/src/lib/pages/Dashboard.svelte, core/WebSocketServer.cpp, scripts/install_sunray.sh | model:haiku -->
 
 ---
 

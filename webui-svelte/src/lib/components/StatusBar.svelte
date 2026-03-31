@@ -7,6 +7,9 @@
   const formatNumber = (value: number | string | null | undefined, digits = 1) =>
     typeof value === 'number' ? value.toFixed(digits) : '---'
 
+  const formatText = (value: string | null | undefined) =>
+    typeof value === 'string' && value.trim().length > 0 ? value : '---'
+
   $: isChargingState = $telemetry.op === 'Charge' || $telemetry.state_phase === 'charging'
   $: chargeStateLabel =
     isChargingState && $telemetry.charge_a > 0.05
@@ -44,7 +47,7 @@
 
   <div class="pill">
     <span class="label">MCU</span>
-    <strong>{formatNumber($telemetry.mcu_v)}</strong>
+    <strong>{formatText($telemetry.mcu_v)}</strong>
   </div>
 </div>
 

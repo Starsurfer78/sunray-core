@@ -122,7 +122,7 @@ Das Skript:
 - installiert die benoetigten Linux-Pakete
 - baut den nativen Core
 - installiert und baut die WebUI
-- legt bei Bedarf `/etc/sunray/config.json` aus `config.example.json` an
+- legt bei Bedarf `/etc/sunray-core/config.json` aus `config.example.json` an
 - startet `sunray-core`
 - kann optional einen `systemd`-Autostart anlegen
 
@@ -151,7 +151,7 @@ Im Repository liegen zwei wichtige Hilfsskripte:
 
 ### `scripts/install_sunray.sh`
 
-Installiert die benoetigten Pakete, baut den nativen Core und die WebUI, legt bei Bedarf die Laufzeitdateien unter `/etc/sunray/` an, startet `sunray-core` und kann optional einen `systemd`-Autostart einrichten.
+Installiert die benoetigten Pakete, baut den nativen Core und die WebUI, legt bei Bedarf die Laufzeitdateien unter `/etc/sunray-core/` an, startet `sunray-core` und kann optional einen `systemd`-Autostart einrichten.
 
 Beispiele:
 
@@ -224,10 +224,10 @@ Der Simulationsmodus ist der schnellste Weg, um State-Machine, API, Telemetrie u
 ### Echter Roboter
 
 ```bash
-./build_linux/sunray-core /etc/sunray/config.json
+./build_linux/sunray-core /etc/sunray-core/config.json
 ```
 
-Standardpfad fuer die Konfiguration ist `/etc/sunray/config.json`.
+Standardpfad fuer die Konfiguration ist `/etc/sunray-core/config.json`.
 
 ## Konfiguration
 

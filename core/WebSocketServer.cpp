@@ -841,65 +841,37 @@ void WebSocketServer::setupHttpRoutes() {
     );
 
     // ── POST /api/diag/<action> ───────────────────────────────────────────────
-    // Void-return async handler: the blocking robot op runs in a detached thread
-    // so the ASIO I/O thread is never stalled. Without this, motor/drive/IMU tests
-    // (5–30 s) freeze all WebSocket I/O and disconnect the browser.
-    //
-    // V1 rule for the new Svelte WebUI:
-    // - REST may start a diag action
-    // - REST must not block until the full robot action is complete
-    // - long-running diag work must stay off the ASIO thread
-    // - websocket telemetry must continue to flow while diagnostics are active
+    // Safety-first implementation: run the diagnostic synchronously and return
+    // the JSON result only after completion. A previous detached-thread version
+    // captured crow::response by reference across request lifetime, which could
+    // corrupt memory and crash the process after motor/tick diagnostics.
     CROW_ROUTE(app, "/api/diag/<string>").methods(crow::HTTPMethod::POST)(
-        [this, isAuthorized](const crow::request& req, crow::response& res, const std::string& action) {
-            if (!isAuthorized(req)) {
-                res = crow::response(401, R"({"error":"unauthorized"})");
-                res.end();
-                return;
-            }
+        [this, isAuthorized](const crow::request& req, const std::string& action) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
             nlohmann::json params;
             if (!req.body.empty()) {
                 try { params = nlohmann::json::parse(req.body); }
-                catch (...) { res = crow::response(400); res.end(); return; }
+                catch (...) { return crow::response(400, R"({"error":"bad JSON"})"); }
             }
             DiagCallback diagCb;
             {
                 std::lock_guard<std::mutex> lk(diagCbMutex_);
                 diagCb = diagCallback_;
             }
-            if (!diagCb) {
-                res = crow::response(501, R"({"error":"diag callback not set"})");
-                res.end();
-                return;
+            if (!diagCb) return crow::response(501, R"({"error":"diag callback not set"})");
+
+            try {
+                crow::response res(200, diagCb(action, params).dump());
+                res.set_header("Content-Type", "application/json");
+                return res;
+            } catch (const std::exception& e) {
+                logger_->error(TAG, std::string("POST /api/diag/") + action + " failed: " + e.what());
+                return crow::response(
+                    500, std::string(R"({"ok":false,"error":")") + e.what() + "\"}");
+            } catch (...) {
+                logger_->error(TAG, std::string("POST /api/diag/") + action + " failed: unknown error");
+                return crow::response(500, R"({"ok":false,"error":"unknown error"})");
             }
-            // Run blocking robot operation in a detached thread; ASIO thread returns immediately.
-            // IMPORTANT: res.end() → complete_request() → asio::async_write() MUST run on the
-            // ASIO thread, not the worker thread.  We use req.io_service->post() to dispatch the
-            // response completion back to the ASIO thread after the blocking work finishes.
-            // try/catch is mandatory: an uncaught exception in a detached thread calls
-            // std::terminate() and crashes the process.
-            std::thread([diagCb = std::move(diagCb), action, params,
-                         io_service = req.io_service, &res]() mutable {
-                int         code;
-                std::string body;
-                try {
-                    auto resJson = diagCb(action, params);
-                    code = 200;
-                    body = resJson.dump();
-                } catch (const std::exception& e) {
-                    code = 500;
-                    body = std::string(R"({"ok":false,"error":")") + e.what() + "\"}";
-                } catch (...) {
-                    code = 500;
-                    body = R"({"ok":false,"error":"unknown error"})";
-                }
-                // Post response finalisation back to the ASIO thread.
-                io_service->post([&res, code, body = std::move(body)]() mutable {
-                    res.code = code;
-                    res.body = std::move(body);
-                    res.end();
-                });
-            }).detach();
         }
     );
 
