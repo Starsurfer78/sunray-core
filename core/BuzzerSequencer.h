@@ -12,6 +12,7 @@ enum class BuzzerPattern {
     StartRejected,
     StartMowingAccepted,
     StartDockingAccepted,
+    ChargerConnected,
     ShutdownRequested,
     EmergencyStop,
 };

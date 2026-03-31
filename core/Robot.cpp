@@ -53,7 +53,9 @@ bool Robot::init() {
     running_.store(false);
     now_ms_  = 0;
     sensors_ = hw_->readSensors();
+    battery_ = hw_->readBattery();
     previousSensors_ = sensors_;
+    previousChargerConnected_ = battery_.chargerConnected;
     lastImu_ = {};
     imuCalibrationExpected_ = false;
     imuCalibrationActive_ = false;
@@ -139,6 +141,10 @@ void Robot::tickHardware() {
     odometry_ = hw_->readOdometry();
     sensors_  = hw_->readSensors();
     battery_  = hw_->readBattery();
+    if (battery_.chargerConnected && !previousChargerConnected_) {
+        buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::ChargerConnected);
+    }
+    previousChargerConnected_ = battery_.chargerConnected;
     lastImu_  = hw_->readImu();
     if (imuCalibrationExpected_) {
         if (lastImu_.calibrating) {
@@ -658,12 +664,18 @@ void Robot::startDocking() {
 void Robot::emergencyStop() {
     clearActiveMissionTracking();
     hw_->setMotorPwm(0, 0, 0);
+    const std::string previousOp = activeOpName();
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
     auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
                               sensors_, battery_, odometry_, now_ms_,
                               stateEst_.x(), stateEst_.y(), stateEst_.heading(),
                               age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+    const std::string message =
+        previousOp == "Idle"
+            ? "Not-Stopp ausgeloest, Roboter bleibt in Bereitschaft"
+            : "Not-Stopp ausgeloest, Roboter wurde gestoppt";
+    showUiNotice(message, "warn", "operator_emergency_stop", 6000);
     recordEvent("warn", "operator_command", "operator_emergency_stop",
                 "Not-Stopp wurde ausgelöst");
     opMgr_.changeOperationTypeByOperator(ctx, "Idle");

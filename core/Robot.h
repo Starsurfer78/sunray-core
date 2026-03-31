@@ -323,6 +323,7 @@ private:
     SensorData   sensors_;
     SensorData   previousSensors_;  ///< for edge-detection of safety events
     BatteryData  battery_;
+    bool         previousChargerConnected_ = false;
 
     unsigned long                          now_ms_    = 0;
     std::chrono::steady_clock::time_point  startTime_;

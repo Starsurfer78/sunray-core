@@ -28,6 +28,13 @@ constexpr BuzzerStep kStartDockingAcceptedPattern[] = {
     {false, 0},
 };
 
+constexpr BuzzerStep kChargerConnectedPattern[] = {
+    {true, 90},
+    {false, 90},
+    {true, 90},
+    {false, 0},
+};
+
 constexpr BuzzerStep kShutdownRequestedPattern[] = {
     {true, 220},
     {false, 80},
@@ -59,6 +66,10 @@ void BuzzerSequencer::play(HardwareInterface& hw, uint64_t nowMs, BuzzerPattern 
         case BuzzerPattern::StartDockingAccepted:
             start(hw, nowMs, kStartDockingAcceptedPattern,
                   sizeof(kStartDockingAcceptedPattern) / sizeof(kStartDockingAcceptedPattern[0]));
+            break;
+        case BuzzerPattern::ChargerConnected:
+            start(hw, nowMs, kChargerConnectedPattern,
+                  sizeof(kChargerConnectedPattern) / sizeof(kChargerConnectedPattern[0]));
             break;
         case BuzzerPattern::ShutdownRequested:
             start(hw, nowMs, kShutdownRequestedPattern,
