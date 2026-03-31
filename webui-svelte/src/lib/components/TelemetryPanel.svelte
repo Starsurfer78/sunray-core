@@ -2,13 +2,6 @@
   import { gpsQuality, telemetry } from '../stores/telemetry'
 
   const RAD_TO_DEG = 180 / Math.PI
-
-  const cards = [
-    { label: 'Bumper links', key: 'bumper_l' },
-    { label: 'Bumper rechts', key: 'bumper_r' },
-    { label: 'Lift', key: 'lift' },
-    { label: 'Motorfehler', key: 'motor_err' },
-  ] as const
 </script>
 
 <section class="panel">
@@ -43,13 +36,6 @@
       <strong>{$telemetry.diag_active ? 'Laeuft' : 'Aus'}</strong>
       <span class="muted">Ticks {$telemetry.diag_ticks}</span>
     </article>
-
-    {#each cards as card}
-      <article class="card">
-        <span class="label">{card.label}</span>
-        <strong>{$telemetry[card.key] ? 'Aktiv' : 'Aus'}</strong>
-      </article>
-    {/each}
   </div>
 </section>
 

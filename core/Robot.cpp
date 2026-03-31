@@ -935,6 +935,7 @@ WebSocketServer::TelemetryData Robot::buildTelemetry() const {
     d.gps_acc   = lastGps_.hAccuracy;
     d.bumper_l  = sensors_.bumperLeft;
     d.bumper_r  = sensors_.bumperRight;
+    d.stop_button = sensors_.stopButton;
     d.lift      = sensors_.lift;
     d.motor_err = sensors_.motorFault;
     d.uptime_s  = now_ms_ / 1000UL;

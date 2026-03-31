@@ -14,6 +14,7 @@ export interface Telemetry {
   gps_lon: number
   bumper_l: boolean
   bumper_r: boolean
+  stop_button: boolean
   lift: boolean
   motor_err: boolean
   uptime_s: number
@@ -61,6 +62,7 @@ export const defaultTelemetry: Telemetry = {
   gps_lon: 0,
   bumper_l: false,
   bumper_r: false,
+  stop_button: false,
   lift: false,
   motor_err: false,
   uptime_s: 0,

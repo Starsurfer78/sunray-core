@@ -64,6 +64,7 @@ public:
         double       gps_lon   = 0.0;    ///< WGS-84 longitude (Phase 2)
         bool         bumper_l  = false;
         bool         bumper_r  = false;
+        bool         stop_button = false;
         bool         lift      = false;  ///< lift sensor (C.10)
         bool         motor_err = false;
         unsigned long uptime_s = 0;      ///< seconds since robot start

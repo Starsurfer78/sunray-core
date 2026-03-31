@@ -1090,6 +1090,7 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"gps_lon\":";     s += dbl(d.gps_lon);
     s += ",\"bumper_l\":";    s += bl(d.bumper_l);
     s += ",\"bumper_r\":";    s += bl(d.bumper_r);
+    s += ",\"stop_button\":"; s += bl(d.stop_button);
     s += ",\"lift\":";        s += bl(d.lift);
     s += ",\"motor_err\":";    s += bl(d.motor_err);
     s += ",\"uptime_s\":";    s += std::to_string(d.uptime_s);

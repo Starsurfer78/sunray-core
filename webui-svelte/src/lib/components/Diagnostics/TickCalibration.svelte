@@ -9,14 +9,16 @@
   let pwm = 0.15
   let measuredTicks: number | null = null
   let savedTicks: number | null = null
+  let manualTicks: number | null = null
 
   onMount(async () => {
     try {
       const config = await getConfigDocument()
-      savedTicks =
-        typeof config.ticks_per_revolution === 'number' ? config.ticks_per_revolution : null
+      savedTicks = typeof config.ticks_per_revolution === 'number' ? config.ticks_per_revolution : null
+      manualTicks = savedTicks
     } catch {
       savedTicks = null
+      manualTicks = null
     }
   })
 
@@ -58,6 +60,30 @@
       }
 
       savedTicks = rounded
+      manualTicks = rounded
+      diagnostics.success({ ok: true, message: `ticks_per_revolution = ${rounded} gespeichert` })
+    } catch (error) {
+      diagnostics.fail(error instanceof Error ? error.message : 'Ticks konnten nicht gespeichert werden')
+    }
+  }
+
+  async function saveManualTicks() {
+    if (manualTicks === null) return
+
+    diagnostics.start('config:ticks_per_revolution_manual')
+    try {
+      const rounded = Math.max(1, Math.round(manualTicks))
+      const result = await updateMotorCalibrationConfig({
+        ticks_per_revolution: rounded,
+      })
+
+      if (!result.ok) {
+        diagnostics.fail(result.error ?? 'Ticks konnten nicht gespeichert werden')
+        return
+      }
+
+      savedTicks = rounded
+      manualTicks = rounded
       diagnostics.success({ ok: true, message: `ticks_per_revolution = ${rounded} gespeichert` })
     } catch (error) {
       diagnostics.fail(error instanceof Error ? error.message : 'Ticks konnten nicht gespeichert werden')
@@ -99,6 +125,21 @@
     </button>
   </div>
 
+  <div class="manual-save">
+    <label>
+      Ticks pro Umdrehung
+      <input type="number" min="1" step="1" bind:value={manualTicks} />
+    </label>
+
+    <button
+      type="button"
+      disabled={$diagnostics.busy || manualTicks === null}
+      on:click={saveManualTicks}
+    >
+      Direkt speichern
+    </button>
+  </div>
+
   <div class="result-grid">
     <article class="card">
       <span>Messwert</span>
@@ -107,10 +148,6 @@
     <article class="card">
       <span>Gespeichert</span>
       <strong>{savedTicks ?? '---'}</strong>
-    </article>
-    <article class="card">
-      <span>Hinweis</span>
-      <strong>Soll: genau 1 Radumdrehung</strong>
     </article>
   </div>
 </section>
@@ -170,6 +207,13 @@
     grid-template-columns: repeat(auto-fit, minmax(180px, max-content));
   }
 
+  .manual-save {
+    display: grid;
+    gap: 0.8rem;
+    grid-template-columns: minmax(180px, 240px) max-content;
+    align-items: end;
+  }
+
   button {
     padding: 0.8rem 1rem;
     border: 0;
@@ -189,6 +233,12 @@
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 
+  @media (max-width: 720px) {
+    .manual-save {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .card {
     display: grid;
     gap: 0.35rem;
@@ -197,4 +247,5 @@
     background: rgba(24, 38, 34, 0.8);
     border: 1px solid rgba(152, 187, 170, 0.12);
   }
+
 </style>

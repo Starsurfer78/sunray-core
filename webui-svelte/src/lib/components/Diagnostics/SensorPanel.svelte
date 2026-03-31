@@ -4,6 +4,7 @@
   const sensors = [
     { label: 'Bumper links', value: 'bumper_l' },
     { label: 'Bumper rechts', value: 'bumper_r' },
+    { label: 'Stop-Button', value: 'stop_button' },
     { label: 'Lift', value: 'lift' },
     { label: 'Motorfehler', value: 'motor_err' },
     { label: 'Diag aktiv', value: 'diag_active' },
@@ -18,7 +19,7 @@
 
   <div class="grid">
     {#each sensors as sensor}
-      <article class="card">
+      <article class="card" class:active-card={$telemetry[sensor.value]}>
         <span>{sensor.label}</span>
         <strong class:active={$telemetry[sensor.value]}>
           {$telemetry[sensor.value] ? 'Aktiv' : 'Aus'}
@@ -60,9 +61,16 @@
     border-radius: 0.7rem;
     background: #0a1020;
     border: 1px solid #1a2a40;
+    transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
   }
 
   strong { color: #94a3b8; }
 
   .active { color: #4ade80; }
+
+  .active-card {
+    border-color: rgba(74, 222, 128, 0.72);
+    background: linear-gradient(180deg, rgba(12, 48, 28, 0.96), rgba(8, 28, 18, 0.96));
+    transform: translateY(-1px);
+  }
 </style>

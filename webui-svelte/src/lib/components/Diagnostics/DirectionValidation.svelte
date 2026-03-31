@@ -89,12 +89,13 @@
       Dauer ms
       <input type="number" min="200" max="3000" step="100" bind:value={durationMs} />
     </label>
+
+    <button type="button" class="pulse-button" disabled={$diagnostics.busy} on:click={pulseForward}>
+      {$diagnostics.activeAction?.startsWith('direction:') ? 'Teste ...' : 'Vorwaertsimpuls geben'}
+    </button>
   </div>
 
   <div class="actions">
-    <button type="button" disabled={$diagnostics.busy} on:click={pulseForward}>
-      {$diagnostics.activeAction?.startsWith('direction:') ? 'Teste ...' : 'Vorwaertsimpuls geben'}
-    </button>
     <button type="button" disabled={$diagnostics.busy || !hasPulseResult} on:click={() => saveDirection(true)}>
       Richtung korrekt
     </button>
@@ -140,6 +141,7 @@
 
   .controls {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    align-items: end;
   }
 
   label {
@@ -175,6 +177,10 @@
   button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  .pulse-button {
+    align-self: end;
   }
 
   .note {
