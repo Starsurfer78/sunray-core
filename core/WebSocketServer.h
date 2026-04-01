@@ -105,6 +105,7 @@ public:
     using ScheduleGetCallback = std::function<nlohmann::json()>;
     /// Schedule PUT callback: receives new schedule JSON array, returns {"ok":true/false} (C.11).
     using SchedulePutCallback = std::function<nlohmann::json(const nlohmann::json&)>;
+    using MapGetCallback = std::function<nlohmann::json()>;
     using HistoryGetCallback = std::function<nlohmann::json(unsigned limit)>;
     using StatisticsGetCallback = std::function<nlohmann::json()>;
 
@@ -184,6 +185,7 @@ public:
     /// The callback should reload the map into the running Robot instance.
     /// Returns true on success (reported back to the HTTP caller).
     using MapReloadCallback = std::function<bool()>;
+    void onMapGet(MapGetCallback cb);
     void onMapReload(MapReloadCallback cb);
 
     /// Set the path of the missions JSON file served by /api/missions.
@@ -250,6 +252,7 @@ private:
     std::string      mapPath_;
     std::string      missionPath_;
     std::mutex       mapReloadMutex_;
+    MapGetCallback   mapGetCallback_;
     MapReloadCallback mapReloadCallback_;
 
     // Pimpl: hides all Crow types from this header

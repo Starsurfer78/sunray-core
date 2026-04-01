@@ -193,6 +193,9 @@ int main(int argc, char* argv[]) {
         config->get<std::string>("mission_path", (configDir / "missions.json").string());
     wsServer->setMapPath(mapPath);
     wsServer->setMissionPath(missionPath);
+    wsServer->onMapGet([&robot]() -> nlohmann::json {
+        return robot.getMapJson();
+    });
     wsServer->onMapReload([&robot, mapPath]() {
         return robot.loadMap(mapPath);
     });
@@ -250,7 +253,12 @@ int main(int argc, char* argv[]) {
             return robot.diagMowMotor(on);
         } else if (action == "drive") {
             const float dist = static_cast<float>(params.value("distance_m", 3.0));
-            return robot.diagDriveStraight(dist);
+            const float pwm = static_cast<float>(params.value("pwm", 0.15));
+            return robot.diagDriveStraight(dist, pwm);
+        } else if (action == "turn") {
+            const float angle = static_cast<float>(params.value("angle_deg", 90.0));
+            const float pwm = static_cast<float>(params.value("pwm", 0.15));
+            return robot.diagTurnInPlace(angle, pwm);
         } else if (action == "imu_calib") {
             return robot.diagImuCalib();
         }

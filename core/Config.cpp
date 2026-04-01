@@ -161,8 +161,22 @@ namespace sunray
             {"dock_retry_max_attempts", 3},
             {"dock_retry_approach_ms", 2000},
             {"dock_retry_contact_timeout_ms", 3000},
+            {"dock_max_duration_ms", 180000},
+            {"dock_approach_mode", "forward_only"},
+            {"dock_slow_zone_radius_m", 0.6},
+            {"dock_final_align_heading_enabled", false},
+            {"dock_final_align_heading_deg", 0.0},
             {"preflight_min_voltage", 26.5},
             {"preflight_gps_timeout_ms", 60000},
+
+            // ── Planner / service tuning ───────────────────────────────────────
+            {"planner_default_clearance_m", 0.25},
+            {"planner_perimeter_soft_margin_m", 0.15},
+            {"planner_perimeter_hard_margin_m", 0.05},
+            {"planner_obstacle_inflation_m", 0.35},
+            {"planner_soft_nogo_cost_scale", 0.6},
+            {"planner_replan_period_ms", 250},
+            {"planner_grid_cell_size_m", 0.10},
 
             // ── Stuck recovery (StuckRecoveryOp) ──────────────────────────────────
             {"stuck_detect_timeout_ms", 5000},

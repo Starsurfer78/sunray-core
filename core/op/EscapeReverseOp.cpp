@@ -1,7 +1,6 @@
 // EscapeReverseOp.cpp — reverse away from obstacle.
 #include "core/op/Op.h"
-#include "core/navigation/GridMap.h"
-
+#include "core/navigation/Map.h"
 namespace sunray {
 
 static constexpr unsigned long ESCAPE_REVERSE_MS = 3000;
@@ -49,34 +48,13 @@ void EscapeReverseOp::run(OpContext& ctx) {
         // Continue with previous operation.
         if (nextOp != nullptr) {
             ctx.logger.info("EscapeReverse", "escape done => continue " + nextOp->name());
-            // E.2-c: Route around obstacle using GridMap A* before resuming mission.
+            // Replan through the shared map planner before resuming the mission.
             if (ctx.map && (ctx.map->wayMode == nav::WayType::MOW || ctx.map->wayMode == nav::WayType::DOCK)) {
-                const nav::Point robotPos{ctx.x, ctx.y};
-                const nav::Point target = ctx.map->targetPoint;
-
-                // Build local occupancy grid and plan path
-                nav::GridMap gridMap;
-                gridMap.build(*ctx.map, ctx.x, ctx.y);
-                auto path = gridMap.planPath(robotPos, target);
-
-                if (!path.empty()) {
-                    // Smooth and inject as FREE waypoints
-                    path = gridMap.smoothPath(path);
-                    ctx.map->injectFreePath(path);
-                    ctx.logger.info("EscapeReverse",
-                        "A* path found (" + std::to_string(path.size()) + " waypoints)");
+                const bool replanned = ctx.map->replanToCurrentTarget(ctx.x, ctx.y);
+                if (replanned) {
+                    ctx.logger.info("EscapeReverse", "shared local replanner found a detour");
                 } else {
-                    // Fallback: legacy iterative detour routing (C.7)
-                    bool replanned = false;
-                    if (ctx.map->wayMode == nav::WayType::DOCK) {
-                        replanned = ctx.map->startDocking(ctx.x, ctx.y);
-                    } else if (ctx.map->wayMode == nav::WayType::MOW) {
-                        replanned = ctx.map->startMowing(ctx.x, ctx.y);
-                    }
-
-                    if (replanned) {
-                        ctx.logger.info("EscapeReverse", "A* failed — fallback to legacy routing");
-                    }
+                    ctx.logger.warn("EscapeReverse", "shared local replanner found no detour");
                 }
             }
             changeOp(ctx, *nextOp, false);
@@ -94,12 +72,36 @@ void EscapeReverseOp::onKidnapped(OpContext& ctx, bool state) {
     }
 }
 
+void EscapeReverseOp::onObstacle(OpContext& ctx) {
+    driveReverseStopTime_ms = ctx.now_ms + ESCAPE_REVERSE_MS;
+    if (ctx.map) ctx.map->addObstacle(ctx.x, ctx.y, ctx.now_ms);
+    ctx.logger.warn("EscapeReverse", "new obstacle while reversing — extending escape");
+}
+
+void EscapeReverseOp::onLiftTriggered(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("EscapeReverse", "lift sensor during escape => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void EscapeReverseOp::onBatteryUndervoltage(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("EscapeReverse", "battery undervoltage => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
 void EscapeReverseOp::onImuTilt(OpContext& ctx) {
     changeOp(ctx, ctx.opMgr.error());
 }
 
 void EscapeReverseOp::onImuError(OpContext& ctx) {
     changeOp(ctx, ctx.opMgr.error());
+}
+
+void EscapeReverseOp::onPerimeterViolated(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.warn("EscapeReverse", "outside perimeter during escape => DOCK");
+    changeOp(ctx, ctx.opMgr.dock());
 }
 
 // ── EscapeForwardOp ───────────────────────────────────────────────────────────
@@ -114,6 +116,10 @@ void EscapeForwardOp::begin(OpContext& ctx) {
 void EscapeForwardOp::end(OpContext&) {}
 
 void EscapeForwardOp::run(OpContext& ctx) {
+    if (!ctx.insidePerimeter) {
+        onPerimeterViolated(ctx);
+        return;
+    }
     ctx.setLinearAngularSpeed(0.1f, 0.0f);
 
     if (ctx.now_ms >= driveForwardStopTime_ms) {
@@ -124,6 +130,24 @@ void EscapeForwardOp::run(OpContext& ctx) {
             changeOp(ctx, ctx.opMgr.idle());
         }
     }
+}
+
+void EscapeForwardOp::onObstacle(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.warn("EscapeForward", "obstacle during forward escape => EscapeReverse");
+    changeOp(ctx, ctx.opMgr.escape(), true);
+}
+
+void EscapeForwardOp::onLiftTriggered(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("EscapeForward", "lift sensor during escape => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void EscapeForwardOp::onBatteryUndervoltage(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("EscapeForward", "battery undervoltage => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
 }
 
 void EscapeForwardOp::onKidnapped(OpContext& ctx, bool state) {
@@ -139,6 +163,12 @@ void EscapeForwardOp::onImuTilt(OpContext& ctx) {
 
 void EscapeForwardOp::onImuError(OpContext& ctx) {
     changeOp(ctx, ctx.opMgr.error());
+}
+
+void EscapeForwardOp::onPerimeterViolated(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.warn("EscapeForward", "outside perimeter during escape => DOCK");
+    changeOp(ctx, ctx.opMgr.dock());
 }
 
 } // namespace sunray

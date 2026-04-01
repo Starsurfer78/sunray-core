@@ -71,8 +71,7 @@ StateEstimator::EkfNoise StateEstimator::loadNoise() const {
 //   P_new[2,2] = P_[8] + q_theta
 //   Off-diagonal elements mirror via symmetry.
 
-void StateEstimator::predictStep(float dDist, float dTheta, const EkfNoise& n) {
-    const float midH = heading_ + dTheta * 0.5f;
+void StateEstimator::predictStep(float dDist, float midH, const EkfNoise& n) {
     const float cosM = std::cos(midH);
     const float sinM = std::sin(midH);
 
@@ -234,9 +233,10 @@ void StateEstimator::update(const OdometryData& odo, unsigned long dt_ms) {
     y_       += dDist * std::sin(midH);
     heading_  = scalePI(heading_ + dTheta);
 
-    // Safety clamp
+    // Safety clamp: reset cleanly instead of teleporting into the map origin.
     if (std::fabs(x_) > 10000.0f || std::fabs(y_) > 10000.0f) {
-        x_ = y_ = 0.0f;
+        reset();
+        return;
     }
 
     // Ground speed (low-pass)
@@ -246,7 +246,7 @@ void StateEstimator::update(const OdometryData& odo, unsigned long dt_ms) {
     }
 
     // EKF covariance predict
-    predictStep(dDist, dTheta, loadNoise());
+    predictStep(dDist, midH, loadNoise());
 }
 
 // ── Public updateGps() ────────────────────────────────────────────────────────
@@ -277,12 +277,16 @@ void StateEstimator::updateImu(float yaw, float roll, float pitch) {
     (void)roll; (void)pitch;
     imuActive_ = true;
 
-    // MPU6050 yaw is pure gyro integration and will drift while standing still.
-    // When the robot is effectively not moving, keep the fused heading stable
-    // instead of feeding stationary yaw drift back into the EKF.
-    if (groundSpeed_ < 0.01f) return;
+    EkfNoise n = loadNoise();
 
-    imuUpdate(yaw, loadNoise());
+    // MPU6050 yaw is pure gyro integration and drifts while standing still.
+    // Instead of disabling heading updates entirely, de-weight them strongly
+    // at very low speed so stationary drift does not dominate the EKF.
+    if (groundSpeed_ < 0.01f) {
+        n.r_imu *= 5.0f;
+    }
+
+    imuUpdate(yaw, n);
 }
 
 // ── Fusion mode / uncertainty ─────────────────────────────────────────────────

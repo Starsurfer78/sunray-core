@@ -2,26 +2,14 @@
   import { onMount } from "svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
   import DashboardSidebar from "../components/Dashboard/DashboardSidebar.svelte";
-  import LogBar from "../components/Dashboard/LogBar.svelte";
+  import BottomPanel from "../components/Dashboard/BottomPanel.svelte";
   import PageLayout from "../components/PageLayout.svelte";
   import { getMapDocument, type MapZone } from "../api/rest";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
 
-  let mapStatus = "Bereit";
   let sidebarCollapsed = false;
   let mapCanvas: MapCanvas;
-  let mapStageElement: HTMLDivElement | null = null;
-  let logBarHeight = 0;
-
-  function updateLogBarHeight() {
-    if (mapStageElement) {
-      const logBar = mapStageElement.querySelector(".logbar");
-      if (logBar) {
-        logBarHeight = logBar.clientHeight;
-      }
-    }
-  }
 
   function normalizePoints(
     points: Array<[number, number]> | Point[] | undefined,
@@ -63,31 +51,13 @@
           normalizeZone(zone, index),
         ),
       });
-      mapStatus = "Synchron";
     } catch {
-      mapStatus = "Map nicht verfuegbar";
+      // map not available
     }
   }
 
   onMount(() => {
     void loadOverviewMap();
-
-    // Initial calculation
-    updateLogBarHeight();
-
-    // Observe LogBar height changes to reposition zoom controls dynamically
-    const observer = new ResizeObserver(() => {
-      updateLogBarHeight();
-    });
-
-    if (mapStageElement) {
-      const logBar = mapStageElement.querySelector(".logbar");
-      if (logBar) {
-        observer.observe(logBar);
-      }
-    }
-
-    return () => observer.disconnect();
   });
 </script>
 
@@ -95,7 +65,7 @@
   {sidebarCollapsed}
   on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
 >
-  <div class="map-stage" bind:this={mapStageElement}>
+  <div class="map-stage">
     <div class="map-badge">
       <span class="map-badge-label">Hauptgarten</span>
       <strong>{$telemetry.x.toFixed(2)} / {$telemetry.y.toFixed(2)} m</strong>
@@ -110,8 +80,8 @@
       height={680}
     />
 
-    <!-- Zoom controls - positioned above log bar -->
-    <div class="zoom-controls" style="--logbar-height: {logBarHeight}px">
+    <!-- Zoom controls -->
+    <div class="zoom-controls">
       <button
         type="button"
         title="Heranzoomen"
@@ -128,9 +98,11 @@
         on:click={() => mapCanvas?.fitToContent()}>◎</button
       >
     </div>
-
-    <LogBar />
   </div>
+
+  <svelte:fragment slot="bottom">
+    <BottomPanel />
+  </svelte:fragment>
 
   <svelte:fragment slot="sidebar">
     <DashboardSidebar />
@@ -170,10 +142,9 @@
     font-size: 0.75rem;
   }
 
-  /* Zoom controls - positioned above log bar */
   .zoom-controls {
     position: absolute;
-    bottom: calc(var(--logbar-height, 0px) + 0.5rem);
+    bottom: 0.5rem;
     left: 0.75rem;
     z-index: 15;
     display: flex;

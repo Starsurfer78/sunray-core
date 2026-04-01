@@ -17,7 +17,7 @@
 //
 // Thread safety: none — build() and planPath() must run on the same thread.
 
-#include "core/navigation/Map.h"
+#include "core/navigation/Costmap.h"
 
 #include <cstdint>
 #include <vector>
@@ -27,10 +27,10 @@ namespace nav {
 
 class GridMap {
 public:
-    static constexpr float DEFAULT_CELL_M      = 0.25f;  ///< metres per cell
-    static constexpr int   DEFAULT_COLS        = 40;     ///< cells wide  (10 m)
-    static constexpr int   DEFAULT_ROWS        = 40;     ///< cells tall  (10 m)
-    static constexpr float DEFAULT_ROBOT_RAD_M = 0.30f;  ///< obstacle inflation (m)
+    static constexpr float DEFAULT_CELL_M      = Costmap::DEFAULT_CELL_M;
+    static constexpr int   DEFAULT_COLS        = Costmap::DEFAULT_COLS;
+    static constexpr int   DEFAULT_ROWS        = Costmap::DEFAULT_ROWS;
+    static constexpr float DEFAULT_ROBOT_RAD_M = Costmap::DEFAULT_ROBOT_RAD_M;
 
     GridMap() = default;
 
@@ -44,7 +44,9 @@ public:
                float cellSize_m   = DEFAULT_CELL_M,
                int   cols         = DEFAULT_COLS,
                int   rows         = DEFAULT_ROWS,
-               float robotRadius  = DEFAULT_ROBOT_RAD_M);
+               float robotRadius  = DEFAULT_ROBOT_RAD_M,
+               WayType planningMode = WayType::FREE);
+    void build(const Costmap& costmap);
 
     bool isBuilt() const { return !cells_.empty(); }
 
@@ -63,14 +65,13 @@ public:
     std::vector<Point> smoothPath(const std::vector<Point>& path) const;
 
 private:
-    enum class Cell : uint8_t { EMPTY = 0, OCCUPIED = 1 };
-
     float originX_  = 0.0f;
     float originY_  = 0.0f;
     float cellSize_ = DEFAULT_CELL_M;
     int   cols_     = 0;
     int   rows_     = 0;
-    std::vector<Cell> cells_;  ///< row-major: cells_[gy * cols_ + gx]
+    std::vector<Costmap::Cell> cells_;  ///< row-major: cells_[gy * cols_ + gx]
+    std::vector<float> costs_; ///< additional traversal cost per cell
 
     // ── Grid ↔ World conversion ───────────────────────────────────────────────
 
@@ -81,7 +82,8 @@ private:
     Point gridToWorld(int gx, int gy) const;
 
     /// Cell value, or OCCUPIED when out-of-bounds.
-    Cell  cellAt(int gx, int gy) const;
+    Costmap::Cell  cellAt(int gx, int gy) const;
+    float traversalCostAt(int gx, int gy) const;
 
     /// True if the straight line from a to b passes through no OCCUPIED cell.
     /// Sampled at cellSize/2 intervals.
@@ -89,16 +91,6 @@ private:
 
     // ── Grid marking ─────────────────────────────────────────────────────────
 
-    /// Mark all cells whose centres are within radius of (cx, cy) as OCCUPIED.
-    void markCircle(float cx, float cy, float radius);
-
-    /// Mark all cells outside the given polygon as OCCUPIED.
-    void markExterior(const PolygonPoints& poly);
-
-    /// Mark all cells inside the given polygon as OCCUPIED.
-    void markInterior(const PolygonPoints& poly);
-
-    static bool pointInPolygon(const PolygonPoints& poly, float px, float py);
 };
 
 } // namespace nav

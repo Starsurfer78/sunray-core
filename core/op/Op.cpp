@@ -46,11 +46,15 @@ void Op::onBadChargingContact(OpContext&)    {}
 void Op::onKidnapped(OpContext&, bool)       {}
 void Op::onImuTilt(OpContext&)               {}
 void Op::onImuError(OpContext&)              {}
+void Op::onPerimeterViolated(OpContext&)     {}
+void Op::onMapChanged(OpContext&)            {}
+void Op::onWatchdogTimeout(OpContext& ctx)   { requestOp(ctx, ctx.opMgr.error(), PRIO_CRITICAL, false); }
 void Op::onTimetableStartMowing(OpContext&)  {}
 void Op::onTimetableStopMowing(OpContext&)   {}
+unsigned long Op::watchdogTimeoutMs(const OpContext&) const { return 0; }
 
 void Op::onBatteryUndervoltage(OpContext& ctx) {
-    requestOp(ctx, ctx.opMgr.idle(), PRIO_CRITICAL, false);
+    requestOp(ctx, ctx.opMgr.error(), PRIO_CRITICAL, false);
 }
 void Op::onBatteryLowShouldDock(OpContext&) {}
 

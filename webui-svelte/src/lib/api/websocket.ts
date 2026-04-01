@@ -79,6 +79,7 @@ export function stopTelemetry() {
 }
 
 export function sendCmd(cmd: string, extra: Record<string, unknown> = {}) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false
   ws.send(JSON.stringify({ cmd, ...extra }))
+  return true
 }

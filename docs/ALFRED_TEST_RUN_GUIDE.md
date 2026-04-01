@@ -213,3 +213,23 @@ systemctl status sunray --no-pager
 - Noch **keinen** Autostart auf `sunray-core` umstellen
 - Zuerst nur manuell im Vordergrund testen
 - Rollback immer ueber den Originaldienst
+
+
+
+Gedächnisstütze:
+
+cd ~/sunray-core
+git pull origin master
+cd webui-svelte
+npm install
+npm run build
+cd ..
+cmake -S . -B build_pi
+cmake --build build_pi -j2
+pkill -9 -f './build_pi/sunray-core'
+nohup ./build_pi/sunray-core /etc/sunray-core/config.json > /tmp/sunray-core.log 2>&1 &
+tail -f /tmp/sunray-core.log
+
+
+nohup ./build_pi/sunray-core /tmp/sunray-config-test.json > /tmp/sunray-core.log 2>&1 &
+tail -f /tmp/sunray-core.log

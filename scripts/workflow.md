@@ -1,52 +1,39 @@
 # Workflow — Wie du einen Task startest
 
-## 1. TASK.md ausfüllen (2 Minuten)
+## 1. In `TODO.md` den konkreten Punkt festlegen
 
-Öffne `TASK.md` und befülle:
-- **ID + Ziel** — was genau soll passieren?
-- **Aufgabe präzise** — Input, Output, Dateiname, Funktionsname
-- **Kontext-Tabelle** — maximal 4 Files, nur die wirklich nötigen
-- **Memory-Häkchen** — nur relevante Module ankreuzen
-- **Erwartetes Ergebnis** — welcher Test wird grün?
-- **Modell-Häkchen** — Haiku, Sonnet oder Opus?
+Arbeite immer von `TODO.md` aus.
 
-## 2. Claude Code starten
+- Ziel klar benennen
+- betroffene Dateien klein halten
+- nur den naechsten sinnvollen Schritt ziehen
 
-```bash
-# Im Projektordner:
-claude
+Wenn ein groesseres Thema mehrere Schritte braucht:
 
-# Oder mit explizitem Modell (spart Geld):
-claude --model claude-haiku-4-5-20251001   # für einfache Tasks
-claude --model claude-sonnet-4-5           # für mittlere Tasks
-```
+- erst in `TODO.md` als kurze Unterpunkte konkretisieren
+- keine neue parallele `TASK.md` oder `TASKS.md` anlegen
 
-Claude Code liest automatisch CLAUDE.md → dann nur was in TASK.md steht.
+## 2. Kontext kurz laden
+
+Lies in dieser Reihenfolge:
+
+1. `PROJECT_OVERVIEW.md`
+2. `PROJECT_MAP.md`
+3. `WORKING_RULES.md`
+4. `TODO.md`
+
+Danach nur noch die fachlich wirklich noetigen Dateien oeffnen.
 
 ## 3. Nach dem Task
 
-- TASK.md: Status auf `[x]` setzen
-- Nächsten Task vorbereiten: TASK.md neu befüllen
-- Alles andere macht Claude Code laut CLAUDE.md Coding Rules
+- Verifikation laufen lassen
+- `TODO.md` aktualisieren
+- dauerhafte Fachdoku in `docs/` nur dann anpassen, wenn sich der reale Stand geaendert hat
 
----
+## Arbeitsprinzip
 
-## Modell-Entscheidungshilfe
-
-| Situation | Modell |
-|-----------|--------|
-| Eine Funktion implementieren, Pattern bekannt | Haiku |
-| Neues Modul anlegen (<150 Zeilen) | Haiku |
-| Tests schreiben | Haiku |
-| Mehrere Files ändern, neue Logik | Sonnet |
-| EKF-Mathe, A*-Algorithmus | Sonnet |
-| Architektur-Entscheidung, kritischer Bug | Opus |
-
-## Token-Kostenkontrolle auf einen Blick
-
-| Was | Wirkung |
-|-----|---------|
-| TASK.md ausfüllen | −70% Kontext |
-| Haiku statt Sonnet | −95% Kosten pro Token |
-| 1 Funktion pro Task | −80% interne Schritte |
-| "Nicht anfassen"-Liste | verhindert unnötige Reads |
+| Prinzip | Wirkung |
+|---------|---------|
+| Kleine, klare Schritte | weniger Kontext und geringeres Risiko |
+| `TODO.md` als einzige Backlog-Quelle | kein Doku-Dschungel |
+| Dauerhafte Doku nur fuer echten Systemstand | weniger veraltete Plan-Dateien |

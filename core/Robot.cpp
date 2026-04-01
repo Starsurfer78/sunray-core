@@ -18,6 +18,7 @@
 #include <thread>
 #include <chrono>
 #include <cmath>
+#include <algorithm>
 #include <stdexcept>
 
 namespace sunray {
@@ -100,6 +101,7 @@ void Robot::loop() {
 void Robot::run() {
     try {
         const unsigned long dt_ms = tickTiming();
+        lastDt_ms_ = dt_ms;
         tickHardware();
         tickSchedule();
         tickObstacleCleanup();
@@ -236,13 +238,18 @@ OpContext Robot::assembleOpContext() {
     ctx.stateEst = &stateEst_;
     ctx.map = &map_;
     ctx.lineTracker = &lineTracker_;
+    ctx.driveController = &driveController_;
     ctx.now_ms = now_ms_;
+    ctx.dt_ms = lastDt_ms_;
     return ctx;
 }
 
 void Robot::tickSafetyGuards(OpContext& ctx) {
     checkBattery(ctx);
     monitorGpsResilience(ctx);
+    monitorPerimeterSafety(ctx);
+    monitorMapChangeSafety(ctx);
+    monitorOpWatchdog(ctx);
 }
 
 void Robot::tickStateMachine(OpContext& ctx) {
@@ -250,6 +257,7 @@ void Robot::tickStateMachine(OpContext& ctx) {
     opMgr_.tick(ctx);
     const std::string afterOp = activeOpName();
     if (afterOp != beforeOp) {
+        driveController_.reset();
         const std::string eventReason = transitionEventReason(beforeOp, afterOp);
         const std::string message =
             messages::humanReadableTransitionMessage(
@@ -325,36 +333,77 @@ bool Robot::tickDiag() {
     if (!diagReq_.active || diagReq_.done) return false;
 
     if (diagReq_.startMs == 0) diagReq_.startMs = now_ms_;
+    if (!diagReq_.poseCaptured) {
+        diagReq_.startX = stateEst_.x();
+        diagReq_.startY = stateEst_.y();
+        diagReq_.startHeading = stateEst_.heading();
+        diagReq_.poseCaptured = true;
+    }
     auto toPwm = [](float normalized) -> int {
         const float clamped = normalized < -1.0f ? -1.0f : (normalized > 1.0f ? 1.0f : normalized);
         return static_cast<int>(clamped * 255.0f);
     };
-    const int pwm = toPwm(diagReq_.pwm);
+    const int leftPwm = toPwm(diagReq_.leftPwm);
+    const int rightPwm = toPwm(diagReq_.rightPwm);
+    const int mowPwm = toPwm(diagReq_.mowPwm);
 
-    if      (diagReq_.motor == "left")  hw_->setMotorPwm(pwm, 0,   0);
-    else if (diagReq_.motor == "right") hw_->setMotorPwm(0,   pwm, 0);
-    else if (diagReq_.motor == "mow")   hw_->setMotorPwm(0,   0,   pwm);
-    else if (diagReq_.motor == "both")  hw_->setMotorPwm(pwm, pwm, 0);
+    hw_->setMotorPwm(leftPwm, rightPwm, mowPwm);
 
-    if      (diagReq_.motor == "left")  diagReq_.accTicks += std::abs(odometry_.leftTicks);
-    else if (diagReq_.motor == "right") diagReq_.accTicks += std::abs(odometry_.rightTicks);
-    else if (diagReq_.motor == "mow")   diagReq_.accTicks += std::abs(odometry_.mowTicks);
-    else if (diagReq_.motor == "both")  diagReq_.accTicks += (std::abs(odometry_.leftTicks) + std::abs(odometry_.rightTicks)) / 2;
+    diagReq_.leftTicks += std::abs(odometry_.leftTicks);
+    diagReq_.rightTicks += std::abs(odometry_.rightTicks);
+    diagReq_.mowTicks += std::abs(odometry_.mowTicks);
 
-    const bool timeDone    = (diagReq_.ticksTarget == 0)
-                           && (now_ms_ - diagReq_.startMs >= diagReq_.duration_ms);
-    const bool tickDone    = (diagReq_.ticksTarget > 0)
-                           && (std::abs(diagReq_.accTicks) >= diagReq_.ticksTarget);
+    if (diagReq_.motor == "left") {
+        diagReq_.accTicks = diagReq_.leftTicks;
+    } else if (diagReq_.motor == "right") {
+        diagReq_.accTicks = diagReq_.rightTicks;
+    } else if (diagReq_.motor == "mow") {
+        diagReq_.accTicks = diagReq_.mowTicks;
+    } else {
+        diagReq_.accTicks = (diagReq_.leftTicks + diagReq_.rightTicks) / 2;
+    }
+
+    const bool hasTickTarget = diagReq_.leftTicksTarget > 0
+                            || diagReq_.rightTicksTarget > 0
+                            || diagReq_.mowTicksTarget > 0;
+    const bool leftDone  = (diagReq_.leftTicksTarget <= 0)
+                        || (std::abs(diagReq_.leftTicks) >= diagReq_.leftTicksTarget);
+    const bool rightDone = (diagReq_.rightTicksTarget <= 0)
+                        || (std::abs(diagReq_.rightTicks) >= diagReq_.rightTicksTarget);
+    const bool mowDone   = (diagReq_.mowTicksTarget <= 0)
+                        || (std::abs(diagReq_.mowTicks) >= diagReq_.mowTicksTarget);
+    const bool timeDone    = !hasTickTarget && (now_ms_ - diagReq_.startMs >= diagReq_.duration_ms);
+    const bool tickDone    = hasTickTarget && leftDone && rightDone && mowDone;
     const bool safeTimeout = (now_ms_ - diagReq_.startMs >= 15000u);
     if (timeDone || tickDone || safeTimeout) {
         hw_->setMotorPwm(0.0f, 0.0f, 0.0f);
         const int cfgTpr = config_->get<int>("ticks_per_revolution",
                          config_->get<int>("ticks_per_rev", 120));
+        const float dx = stateEst_.x() - diagReq_.startX;
+        const float dy = stateEst_.y() - diagReq_.startY;
+        const float distance = std::sqrt(dx * dx + dy * dy);
+        auto normalizeAngleRad = [](float angle) {
+            while (angle > static_cast<float>(M_PI)) angle -= 2.0f * static_cast<float>(M_PI);
+            while (angle < -static_cast<float>(M_PI)) angle += 2.0f * static_cast<float>(M_PI);
+            return angle;
+        };
+        const float headingDeltaDeg =
+            normalizeAngleRad(stateEst_.heading() - diagReq_.startHeading) * 180.0f / static_cast<float>(M_PI);
         nlohmann::json r;
         r["ok"]                   = true;
         r["ticks"]                = diagReq_.accTicks;
-        r["ticks_target"]         = diagReq_.ticksTarget;
+        r["ticks_target"]         = std::max({diagReq_.leftTicksTarget, diagReq_.rightTicksTarget, diagReq_.mowTicksTarget});
         r["ticks_per_rev_config"] = cfgTpr;
+        r["left_ticks"]           = diagReq_.leftTicks;
+        r["right_ticks"]          = diagReq_.rightTicks;
+        r["mow_ticks"]            = diagReq_.mowTicks;
+        r["left_ticks_target"]    = diagReq_.leftTicksTarget;
+        r["right_ticks_target"]   = diagReq_.rightTicksTarget;
+        r["mow_ticks_target"]     = diagReq_.mowTicksTarget;
+        r["distance_m"]           = distance;
+        r["distance_target_m"]    = diagReq_.targetDistance_m;
+        r["heading_delta_deg"]    = headingDeltaDeg;
+        r["target_angle_deg"]     = diagReq_.targetAngle_deg;
         diagReq_.resultJson = r.dump();
         diagReq_.done = true;
         diagCv_.notify_all();
@@ -428,6 +477,8 @@ void Robot::tickManualDrive() {
     const bool     fresh   = (now_ms_ - driveTs < 500UL);
     if (!(inIdle && fresh && driveTs > 0) || sensors_.stopButton) return;
 
+    driveController_.reset();
+
     const float lin = manualLinear1000_.load()  / 1000.f;
     const float ang = manualAngular1000_.load() / 1000.f;
     constexpr float MAX_PWM = 0.35f;
@@ -441,6 +492,7 @@ void Robot::tickManualDrive() {
 
 void Robot::tickSafetyStop(OpContext& ctx) {
     if (sensors_.bumperLeft || sensors_.bumperRight || sensors_.lift || sensors_.motorFault) {
+        driveController_.reset();
         hw_->setMotorPwm(0, 0, 0);
 
         if (Op* op = opMgr_.activeOp()) {
@@ -574,7 +626,7 @@ bool Robot::canStartMowingMission() {
                                  "Start verweigert: keine aktive Karte geladen");
         return false;
     }
-    if (map_.mowPoints().empty()) {
+    if (map_.mowRoutePlan().points.empty()) {
         rejectStartMowingMission("start_rejected_no_mow_points",
                                  "Start verweigert: Karte hat keine Mähpunkte");
         return false;
@@ -663,6 +715,7 @@ void Robot::startDocking() {
 
 void Robot::emergencyStop() {
     clearActiveMissionTracking();
+    driveController_.reset();
     hw_->setMotorPwm(0, 0, 0);
     const std::string previousOp = activeOpName();
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
@@ -698,6 +751,10 @@ bool Robot::loadMap(const std::filesystem::path& path) {
     }
     logger_->error(TAG, "Map load failed: " + path.string());
     return false;
+}
+
+nlohmann::json Robot::getMapJson() const {
+    return map_.exportMapJson();
 }
 
 void Robot::clearActiveMissionTracking() {
@@ -1057,9 +1114,9 @@ void Robot::checkBattery(OpContext& ctx) {
         logger_->error(TAG, "Battery critical (" + std::to_string(battery_.voltage) + "V)");
         hw_->setMotorPwm(0, 0, 0);
         hw_->setBuzzer(true);   // BUG-002 fix: alert user on critical battery
+        if (Op* op = opMgr_.activeOp()) op->onBatteryUndervoltage(ctx);  // BUG-001 fix
         hw_->keepPowerOn(false);
         running_.store(false);
-        if (Op* op = opMgr_.activeOp()) op->onBatteryUndervoltage(ctx);  // BUG-001 fix
     } else if (battery_.voltage < lowV) {
         if (!batteryLowEventLatched_) {
             const std::string message = messages::humanReadableReasonMessage("battery_low");
@@ -1072,6 +1129,49 @@ void Robot::checkBattery(OpContext& ctx) {
     } else {
         batteryLowEventLatched_ = false;
         batteryCriticalEventLatched_ = false;
+    }
+}
+
+void Robot::monitorPerimeterSafety(OpContext& ctx) {
+    const bool violated = !ctx.insidePerimeter;
+    if (violated && previousInsidePerimeter_) {
+        const std::string message =
+            messages::humanReadableReasonMessage("perimeter_violated", "ERR_PERIMETER");
+        recordEvent("error", "safety_event", "perimeter_violated", message, "ERR_PERIMETER");
+        showUiNotice(message, "error", "perimeter_violated", 12000);
+        if (Op* op = opMgr_.activeOp()) {
+            op->onPerimeterViolated(ctx);
+        }
+    }
+    previousInsidePerimeter_ = ctx.insidePerimeter;
+}
+
+void Robot::monitorMapChangeSafety(OpContext& ctx) {
+    if (resumeBlockedByMapChange_ && !previousResumeBlockedByMapChange_) {
+        const std::string message =
+            messages::humanReadableReasonMessage("resume_blocked_map_changed");
+        recordEvent("warn", "map_event", "resume_blocked_map_changed", message);
+        showUiNotice(message, "warn", "resume_blocked_map_changed", 8000);
+        if (Op* op = opMgr_.activeOp()) {
+            op->onMapChanged(ctx);
+        }
+    }
+    previousResumeBlockedByMapChange_ = resumeBlockedByMapChange_;
+}
+
+void Robot::monitorOpWatchdog(OpContext& ctx) {
+    Op* op = opMgr_.activeOp();
+    if (!op) return;
+
+    const unsigned long timeoutMs = op->watchdogTimeoutMs(ctx);
+    if (timeoutMs == 0 || op->startTime_ms == 0 || ctx.now_ms < op->startTime_ms) return;
+
+    if (ctx.now_ms - op->startTime_ms > timeoutMs) {
+        const std::string message =
+            messages::humanReadableReasonMessage("op_watchdog_timeout", "ERR_OP_TIMEOUT");
+        recordEvent("error", "safety_event", "op_watchdog_timeout", message, "ERR_OP_TIMEOUT");
+        showUiNotice(message, "error", "op_watchdog_timeout", 12000);
+        op->onWatchdogTimeout(ctx);
     }
 }
 
@@ -1170,7 +1270,20 @@ nlohmann::json Robot::diagRunMotor(const std::string& motor, float pwm,
         : 0;
 
     std::unique_lock<std::mutex> lk(diagMutex_);
-    diagReq_ = DiagReq{motor, pwm, duration_ms, ticksTarget, true, 0, 0, false, ""};
+    diagReq_ = DiagReq{};
+    diagReq_.motor = motor;
+    diagReq_.duration_ms = duration_ms;
+    diagReq_.active = true;
+    if (motor == "left") {
+        diagReq_.leftPwm = pwm;
+        diagReq_.leftTicksTarget = ticksTarget;
+    } else if (motor == "right") {
+        diagReq_.rightPwm = pwm;
+        diagReq_.rightTicksTarget = ticksTarget;
+    } else if (motor == "mow") {
+        diagReq_.mowPwm = pwm;
+        diagReq_.mowTicksTarget = ticksTarget;
+    }
     const bool ok = diagCv_.wait_for(lk, std::chrono::seconds(15),
                                      [this]{ return diagReq_.done; });
     if (!ok) {
@@ -1209,16 +1322,30 @@ nlohmann::json Robot::diagMowMotor(bool on) {
     return {{"ok", true}, {"on", on}};
 }
 
-nlohmann::json Robot::diagDriveStraight(float distance_m) {
+nlohmann::json Robot::diagDriveStraight(float distance_m, float pwm) {
     if (activeOpName() != "Idle")
         return {{"ok", false}, {"error", "Nur im Idle-Zustand erlaubt"}};
+    if (distance_m <= 0.0f)
+        return {{"ok", false}, {"error", "Strecke muss groesser als 0 sein"}};
 
-    const unsigned duration_ms = static_cast<unsigned>(distance_m / 0.15f * 1000.0f); // ~0.15 m/s
+    const int ticksPerRev = config_->get<int>("ticks_per_revolution",
+                        config_->get<int>("ticks_per_rev", 320));
+    const float wheelDiameter = config_->get<float>("wheel_diameter_m", 0.205f);
+    const float wheelCircumference = std::max(0.001f, wheelDiameter * static_cast<float>(M_PI));
+    const int ticksTarget = std::max(1, static_cast<int>(std::lround(distance_m / wheelCircumference * ticksPerRev)));
+    const unsigned duration_ms = static_cast<unsigned>(
+        std::clamp(distance_m / std::max(0.05f, std::abs(pwm)) * 4000.0f, 1000.0f, 15000.0f));
 
-    // Run both motors simultaneously using the diag state machine (virtual "both" motor).
-    // We reuse the diag slot but apply both left+right PWM in run().
     std::unique_lock<std::mutex> lk(diagMutex_);
-    diagReq_ = DiagReq{"both", 0.15f, duration_ms, 0, true, 0, 0, false, ""};
+    diagReq_ = DiagReq{};
+    diagReq_.motor = "both";
+    diagReq_.leftPwm = pwm;
+    diagReq_.rightPwm = pwm;
+    diagReq_.duration_ms = duration_ms;
+    diagReq_.leftTicksTarget = ticksTarget;
+    diagReq_.rightTicksTarget = ticksTarget;
+    diagReq_.targetDistance_m = distance_m;
+    diagReq_.active = true;
     const bool ok = diagCv_.wait_for(lk, std::chrono::seconds(30),
                                      [this]{ return diagReq_.done; });
     if (!ok) {
@@ -1232,6 +1359,51 @@ nlohmann::json Robot::diagDriveStraight(float distance_m) {
         return nlohmann::json::parse(result);
     } catch (const std::exception& e) {
         logger_->error(TAG, std::string("diagDriveStraight result parse failed: ") + e.what());
+        return {{"ok", false}, {"error", "Ungueltige Diagnose-Antwort"}};
+    }
+}
+
+nlohmann::json Robot::diagTurnInPlace(float angle_deg, float pwm) {
+    if (activeOpName() != "Idle")
+        return {{"ok", false}, {"error", "Nur im Idle-Zustand erlaubt"}};
+    if (std::abs(angle_deg) < 1.0f)
+        return {{"ok", false}, {"error", "Winkel muss mindestens 1 Grad betragen"}};
+
+    const int ticksPerRev = config_->get<int>("ticks_per_revolution",
+                        config_->get<int>("ticks_per_rev", 320));
+    const float wheelDiameter = config_->get<float>("wheel_diameter_m", 0.205f);
+    const float wheelBase = config_->get<float>("wheel_base_m", 0.390f);
+    const float wheelCircumference = std::max(0.001f, wheelDiameter * static_cast<float>(M_PI));
+    const float arcLength = static_cast<float>(M_PI) * wheelBase * (std::abs(angle_deg) / 360.0f);
+    const int ticksTarget = std::max(1, static_cast<int>(std::lround(arcLength / wheelCircumference * ticksPerRev)));
+    const float absPwm = std::max(0.05f, std::abs(pwm));
+    const float direction = angle_deg >= 0.0f ? 1.0f : -1.0f;
+    const unsigned duration_ms = static_cast<unsigned>(
+        std::clamp(std::abs(angle_deg) * 35.0f / absPwm, 1000.0f, 15000.0f));
+
+    std::unique_lock<std::mutex> lk(diagMutex_);
+    diagReq_ = DiagReq{};
+    diagReq_.motor = "turn";
+    diagReq_.leftPwm = -absPwm * direction;
+    diagReq_.rightPwm = absPwm * direction;
+    diagReq_.duration_ms = duration_ms;
+    diagReq_.leftTicksTarget = ticksTarget;
+    diagReq_.rightTicksTarget = ticksTarget;
+    diagReq_.targetAngle_deg = angle_deg;
+    diagReq_.active = true;
+    const bool ok = diagCv_.wait_for(lk, std::chrono::seconds(30),
+                                     [this]{ return diagReq_.done; });
+    if (!ok) {
+        diagReq_.active = false;
+        hw_->setMotorPwm(0.0f, 0.0f, 0.0f);
+        return {{"ok", false}, {"error", "Timeout"}};
+    }
+    const std::string result = diagReq_.resultJson;
+    diagReq_ = {};
+    try {
+        return nlohmann::json::parse(result);
+    } catch (const std::exception& e) {
+        logger_->error(TAG, std::string("diagTurnInPlace result parse failed: ") + e.what());
         return {{"ok", false}, {"error", "Ungueltige Diagnose-Antwort"}};
     }
 }

@@ -13,6 +13,7 @@ void ChargeOp::begin(OpContext& ctx) {
     retryTouchDock        = false;
     retryTime_ms          = 0;
     contactRetryCount     = 0;
+    chargingComplete_     = false;
     nextConsoleDetails_ms = ctx.now_ms + 30000;
     startTime_ms          = ctx.now_ms;
     // C.7: clear auto-detected obstacles — robot has returned to dock safely
@@ -67,8 +68,11 @@ void ChargeOp::run(OpContext& ctx) {
     }
 
     // Charging complete: high voltage + near-zero current.
-    if (ctx.battery.voltage >= CHARGE_COMPLETE_V && ctx.battery.chargeCurrent < 0.1f) {
+    if (!chargingComplete_ &&
+        ctx.battery.voltage >= CHARGE_COMPLETE_V &&
+        ctx.battery.chargeCurrent < 0.1f) {
         if (ctx.now_ms - startTime_ms > 60000) {  // at least 60s in charge
+            chargingComplete_ = true;
             onChargingCompleted(ctx);
         }
     }

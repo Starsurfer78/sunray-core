@@ -93,9 +93,6 @@ private:
     /// Robot is "at target" when distance drops below this (metres).
     static constexpr float TARGET_REACHED_TOLERANCE = 0.2f;
 
-    /// Kidnap threshold: robot this far off the planned line → fire onKidnapped.
-    static constexpr float KIDNAP_TOLERANCE = 3.0f;
-
     /// Angular velocity used when rotating toward waypoint (≈ 0.5 rad/s).
     static constexpr float ROTATE_SPEED_RADPS =
         29.0f / 180.0f * static_cast<float>(M_PI);

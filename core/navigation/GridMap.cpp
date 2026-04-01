@@ -9,6 +9,7 @@
 //     With a 40×40 grid this processes ≤ 1600 nodes — negligible runtime.
 
 #include "core/navigation/GridMap.h"
+#include "core/navigation/Map.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,9 +34,14 @@ Point GridMap::gridToWorld(int gx, int gy) const {
     };
 }
 
-GridMap::Cell GridMap::cellAt(int gx, int gy) const {
-    if (gx < 0 || gx >= cols_ || gy < 0 || gy >= rows_) return Cell::OCCUPIED;
+Costmap::Cell GridMap::cellAt(int gx, int gy) const {
+    if (gx < 0 || gx >= cols_ || gy < 0 || gy >= rows_) return Costmap::Cell::OCCUPIED;
     return cells_[gy * cols_ + gx];
+}
+
+float GridMap::traversalCostAt(int gx, int gy) const {
+    if (gx < 0 || gx >= cols_ || gy < 0 || gy >= rows_) return 1e6f;
+    return costs_.empty() ? 0.0f : costs_[gy * cols_ + gx];
 }
 
 bool GridMap::lineIsClear(const Point& a, const Point& b) const {
@@ -51,69 +57,9 @@ bool GridMap::lineIsClear(const Point& a, const Point& b) const {
         const float py = a.y + t * dy;
         int gx, gy;
         if (!worldToGrid(px, py, gx, gy)) return false;
-        if (cellAt(gx, gy) == Cell::OCCUPIED)   return false;
+        if (cellAt(gx, gy) == Costmap::Cell::OCCUPIED)   return false;
     }
     return true;
-}
-
-// ── Grid marking ──────────────────────────────────────────────────────────────
-
-void GridMap::markCircle(float cx, float cy, float radius) {
-    int gx0, gy0;
-    if (!worldToGrid(cx, cy, gx0, gy0)) return;  // centre out of range — still mark nearby
-
-    const int rCells = static_cast<int>(std::ceil(radius / cellSize_)) + 1;
-    for (int dy = -rCells; dy <= rCells; ++dy) {
-        for (int dx = -rCells; dx <= rCells; ++dx) {
-            const int gx = gx0 + dx;
-            const int gy = gy0 + dy;
-            if (gx < 0 || gx >= cols_ || gy < 0 || gy >= rows_) continue;
-            const Point world = gridToWorld(gx, gy);
-            const float ddx = world.x - cx;
-            const float ddy = world.y - cy;
-            if (ddx*ddx + ddy*ddy <= radius*radius) {
-                cells_[gy * cols_ + gx] = Cell::OCCUPIED;
-            }
-        }
-    }
-}
-
-bool GridMap::pointInPolygon(const PolygonPoints& poly, float px, float py) {
-    bool inside = false;
-    const int n = static_cast<int>(poly.size());
-    for (int i = 0, j = n - 1; i < n; j = i++) {
-        const float xi = poly[i].x, yi = poly[i].y;
-        const float xj = poly[j].x, yj = poly[j].y;
-        if (((yi > py) != (yj > py)) &&
-            (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
-            inside = !inside;
-        }
-    }
-    return inside;
-}
-
-void GridMap::markExterior(const PolygonPoints& poly) {
-    if (poly.empty()) return;
-    for (int gy = 0; gy < rows_; ++gy) {
-        for (int gx = 0; gx < cols_; ++gx) {
-            const Point w = gridToWorld(gx, gy);
-            if (!pointInPolygon(poly, w.x, w.y)) {
-                cells_[gy * cols_ + gx] = Cell::OCCUPIED;
-            }
-        }
-    }
-}
-
-void GridMap::markInterior(const PolygonPoints& poly) {
-    if (poly.empty()) return;
-    for (int gy = 0; gy < rows_; ++gy) {
-        for (int gx = 0; gx < cols_; ++gx) {
-            const Point w = gridToWorld(gx, gy);
-            if (pointInPolygon(poly, w.x, w.y)) {
-                cells_[gy * cols_ + gx] = Cell::OCCUPIED;
-            }
-        }
-    }
 }
 
 // ── Build ──────────────────────────────────────────────────────────────────────
@@ -121,27 +67,31 @@ void GridMap::markInterior(const PolygonPoints& poly) {
 void GridMap::build(const Map& map,
                     float originX, float originY,
                     float cellSize_m, int cols, int rows,
-                    float robotRadius) {
-    originX_  = originX;
-    originY_  = originY;
-    cellSize_ = cellSize_m;
-    cols_     = cols;
-    rows_     = rows;
+                    float robotRadius,
+                    WayType planningMode) {
+    Costmap costmap;
+    costmap.buildFromMap(map, originX, originY, cellSize_m, cols, rows, robotRadius, planningMode);
+    build(costmap);
+}
 
-    cells_.assign(static_cast<size_t>(cols * rows), Cell::EMPTY);
-
-    // 1. Mark outside perimeter as OCCUPIED
-    markExterior(map.perimeterPoints());
-
-    // 2. Mark exclusion zones as OCCUPIED
-    for (const auto& ex : map.exclusions()) {
-        markInterior(ex);
+void GridMap::build(const Costmap& costmap) {
+    if (!costmap.isBuilt()) {
+        originX_ = 0.0f;
+        originY_ = 0.0f;
+        cellSize_ = DEFAULT_CELL_M;
+        cols_ = rows_ = 0;
+        cells_.clear();
+        costs_.clear();
+        return;
     }
 
-    // 3. Mark OnTheFlyObstacles (inflated by robotRadius)
-    for (const auto& obs : map.obstacles()) {
-        markCircle(obs.center.x, obs.center.y, obs.radius_m + robotRadius);
-    }
+    originX_ = costmap.originX();
+    originY_ = costmap.originY();
+    cellSize_ = costmap.cellSize();
+    cols_ = costmap.cols();
+    rows_ = costmap.rows();
+    cells_ = costmap.cells();
+    costs_ = costmap.costs();
 }
 
 // ── A* ────────────────────────────────────────────────────────────────────────
@@ -155,22 +105,29 @@ std::vector<Point> GridMap::planPath(const Point& src, const Point& dst) const {
 
     // If destination is out-of-bounds or OCCUPIED, find nearest free cell
     bool dstOk = worldToGrid(dst.x, dst.y, dx, dy);
-    if (!dstOk || cellAt(dx, dy) == Cell::OCCUPIED) {
+    if (!dstOk || cellAt(dx, dy) == Costmap::Cell::OCCUPIED) {
         float bestDist = 1e30f;
+        bool foundFree = false;
         for (int gy = 0; gy < rows_; ++gy) {
             for (int gx = 0; gx < cols_; ++gx) {
-                if (cellAt(gx, gy) == Cell::OCCUPIED) continue;
+                if (cellAt(gx, gy) == Costmap::Cell::OCCUPIED) continue;
                 const Point w = gridToWorld(gx, gy);
                 const float ddx = w.x - dst.x;
                 const float ddy = w.y - dst.y;
                 const float d = ddx*ddx + ddy*ddy;
-                if (d < bestDist) { bestDist = d; dx = gx; dy = gy; }
+                if (d < bestDist) {
+                    bestDist = d;
+                    dx = gx;
+                    dy = gy;
+                    foundFree = true;
+                }
             }
         }
+        if (!foundFree) return {};
     }
 
     // If source is OCCUPIED (robot inside obstacle), relax it
-    if (cellAt(sx, sy) == Cell::OCCUPIED) {
+    if (cellAt(sx, sy) == Costmap::Cell::OCCUPIED) {
         // Allow starting from OCCUPIED cell — A* will route out
     }
 
@@ -234,9 +191,15 @@ std::vector<Point> GridMap::planPath(const Point& src, const Point& dst) const {
             if (nx < 0 || nx >= cols_ || ny < 0 || ny >= rows_) continue;
             const int nidx = ny * cols_ + nx;
             if (closed[nidx])                          continue;
-            if (cellAt(nx, ny) == Cell::OCCUPIED)      continue;
+            if (cellAt(nx, ny) == Costmap::Cell::OCCUPIED)      continue;
+            if ((DDX[d] != 0) && (DDY[d] != 0)) {
+                if (cellAt(cx + DDX[d], cy) == Costmap::Cell::OCCUPIED ||
+                    cellAt(cx, cy + DDY[d]) == Costmap::Cell::OCCUPIED) {
+                    continue;
+                }
+            }
 
-            const float ng = gCost[idx] + COST[d] * cellSize_;
+            const float ng = gCost[idx] + COST[d] * cellSize_ + traversalCostAt(nx, ny) * cellSize_;
             if (ng < gCost[nidx]) {
                 gCost[nidx]  = ng;
                 parent[nidx] = idx;

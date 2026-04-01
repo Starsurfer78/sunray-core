@@ -1,79 +1,60 @@
 # PROJECT_OVERVIEW
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01
 
 ## Purpose
 
-`sunray-core` is a Linux-first robot controller for an RTK-GPS lawn mower running on Raspberry Pi. The repository contains:
+`sunray-core` is a Linux-first robot controller for an RTK-GPS lawn mower on Raspberry Pi.
 
-- a C++17 runtime for robot control, navigation, mission/state logic, hardware access, HTTP/WebSocket API, and optional MQTT
+The repository contains:
+
+- a C++17 runtime for control loop, navigation, state machine, hardware access, HTTP/WebSocket API, and optional MQTT
 - an active Svelte + TypeScript WebUI under `webui-svelte/`
-- an archived Vue WebUI under `ALTE_DATEIEN/webui-vue-reference/` kept only as reference
 - a simulation mode for development without physical hardware
-- native and frontend tests
-
-The codebase is organized around one central runtime object: `sunray::Robot`, which orchestrates the hardware abstraction layer, navigation, state machine, and telemetry.
+- native Catch2 tests and frontend checks
 
 ## High-Level Architecture
 
 ### Runtime layers
 
 - `platform/`
-  Linux-near wrappers for serial, I2C, and port expanders.
+  Linux-near wrappers for serial, I2C, mux, and port expanders
 - `hal/`
-  The hardware boundary. `HardwareInterface` defines the contract; concrete implementations include:
-  - `SerialRobotDriver` for Alfred STM32 hardware over UART/I2C
-  - `SimulationDriver` for software-only execution
-  - GPS and IMU drivers
+  hardware boundary via `HardwareInterface`, `SerialRobotDriver`, `SimulationDriver`, GPS, and IMU drivers
 - `core/`
-  Platform-independent robot logic:
-  - `Robot`
-  - config and logging
-  - op/state machine
-  - navigation and map handling
-  - Crow-based HTTP/WebSocket server
-  - optional MQTT client
+  `Robot`, config, op/state machine, navigation, planner/costmap/route handling, HTTP/WebSocket server, optional MQTT
 - `webui-svelte/`
-  Active Svelte frontend with dashboard, map, mission page, diagnostics, and supporting stores/components.
-- `ALTE_DATEIEN/webui-vue-reference/`
-  Archived Vue frontend kept only for reference to avoid future confusion.
+  active frontend with dashboard, map, mission, diagnostics, and shared stores/components
 
 ### Central control flow
 
-[`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp) is the native executable entry point. It:
+`main.cpp`:
 
 1. loads config
 2. selects `SimulationDriver` or `SerialRobotDriver`
 3. creates `Robot`
-4. optionally attaches `UbloxGpsDriver`
-5. starts `WebSocketServer`
-6. starts `MqttClient`
+4. optionally attaches GPS
+5. creates `WebSocketServer`
+6. creates optional `MqttClient`
 7. enters `Robot::loop()`
 
-[`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp) runs the 50 Hz control loop:
-
-1. tick hardware
-2. read odometry, sensors, battery, IMU
-3. update state estimation
-4. check schedule, battery, GPS resilience, obstacle cleanup
-5. tick the `OpManager` state machine
-6. apply manual-drive and safety behavior
-7. publish telemetry to WebSocket and MQTT
+`core/Robot.cpp` runs the 50 Hz control loop and wires sensors, safety, state machine, navigation, telemetry, and mission state together.
 
 ## Entry Points
 
 ### Native executable
 
-- [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
-- executable target: `sunray-core`
+- `main.cpp`
+- target: `sunray-core`
 - modes:
-  - `./build_linux/sunray-core --sim config.example.json`
-  - `./build_linux/sunray-core /etc/sunray/config.json`
+  - `./build_pi/sunray-core --sim config.example.json`
+  - `./build_pi/sunray-core /etc/sunray-core/config.json`
 
 ### Backend API surface
 
-- [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
-- WebSocket: `/ws/telemetry`
+- `core/WebSocketServer.cpp`
+- WebSocket:
+  - `/ws/telemetry`
 - HTTP:
   - `/`
   - `/assets/<path>`
@@ -81,175 +62,123 @@ The codebase is organized around one central runtime object: `sunray::Robot`, wh
   - `/api/config`
   - `/api/map`
   - `/api/map/geojson`
+  - `/api/missions`
   - `/api/schedule`
+  - `/api/history/events`
+  - `/api/history/sessions`
+  - `/api/history/export`
+  - `/api/statistics/summary`
   - `/api/sim/<action>`
   - `/api/diag/<action>`
 
 ### Frontend
 
-- [`webui-svelte/src/main.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/src/main.ts)
-- [`webui-svelte/src/App.svelte`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/src/App.svelte)
-- views:
-  - Dashboard
-  - Map
-  - Mission
-  - Diagnostics
+- `webui-svelte/src/main.ts`
+- `webui-svelte/src/App.svelte`
+- shared API/stores:
+  - `webui-svelte/src/lib/api/websocket.ts`
+  - `webui-svelte/src/lib/api/types.ts`
+  - `webui-svelte/src/lib/stores/telemetry.ts`
+  - `webui-svelte/src/lib/stores/map.ts`
+  - `webui-svelte/src/lib/stores/missions.ts`
 
 ### Tests
 
-- native tests: [`tests/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/tests/CMakeLists.txt)
-- frontend checks: `npm run check` in `webui-svelte/`
-
-Verification observed during this scan:
-
-- `ctest --test-dir build_linux --output-on-failure`: 175/175 passed
-- `npm run check` in `webui-svelte/`: current Svelte frontend validation path
-
-## Build Process
-
-### Native build
-
-Top-level CMake is defined in [`CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/CMakeLists.txt).
-
-- language: C++17
-- build system: CMake
-- external dependencies fetched with `FetchContent`:
-  - `nlohmann_json`
-  - `Catch2`
-  - `asio`
-  - `Crow`
-- optional system dependency:
-  - `libmosquitto` via `pkg-config`
-
-Typical commands:
-
-```bash
-cmake -S . -B build_linux
-cmake --build build_linux -j2
-ctest --test-dir build_linux --output-on-failure
-```
-
-Hinweis:
-
-- Build-Verzeichnisse sind lokale, generierte Artefakte und nicht die Source of Truth.
-- Für Builds auf einem Zielsystem wie dem Raspberry Pi sollte ein frisches Build-Verzeichnis verwendet werden, z. B. `build_pi/`.
-- Bereits vorhandene Build-Ordner aus anderen Maschinen oder Toolchains sollten nicht als Grundlage für einen sauberen Build dienen.
-
-### Frontend build
-
-Frontend build is defined in [`webui/package.json`](/mnt/LappiDaten/Projekte/sunray-core/webui/package.json) and [`webui/vite.config.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/vite.config.ts).
-
-- stack: Vue 3, Vue Router, TypeScript, Vite, Tailwind CSS, Vitest
-- dev proxy:
-  - `/api` -> `http://localhost:8765`
-  - `/ws` -> `ws://localhost:8765`
-- production output: `webui/dist`
-
-Typical commands:
-
-```bash
-cd webui
-npm install
-npm run build
-npm test
-```
+- native tests: `tests/CMakeLists.txt`
+- frontend validation: `webui-svelte/package.json`
 
 ## Critical Files
 
 ### System bootstrap
 
-- [`CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/CMakeLists.txt)
-- [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
-- [`config.example.json`](/mnt/LappiDaten/Projekte/sunray-core/config.example.json)
+- `CMakeLists.txt`
+- `main.cpp`
+- `config.example.json`
 
 ### Core runtime
 
-- [`core/Robot.h`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.h)
-- [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
-- [`core/WebSocketServer.h`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.h)
-- [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
-- [`core/MqttClient.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/MqttClient.cpp)
+- `core/Robot.h`
+- `core/Robot.cpp`
+- `core/WebSocketServer.h`
+- `core/WebSocketServer.cpp`
+- `core/MqttClient.cpp`
+
+### Navigation and state machine
+
+- `core/op/Op.h`
+- `core/op/Op.cpp`
+- `core/navigation/StateEstimator.cpp`
+- `core/navigation/Map.cpp`
+- `core/navigation/Planner.cpp`
+- `core/navigation/Costmap.cpp`
+- `core/navigation/GridMap.cpp`
+- `core/navigation/LineTracker.cpp`
+- `core/navigation/Route.h`
 
 ### Hardware boundary
 
-- [`hal/HardwareInterface.h`](/mnt/LappiDaten/Projekte/sunray-core/hal/HardwareInterface.h)
-- [`hal/SerialRobotDriver/SerialRobotDriver.cpp`](/mnt/LappiDaten/Projekte/sunray-core/hal/SerialRobotDriver/SerialRobotDriver.cpp)
-- [`hal/SimulationDriver/SimulationDriver.cpp`](/mnt/LappiDaten/Projekte/sunray-core/hal/SimulationDriver/SimulationDriver.cpp)
-- [`hal/GpsDriver/UbloxGpsDriver.cpp`](/mnt/LappiDaten/Projekte/sunray-core/hal/GpsDriver/UbloxGpsDriver.cpp)
-- [`hal/Imu/Mpu6050Driver.cpp`](/mnt/LappiDaten/Projekte/sunray-core/hal/Imu/Mpu6050Driver.cpp)
+- `hal/HardwareInterface.h`
+- `hal/SerialRobotDriver/SerialRobotDriver.cpp`
+- `hal/SimulationDriver/SimulationDriver.cpp`
+- `hal/GpsDriver/UbloxGpsDriver.cpp`
+- `hal/Imu/Mpu6050Driver.cpp`
 
-### State machine and navigation
+## Current Project Reality
 
-- [`core/op/Op.h`](/mnt/LappiDaten/Projekte/sunray-core/core/op/Op.h)
-- [`core/op/*.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/op)
-- [`core/navigation/StateEstimator.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/StateEstimator.cpp)
-- [`core/navigation/Map.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/Map.cpp)
-- [`core/navigation/GridMap.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/GridMap.cpp)
-- [`core/navigation/LineTracker.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/LineTracker.cpp)
-
-### Frontend integration
-
-- [`webui/src/composables/useTelemetry.ts`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/composables/useTelemetry.ts)
-- [`webui/src/views/Dashboard.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/views/Dashboard.vue)
-- [`webui/src/views/MapEditor.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/views/MapEditor.vue)
-- [`webui/src/views/Settings.vue`](/mnt/LappiDaten/Projekte/sunray-core/webui/src/views/Settings.vue)
+- Navigation architecture refactor is documented in [docs/NAVIGATION_UPGRADE.md](/mnt/LappiDaten/Projekte/sunray-core/docs/NAVIGATION_UPGRADE.md).
+- The biggest remaining gap is not architecture but real Linux/Pi/hardware validation.
+- `TODO.md` is the only open backlog.
+- `ALTE_DATEIEN/` is archival only.
 
 ## Key Risks
 
 ### Operational risks
 
-- Hardware validation is still incomplete on real Raspberry Pi / Alfred hardware. `TODO.md` still marks Pi build and real-drive validation as open.
-- Safety-critical behavior depends on real sensor timing, GPS quality, charger contact behavior, and watchdog coordination that are only partly covered by tests.
-- `SerialRobotDriver` performs platform shutdown with `std::system("shutdown now")`, which is correct for deployment but high-impact if triggered unexpectedly on real hardware.
-
-### Repository hygiene risks
-
-- Generated build trees are present in the repo: `build/`, `build_gcc/`, `build_linux/`, `build_clang_ninja/`.
-- `webui/node_modules/` and `webui/dist/` are also present, which increases repo size and makes source-vs-generated boundaries easier to misunderstand.
-- `ALTE_DATEIEN/` and older workflow material remain in-tree. Useful as reference, but not all of it matches current code.
-
-Operational convention going forward:
-
-- local build directories should be treated as disposable
-- frontend dependency and dist folders should be reproducible locally
-- the authoritative project state is the source tree plus documentation, not generated output
+- Real Alfred/Pi validation remains the biggest open gap.
+- Safety-relevant behavior still depends on real UART, GPS, IMU, charger, and watchdog timing.
+- Build claims are only trustworthy from a fresh Linux/Pi build directory.
 
 ### Architecture risks
 
-- The `Robot` class is the main orchestration hub and carries a lot of responsibility: control loop, telemetry assembly, schedule handling, manual drive, diagnostic flow, GPS resilience, and state-machine wiring.
-- Backend and frontend are tightly coupled through a frozen telemetry format and specific REST/WS payloads. Changes in one side can easily break the other.
-- Map handling, routing, and recovery logic span multiple modules (`Robot`, `Map`, `GridMap`, `LineTracker`, `Op` classes), so navigation changes have wide impact.
+- `Robot` is still the orchestration hub for many concerns.
+- Backend and frontend remain tightly coupled via telemetry and mission/map payloads.
+- Hardware behavior can still invalidate assumptions that are clean in simulation.
 
-### Risk Reduction Plan
+## Documentation Status
 
-Near-term reduction plan for the architecture risks:
+### Current / source of truth
 
-1. Before commit 1: freeze the telemetry contract
-   - briefly capture the current payload keys and meanings before touching `Robot::run()`
-   - use that frozen view to prevent silent frontend breakage during the refactor
-   - current baseline documents:
-     - [`docs/ROBOT_RUN_BASELINE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/ROBOT_RUN_BASELINE.md)
-     - [`docs/TELEMETRY_CONTRACT.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/TELEMETRY_CONTRACT.md)
-2. Commit 1: reduce `Robot` risk without changing behavior
-   - split `Robot::run()` into a few clearly named private steps
-   - keep `Robot` as orchestrator, but move telemetry assembly and similar helper logic out of the long inline flow only if the output remains equivalent
-   - extend `tests/test_robot.cpp` before or alongside the extraction
-3. Commit 2: stabilize backend/frontend contracts
-   - document the telemetry payload as an explicit contract
-   - add focused tests for WebSocket/REST payload compatibility
-   - prefer additive payload changes over renames or shape changes
-4. Commit 3: harden navigation/recovery regressions
-   - add a small set of high-risk scenario tests for GPS loss, obstacle recovery, docking retry, and resume behavior
-   - treat navigation changes as scenario-driven changes, not isolated math edits
+- `README.md`
+- `PROJECT_OVERVIEW.md`
+- `PROJECT_MAP.md`
+- `TODO.md`
+- `docs/NAVIGATION_UPGRADE.md`
+- `docs/OP_STATE_MACHINE.md`
+- `docs/TELEMETRY_CONTRACT.md`
+- `docs/ROBOT_RUN_BASELINE.md`
+- `docs/ALFRED_TEST_RUN_GUIDE.md`
+
+### Reference / operational docs
+
+- `docs/ALFRED_FLASHING.md`
+- `docs/ALFRED_PI_SWITCHOVER_GUIDE.md`
+- `docs/ALFRED_HARDWARE_ACCEPTANCE.md`
+- `docs/MQTT.md`
+- `docs/ROBOT_BUTTON_BUZZER_ERROR.md`
+
+### Archived / not source of truth
+
+- `ALTE_DATEIEN/`
+- archived Vue frontend under `ALTE_DATEIEN/webui-vue-reference/`
 
 ## Recommended Reading Order
 
-1. [`README.md`](/mnt/LappiDaten/Projekte/sunray-core/README.md)
-2. [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
-3. [`hal/HardwareInterface.h`](/mnt/LappiDaten/Projekte/sunray-core/hal/HardwareInterface.h)
-4. [`core/Robot.h`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.h)
-5. [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
-6. [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
-7. [`docs/OP_STATE_MACHINE.md`](/mnt/LappiDaten/Projekte/sunray-core/docs/OP_STATE_MACHINE.md)
-8. [`webui/README.md`](/mnt/LappiDaten/Projekte/sunray-core/webui/README.md)
-9. [`TODO.md`](/mnt/LappiDaten/Projekte/sunray-core/TODO.md)
+1. `README.md`
+2. `PROJECT_OVERVIEW.md`
+3. `PROJECT_MAP.md`
+4. `TODO.md`
+5. `main.cpp`
+6. `core/Robot.cpp`
+7. `core/op/Op.h`
+8. `core/navigation/Map.h`
+9. `docs/NAVIGATION_UPGRADE.md`

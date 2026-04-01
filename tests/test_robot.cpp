@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <future>
 
 using namespace sunray;
 
@@ -41,7 +42,13 @@ struct RobotTelemetryAccess {
 
     static void armDiag(Robot& robot, const std::string& motor, float pwm, unsigned duration_ms) {
         std::lock_guard<std::mutex> lk(robot.diagMutex_);
-        robot.diagReq_ = Robot::DiagReq{motor, pwm, duration_ms, 0, true, 0, 0, false, ""};
+        robot.diagReq_ = Robot::DiagReq{};
+        robot.diagReq_.motor = motor;
+        robot.diagReq_.duration_ms = duration_ms;
+        robot.diagReq_.active = true;
+        if (motor == "left") robot.diagReq_.leftPwm = pwm;
+        if (motor == "right") robot.diagReq_.rightPwm = pwm;
+        if (motor == "mow") robot.diagReq_.mowPwm = pwm;
     }
 };
 }
@@ -522,6 +529,57 @@ TEST_CASE("Robot: emergencyStop() sends motor stop", "[state]") {
     REQUIRE(hw->hadMotorStop());
 }
 
+TEST_CASE("Robot: diagDriveStraight returns tick and distance metrics", "[diag]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    hw->odometry.leftTicks = 20;
+    hw->odometry.rightTicks = 20;
+    hw->odometry.mcuConnected = true;
+
+    std::thread loopThread([&]() { robot->loop(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    auto future = std::async(std::launch::async, [&]() {
+        return robot->diagDriveStraight(0.5f, 0.15f);
+    });
+
+    const auto result = future.get();
+    robot->stop();
+    loopThread.join();
+
+    REQUIRE(result["ok"].get<bool>() == true);
+    REQUIRE(result["left_ticks"].get<long>() > 0);
+    REQUIRE(result["right_ticks"].get<long>() > 0);
+    REQUIRE(result["left_ticks_target"].get<int>() > 0);
+    REQUIRE(result["distance_target_m"].get<float>() == Catch::Approx(0.5f));
+}
+
+TEST_CASE("Robot: diagTurnInPlace returns target angle and left/right ticks", "[diag]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    hw->odometry.leftTicks = 15;
+    hw->odometry.rightTicks = 15;
+    hw->odometry.mcuConnected = true;
+
+    std::thread loopThread([&]() { robot->loop(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    auto future = std::async(std::launch::async, [&]() {
+        return robot->diagTurnInPlace(90.0f, 0.15f);
+    });
+
+    const auto result = future.get();
+    robot->stop();
+    loopThread.join();
+
+    REQUIRE(result["ok"].get<bool>() == true);
+    REQUIRE(result["left_ticks"].get<long>() > 0);
+    REQUIRE(result["right_ticks"].get<long>() > 0);
+    REQUIRE(result["target_angle_deg"].get<float>() == Catch::Approx(90.0f));
+}
+
 // ── [battery] ─────────────────────────────────────────────────────────────────
 
 TEST_CASE("Robot: low battery triggers dock request", "[battery]") {
@@ -550,7 +608,67 @@ TEST_CASE("Robot: critical battery stops loop and calls keepPowerOn(false)", "[b
 
     REQUIRE(hw->keepPowerOnFlag == false);
     REQUIRE(robot->isRunning() == false);
-    REQUIRE(robot->activeOpName() == "Idle");
+    REQUIRE(robot->activeOpName() == "Error");
+}
+
+TEST_CASE("Robot: perimeter violation during mowing requests docking", "[run][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_perimeter_mow_map.json")));
+
+    robot->startMowing();
+    robot->run();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "Mow");
+
+    robot->setPose(6.0f, 0.0f, 0.0f);
+    hw->motorCalls.clear();
+    robot->run();
+    robot->run();
+
+    REQUIRE(hw->hadMotorStop());
+    REQUIRE(robot->activeOpName() == "Dock");
+}
+
+TEST_CASE("Robot: perimeter violation during nav-to-start requests docking", "[run][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_perimeter_nav_map.json")));
+
+    robot->startMowing();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "NavToStart");
+
+    robot->setPose(6.0f, 0.0f, 0.0f);
+    hw->motorCalls.clear();
+    robot->run();
+    robot->run();
+
+    REQUIRE(hw->hadMotorStop());
+    REQUIRE(robot->activeOpName() == "Dock");
+}
+
+TEST_CASE("Robot: dock watchdog escalates to error", "[run][safety]") {
+    auto hw_owned = std::make_unique<MockHardware>();
+    MockHardware* hw = hw_owned.get();
+    auto config = makeConfig();
+    config->set("dock_max_duration_ms", 50);
+    Robot robot(std::move(hw_owned), config, makeLogger());
+
+    REQUIRE(robot.init());
+    REQUIRE(robot.loadMap(writeSimpleMap("sunray_test_robot_watchdog_map.json")));
+
+    robot.startDocking();
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Dock");
+
+    RobotTelemetryAccess::advanceTimeMs(robot, 100);
+    hw->motorCalls.clear();
+    robot.run();
+    robot.run();
+
+    REQUIRE(hw->hadMotorStop());
+    REQUIRE(robot.activeOpName() == "Error");
 }
 
 TEST_CASE("Robot: battery voltage==0 (no MCU) does not trigger shutdown", "[battery]") {

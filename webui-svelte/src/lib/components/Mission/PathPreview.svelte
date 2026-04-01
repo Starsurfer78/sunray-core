@@ -1,9 +1,15 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import type { Mission } from '../../stores/missions'
-  import type { Zone, ZoneSettings } from '../../stores/map'
+  import type { Zone, ZoneSettings, Point } from '../../stores/map'
+  import { getEffectiveZoneArea } from '../../geometry/polygon'
+  import { generateStripes, type Segment } from '../../geometry/scanline'
+  import { generateEdgeRounds } from '../../geometry/edge'
+  import { sortSegmentsNearestNeighbour } from '../../geometry/sequence'
 
   export let zones: Zone[] = []
+  export let perimeter: Point[] = []
+  export let exclusions: Point[][] = []
   export let mission: Mission | null = null
   export let selectedZoneId: string | null = null
 
@@ -27,41 +33,17 @@
     return { ...zone.settings, ...override }
   }
 
-  function boundsOfZones(input: Zone[]): Bounds {
-    const points = input.flatMap((z) => z.polygon)
-    if (points.length === 0) return { minX: 0, minY: 0, maxX: 10, maxY: 10 }
+  function boundsOf(pts: Point[]): Bounds {
+    if (pts.length === 0) return { minX: 0, minY: 0, maxX: 10, maxY: 10 }
     return {
-      minX: Math.min(...points.map((p) => p.x)),
-      minY: Math.min(...points.map((p) => p.y)),
-      maxX: Math.max(...points.map((p) => p.x)),
-      maxY: Math.max(...points.map((p) => p.y)),
+      minX: Math.min(...pts.map(p => p.x)),
+      minY: Math.min(...pts.map(p => p.y)),
+      maxX: Math.max(...pts.map(p => p.x)),
+      maxY: Math.max(...pts.map(p => p.y)),
     }
   }
 
-  function polygonPoints(zone: Zone, bounds: Bounds): string {
-    const spanX = Math.max(1, bounds.maxX - bounds.minX)
-    const spanY = Math.max(1, bounds.maxY - bounds.minY)
-    const baseScale = Math.min((width - 120) / spanX, (height - 120) / spanY)
-    const scale = baseScale * zoom
-    const centerX = width / 2 + offsetX
-    const centerY = height / 2 + offsetY
-    const midX = (bounds.minX + bounds.maxX) / 2
-    const midY = (bounds.minY + bounds.maxY) / 2
-    return zone.polygon
-      .map((p) => {
-        const x = centerX + (p.x - midX) * scale
-        const y = centerY - (p.y - midY) * scale
-        return `${x.toFixed(2)},${y.toFixed(2)}`
-      })
-      .join(' ')
-  }
-
-  function polygonCenter(zone: Zone): { x: number; y: number } {
-    const total = zone.polygon.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 })
-    return { x: total.x / Math.max(1, zone.polygon.length), y: total.y / Math.max(1, zone.polygon.length) }
-  }
-
-  function project(point: { x: number; y: number }, bounds: Bounds) {
+  function project(point: Point, bounds: Bounds) {
     const spanX = Math.max(1, bounds.maxX - bounds.minX)
     const spanY = Math.max(1, bounds.maxY - bounds.minY)
     const baseScale = Math.min((width - 120) / spanX, (height - 120) / spanY)
@@ -76,19 +58,16 @@
     }
   }
 
-  function stripeLines(zone: Zone, bounds: Bounds, settings: ZoneSettings) {
-    const projected = zone.polygon.map((p) => project(p, bounds))
-    const minX = Math.min(...projected.map((p) => p.x))
-    const maxX = Math.max(...projected.map((p) => p.x))
-    const minY = Math.min(...projected.map((p) => p.y))
-    const maxY = Math.max(...projected.map((p) => p.y))
-    const lineCount = 18
-    const lines: Array<{ x1: number; y1: number; x2: number; y2: number }> = []
-    for (let i = -lineCount; i <= lineCount; i += 1) {
-      const y = minY + ((i + lineCount) / (lineCount * 2 || 1)) * (maxY - minY)
-      lines.push({ x1: minX - 120, y1: y, x2: maxX + 120, y2: y })
-    }
-    return { lines, angle: settings.angle }
+  function polyPoints(pts: Point[], bounds: Bounds): string {
+    return pts.map(p => {
+      const { x, y } = project(p, bounds)
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    }).join(' ')
+  }
+
+  function polygonCenter(zone: Zone): Point {
+    const total = zone.polygon.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 })
+    return { x: total.x / Math.max(1, zone.polygon.length), y: total.y / Math.max(1, zone.polygon.length) }
   }
 
   function startDrag(event: PointerEvent) {
@@ -117,11 +96,42 @@
 
   $: missionZones = mission
     ? mission.zoneIds
-        .map((id) => zones.find((z) => z.id === id))
+        .map(id => zones.find(z => z.id === id))
         .filter((z): z is Zone => Boolean(z))
     : []
 
-  $: bounds = boundsOfZones(missionZones)
+  // Bounds: Perimeter wenn vorhanden, sonst Zonen
+  $: viewPts = perimeter.length >= 3
+    ? perimeter
+    : missionZones.flatMap(z => z.polygon)
+  $: bounds = boundsOf(viewPts)
+
+  // Echte Geometrie pro Zone berechnen
+  type ZoneGeometry = {
+    effectiveAreas: Point[][]
+    edgePaths: Point[][]
+    segments: Segment[]
+  }
+  $: zoneGeometry = new Map<string, ZoneGeometry>(
+    missionZones.map(zone => {
+      const settings = effectiveSettings(zone)
+      const effectiveAreas = getEffectiveZoneArea(zone.polygon, perimeter, exclusions)
+
+      let edgePaths: Point[][] = []
+      let infillAreas = effectiveAreas
+
+      if (settings.edgeMowing && settings.edgeRounds > 0) {
+        const edge = generateEdgeRounds(effectiveAreas, settings.stripWidth, settings.edgeRounds)
+        edgePaths = edge.edgePaths
+        infillAreas = edge.infillAreas
+      }
+
+      const rawSegments = generateStripes(infillAreas, settings.stripWidth, settings.angle)
+      const segments = sortSegmentsNearestNeighbour(rawSegments)
+
+      return [zone.id, { effectiveAreas, edgePaths, segments }]
+    })
+  )
 </script>
 
 <div class="preview-root">
@@ -165,21 +175,28 @@
       <pattern id="pp-grid" width="30" height="30" patternUnits="userSpaceOnUse">
         <path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5" />
       </pattern>
-      {#each missionZones as zone}
-        <clipPath id="zone-clip-{zone.id}">
-          <polygon points={polygonPoints(zone, bounds)} />
-        </clipPath>
-      {/each}
     </defs>
 
     <rect x="-9999" y="-9999" width="19999" height="19999" fill="#070d18" />
     <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#pp-grid)" />
 
+    <!-- Perimeter -->
+    {#if perimeter.length >= 3}
+      <polygon
+        points={polyPoints(perimeter, bounds)}
+        fill="none"
+        stroke="#1e3a5f"
+        stroke-width="1.5"
+        stroke-dasharray="6 3"
+      />
+    {/if}
+
+    <!-- Zonen -->
     {#each missionZones as zone, i}
-      {@const settings = effectiveSettings(zone)}
       {@const color = zoneColors[i % zoneColors.length]}
+      {@const geo = zoneGeometry.get(zone.id)}
       {@const center = project(polygonCenter(zone), bounds)}
-      {@const stripes = stripeLines(zone, bounds, settings)}
+
       <g
         role="button"
         tabindex="0"
@@ -192,20 +209,55 @@
           }
         }}
       >
-        <polygon
-          points={polygonPoints(zone, bounds)}
-          fill={selectedZoneId === zone.id ? `${color}44` : `${color}26`}
-          stroke={color}
-          stroke-width={selectedZoneId === zone.id ? 3 : 1.8}
-        />
-        <g clip-path="url(#zone-clip-{zone.id})" transform="rotate({-stripes.angle} {center.x} {center.y})">
-          {#each stripes.lines as line}
-            <line
-              x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
-              stroke={color} stroke-opacity="0.55" stroke-width="1.1"
+        <!-- Effektive Fläche (geclippte Zone) -->
+        {#if geo && geo.effectiveAreas.length > 0}
+          {#each geo.effectiveAreas as area}
+            <polygon
+              points={polyPoints(area, bounds)}
+              fill={selectedZoneId === zone.id ? `${color}44` : `${color}26`}
+              stroke={color}
+              stroke-width={selectedZoneId === zone.id ? 3 : 1.8}
             />
           {/each}
-        </g>
+        {:else}
+          <!-- Fallback: Zone-Polygon direkt -->
+          <polygon
+            points={polyPoints(zone.polygon, bounds)}
+            fill={selectedZoneId === zone.id ? `${color}44` : `${color}26`}
+            stroke={color}
+            stroke-width={selectedZoneId === zone.id ? 3 : 1.8}
+            stroke-dasharray="4 2"
+          />
+        {/if}
+
+        <!-- Randmäh-Runden -->
+        {#if geo}
+          {#each geo.edgePaths as edgePoly}
+            <polygon
+              points={polyPoints(edgePoly, bounds)}
+              fill="none"
+              stroke={color}
+              stroke-opacity="0.75"
+              stroke-width="1.4"
+            />
+          {/each}
+        {/if}
+
+        <!-- Infill-Mähbahnen -->
+        {#if geo}
+          {#each geo.segments as seg}
+            {@const pa = project(seg.a, bounds)}
+            {@const pb = project(seg.b, bounds)}
+            <line
+              x1={pa.x} y1={pa.y}
+              x2={pb.x} y2={pb.y}
+              stroke={color}
+              stroke-opacity="0.6"
+              stroke-width="1.1"
+            />
+          {/each}
+        {/if}
+
         <text x={center.x} y={center.y} text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">
           {zone.settings.name}
         </text>

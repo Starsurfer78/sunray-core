@@ -1,0 +1,29 @@
+#include "core/control/PidController.h"
+
+#include <algorithm>
+
+namespace sunray::control {
+
+void PidController::reset() {
+    integral_ = 0.0f;
+    previousError_ = 0.0f;
+    initialized_ = false;
+}
+
+float PidController::update(float error, float dt_s, float kp, float ki, float kd) {
+    if (dt_s <= 0.0f) return kp * error;
+
+    integral_ += error * dt_s;
+    integral_ = std::clamp(integral_, -1.0f, 1.0f);
+
+    float derivative = 0.0f;
+    if (initialized_) {
+        derivative = (error - previousError_) / dt_s;
+    }
+
+    previousError_ = error;
+    initialized_ = true;
+    return kp * error + ki * integral_ + kd * derivative;
+}
+
+} // namespace sunray::control

@@ -136,6 +136,7 @@
           on:input={(event) => updateSelectedZone('edgeRounds', Number((event.currentTarget as HTMLInputElement).value))}
         />
       </label>
+
       <div class="meta">Punkte: {zone.polygon.length}</div>
       <div class="meta">
         {zone.settings.pattern === 'stripe' ? 'Streifen' : 'Spirale'} · {zone.settings.angle}&deg;

@@ -97,13 +97,20 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
     const float stateDelta = estimator.heading();
     const float speed      = estimator.groundSpeed();
 
-    const Point& target     = map.targetPoint;
-    const Point& lastTarget = map.lastTargetPoint;
+    if (map.refreshTracking(ctx.now_ms, stateX, stateY)) {
+        return;
+    }
+
+    const RouteSegment segment = map.currentTrackingSegment(stateX, stateY, stateDelta);
+    const Point& target = segment.target;
+    const Point& lastTarget = segment.lastTarget;
 
     // ── Heading error to target ───────────────────────────────────────────────
 
-    float targetDelta = std::atan2(target.y - stateY, target.x - stateX);
-    if (map.trackReverse) targetDelta = scalePI(targetDelta + PI);
+    float targetDelta = segment.hasTargetHeading
+        ? segment.targetHeadingRad
+        : std::atan2(target.y - stateY, target.x - stateX);
+    if (segment.reverse) targetDelta = scalePI(targetDelta + PI);
     targetDelta       = scalePIangles(targetDelta, stateDelta);
     trackerDiffDelta_ = distancePI(stateDelta, targetDelta);
 
@@ -119,10 +126,10 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
 
     // ── Target-distance ───────────────────────────────────────────────────────
 
-    targetDist_          = map.distanceToTargetPoint(stateX, stateY);
-    const float lastTargetDist = map.distanceToLastTargetPoint(stateX, stateY);
+    targetDist_ = segment.distanceToTarget_m;
+    const float lastTargetDist = segment.distanceToLastTarget_m;
 
-    const bool targetReached = (targetDist_ < TARGET_REACHED_TOLERANCE);
+    const bool targetReached = segment.targetReached;
 
     // ── Angle check: rotate or track? ─────────────────────────────────────────
     //   Allow rotation only near waypoints or when far off-path (as in original).
@@ -166,7 +173,7 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         rotateRight_ = false;
 
         float k, p;
-        if (map.trackSlow) {
+        if (segment.slow) {
             k = config_ ? config_->get<float>("stanley_k_slow",     0.2f) : 0.2f;
             p = config_ ? config_->get<float>("stanley_p_slow",     0.5f) : 0.5f;
             linear = config_ ? config_->get<float>("dock_linear_speed_ms", 0.1f) : 0.1f;
@@ -175,7 +182,7 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
             p = config_ ? config_->get<float>("stanley_p_normal", 2.0f) : 2.0f;
             linear = setSpeed;
             // Reduce speed when approaching a non-straight (turning) waypoint.
-            if ((setSpeed > 0.2f) && (targetDist_ < 0.5f) && !map.nextPointIsStraight()) {
+            if ((setSpeed > 0.2f) && (targetDist_ < 0.5f) && !segment.nextSegmentStraight) {
                 linear = 0.1f;
             }
         }
@@ -184,7 +191,7 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         angular = p * trackerDiffDelta_
                 + std::atan2(k * lateralError_, 0.001f + std::fabs(speed));
 
-        if (map.trackReverse) linear *= -1.0f;
+        if (segment.reverse) linear *= -1.0f;
     }
 
     // ── GPS degradation mode ─────────────────────────────────────────────────
@@ -212,7 +219,7 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
     //   If the robot is more than KIDNAP_TOLERANCE off the planned line,
     //   fire onKidnapped(true). Clear when back on path.
 
-    if (std::fabs(distToPath) > KIDNAP_TOLERANCE) {
+    if (std::fabs(distToPath) > segment.kidnapTolerance_m) {
         if (!stateKidnapped_) {
             stateKidnapped_ = true;
             if (activeOp) activeOp->onKidnapped(ctx, true);
@@ -232,7 +239,7 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         rotateLeft_  = false;
         rotateRight_ = false;
         if (activeOp) activeOp->onTargetReached(ctx);
-        if (!map.nextPoint(false, stateX, stateY) && activeOp) {
+        if (!map.advanceTracking(stateX, stateY) && activeOp) {
             activeOp->onNoFurtherWaypoints(ctx);
         }
     }

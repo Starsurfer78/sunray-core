@@ -1,64 +1,59 @@
 # sunray-core
 
-`sunray-core` ist der Linux-basierte Robot-Controller fuer einen RTK-GPS-Rasenmaehroboter auf Raspberry Pi.
+`sunray-core` ist ein Linux-basierter Robot-Controller fuer einen RTK-GPS-Rasenmaehroboter auf Raspberry Pi.
+
 Das Projekt umfasst:
 
 - einen C++17-Core fuer Hardware, Navigation, Missionslogik und Telemetrie
-- eine WebUI auf Basis von Vue 3 + TypeScript
+- eine aktive WebUI auf Basis von Svelte 5 + TypeScript
 - einen Simulationsmodus fuer Entwicklung ohne reale Hardware
-- eine Test-Suite fuer Core-, Navigation-, State-Machine- und WebUI-Verhalten
-
-Der aktuelle Schwerpunkt liegt auf einem robusten, nachvollziehbaren Software-Stand fuer Linux und den ersten echten Hardwaretest.
+- native Tests fuer Core-, Navigation- und Op-Verhalten
 
 GitHub-Repository:
 <https://github.com/Starsurfer78/sunray-core>
 
 ## Herkunft
 
-Dieses Projekt baut auf dem grossartigen Ardumower-Sunray-Projekt auf:
+Dieses Projekt baut auf dem Ardumower-Sunray-Projekt auf:
 <https://github.com/Ardumower/Sunray>
 
-`sunray-core` ist keine unabhaengige Neuentwicklung ohne Vorgeschichte, sondern eine Linux-/Pi-orientierte Weiterentwicklung und Neuordnung auf Basis dieser Arbeit.
+`sunray-core` ist eine Linux-/Pi-orientierte Weiterentwicklung und Neuordnung dieser Basis.
 
 ## Status
 
-- Linux-Build: validiert
-- C++-Tests: gruen
-- WebUI-Tests: gruen
-- Software-Release-Gate: fachlich abgearbeitet
-- Hardware-/Feldtest: weiterhin eigener Schritt auf echter Plattform
+- Architektur- und Navigationsumbau ist im Code abgeschlossen und in [docs/NAVIGATION_UPGRADE.md](docs/NAVIGATION_UPGRADE.md) dokumentiert.
+- Aktive Frontend-Basis ist `webui-svelte/`.
+- Der groesste offene Block ist jetzt reale Linux-/Pi-/Hardware-Validierung.
+- Offene Aufgaben stehen nur noch in [TODO.md](TODO.md).
 
-Der Code bildet heute den echten Ist-Zustand ab. Aeltere Konzept- und Architekturdateien sind teilweise noch als Hintergrundmaterial im Repo vorhanden, aber nicht alle beschreiben den aktuellen Code 1:1.
+## Einstieg Im Repo
 
-## Betriebsdoku
+Wenn du das Projekt neu aufmachst, starte hier:
 
-Wichtige Bedien- und Fehlersuchdokumente:
+- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
+- [PROJECT_MAP.md](PROJECT_MAP.md)
+- [TODO.md](TODO.md)
+- [WORKING_RULES.md](WORKING_RULES.md)
 
-- [Robot Button, Buzzer, Error](docs/ROBOT_BUTTON_BUZZER_ERROR.md)
+Wichtige Fachdokumente:
+
+- [docs/NAVIGATION_UPGRADE.md](docs/NAVIGATION_UPGRADE.md)
+- [docs/OP_STATE_MACHINE.md](docs/OP_STATE_MACHINE.md)
+- [docs/TELEMETRY_CONTRACT.md](docs/TELEMETRY_CONTRACT.md)
+- [docs/ROBOT_RUN_BASELINE.md](docs/ROBOT_RUN_BASELINE.md)
+- [docs/ALFRED_TEST_RUN_GUIDE.md](docs/ALFRED_TEST_RUN_GUIDE.md)
+- [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md)
+- [docs/ROBOT_BUTTON_BUZZER_ERROR.md](docs/ROBOT_BUTTON_BUZZER_ERROR.md)
 
 ## Kernfunktionen
 
 - Hardware-Abstraktion fuer echten Roboter und Simulation
 - Op-State-Machine mit `Idle`, `Undock`, `NavToStart`, `Mow`, `Dock`, `Charge`, `WaitRain`, `GpsWait`, `EscapeReverse`, `EscapeForward`, `Error`
-- Navigation mit Odometrie, GPS, IMU und EKF-basierter Pose-Schaetzung
-- Kartenverwaltung fuer Perimeter, No-Go-Zonen, Mow-Punkte, Dock-Pfade, Zonen und virtuelle Hindernisse
-- Dynamisches Re-Routing ueber lokales `GridMap`-A*
+- Navigation mit Odometrie, GPS, IMU, State Estimation, Planner, Costmap und Route-Segmenten
+- Kartenverwaltung fuer Perimeter, No-Go-Zonen, Dock-Pfad, Zonen und Hindernisse
 - Telemetrie ueber WebSocket und optional MQTT
-- WebUI fuer Dashboard, Map-Editor, Diagnose, Historie und Simulator
+- WebUI fuer Dashboard, Karte, Mission, Diagnose und Historie
 - API-/WebSocket-Auth ueber `api_token`
-
-## Architektur
-
-Das Projekt ist in drei Hauptschichten aufgebaut:
-
-- `platform/`
-  POSIX-nahe Bausteine wie Serial, I2C und Systemzugriffe
-- `hal/`
-  `HardwareInterface`, echter `SerialRobotDriver`, `SimulationDriver`, GPS- und IMU-Treiber
-- `core/`
-  `Robot`, State-Machine, Navigation, WebSocket/HTTP-Server, MQTT, Konfiguration
-
-Die aktive WebUI liegt separat unter `webui-svelte/` und wird dort als neues Frontend weiterentwickelt. Die fruehere Vue-WebUI wurde als Referenz nach `ALTE_DATEIEN/webui-vue-reference/` verschoben, damit es keine Verwechslung mehr mit der aktiven Frontend-Basis gibt.
 
 ## Repository-Struktur
 
@@ -68,9 +63,9 @@ sunray-core/
 ├── hal/                   Hardware-Treiber und Simulation
 ├── platform/              Linux-nahe Hilfsbibliotheken
 ├── tests/                 Catch2-Test-Suite
-├── webui-svelte/          aktive Svelte + TypeScript WebUI
-├── docs/                  aktuelle Projektdokumentation
-├── ALTE_DATEIEN/          Alt-Dokumente, Analysen und archivierte Vue-WebUI
+├── webui-svelte/          aktive Svelte-WebUI
+├── docs/                  aktuelle Fachdokumentation
+├── ALTE_DATEIEN/          archivierte Alt-Dokumente und Vue-Referenz
 ├── config.example.json    Beispielkonfiguration
 ├── main.cpp               Einstiegspunkt
 └── CMakeLists.txt         Top-Level-Build
@@ -82,14 +77,8 @@ Fuer den Linux-Build:
 
 - Linux
 - CMake >= 3.20
-- C++17-Compiler (`g++` oder `clang++`)
-- Node.js + npm fuer die WebUI
-
-Wichtig fuer die aktuelle WebUI-Toolchain:
-
-- die WebUI benoetigt derzeit `Node.js >= 20`
-- `Node 18` reicht fuer `npm install` teils noch aus, scheitert aber spaetestens
-  beim Frontend-Build mit Vite 8 / Tailwind 4
+- C++17-Compiler
+- Node.js >= 20 fuer die WebUI
 
 Fuer echten Robot-Betrieb zusaetzlich:
 
@@ -108,50 +97,40 @@ git clone https://github.com/Starsurfer78/sunray-core.git
 cd sunray-core
 ```
 
-### Komplett-Installation
-
-Fuer Raspberry Pi / Debian-basierte Systeme gibt es jetzt ein Komplett-Skript:
+### Native bauen
 
 ```bash
-chmod +x scripts/install_sunray.sh
-./scripts/install_sunray.sh
+cmake -S . -B build_pi
+cmake --build build_pi -j2
+ctest --test-dir build_pi --output-on-failure
 ```
 
-Das Skript:
-
-- installiert die benoetigten Linux-Pakete
-- baut den nativen Core
-- installiert und baut die WebUI
-- legt bei Bedarf `/etc/sunray-core/config.json` aus `config.example.json` an
-- startet `sunray-core`
-- kann optional einen `systemd`-Autostart anlegen
-
-Wichtige Varianten:
+### WebUI pruefen
 
 ```bash
-# Simulation statt echter Hardware
-./scripts/install_sunray.sh --sim
-
-# Nur installieren und bauen, nicht direkt starten
-./scripts/install_sunray.sh --no-start
-
-# systemd-Autostart ohne Rueckfrage aktivieren
-./scripts/install_sunray.sh --autostart yes
+cd webui-svelte
+npm install
+npm run check
+npm run build
 ```
 
-Hinweise:
+### Simulation starten
 
-- Das Skript unterstuetzt aktuell `apt`-basierte Systeme.
-- Fuer die WebUI wird Node.js >= 20 erwartet.
-- Der empfohlene Betriebsweg fuer echten Robotereinsatz ist Autostart per `systemd`.
+```bash
+./build_pi/sunray-core --sim config.example.json
+```
 
-## Skripte
+### Echter Roboter
 
-Im Repository liegen zwei wichtige Hilfsskripte:
+```bash
+./build_pi/sunray-core /etc/sunray-core/config.json
+```
+
+## Installations- Und Hilfsskripte
 
 ### `scripts/install_sunray.sh`
 
-Installiert die benoetigten Pakete, baut den nativen Core und die WebUI, legt bei Bedarf die Laufzeitdateien unter `/etc/sunray-core/` an, startet `sunray-core` und kann optional einen `systemd`-Autostart einrichten.
+Installiert Linux-Abhaengigkeiten, baut Core und WebUI, legt bei Bedarf Laufzeitdateien an und kann `systemd`-Autostart einrichten.
 
 Beispiele:
 
@@ -164,70 +143,17 @@ Beispiele:
 
 ### `scripts/flash_alfred.sh`
 
-Kompiliert die Alfred-STM32-Firmware `rm18.ino` mit `arduino-cli` und flasht sie ueber SWD/OpenOCD auf den STM32F103.
+Baut und flasht die Alfred-STM32-Firmware ueber SWD/OpenOCD.
 
-Typische Aufrufe:
+Beispiele:
 
 ```bash
-# Nur SWD-Verbindung pruefen
 sudo bash scripts/flash_alfred.sh probe
-
-# Nur Firmware bauen
 bash scripts/flash_alfred.sh build
-
-# Firmware bauen und flashen
 sudo bash scripts/flash_alfred.sh build-flash
 ```
 
-Fuer den Build der Alfred-Firmware ist ein `FQBN` noetig, zum Beispiel:
-
-```bash
-export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
-```
-
-Weitere Details zu Verkabelung, OpenOCD und dem Pi-SWD-Setup stehen in [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md).
-
-### 1. Repository bauen
-
-```bash
-cmake -S . -B build_linux
-cmake --build build_linux -j2
-```
-
-### 2. WebUI bauen
-
-```bash
-cd webui
-npm install
-npm run build
-```
-
-### 3. Tests ausfuehren
-
-```bash
-ctest --test-dir build_linux --output-on-failure
-
-cd webui
-npm test
-```
-
-## Starten
-
-### Simulation
-
-```bash
-./build_linux/sunray-core --sim config.example.json
-```
-
-Der Simulationsmodus ist der schnellste Weg, um State-Machine, API, Telemetrie und WebUI lokal zu pruefen.
-
-### Echter Roboter
-
-```bash
-./build_linux/sunray-core /etc/sunray-core/config.json
-```
-
-Standardpfad fuer die Konfiguration ist `/etc/sunray-core/config.json`.
+Details stehen in [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md).
 
 ## Konfiguration
 
@@ -235,20 +161,17 @@ Ausgangspunkt ist [config.example.json](config.example.json).
 
 Wichtige Schluessel:
 
-- `driver`: `serial` fuer echten Roboter
-- `driver_port`: UART zur MCU
-- `gps_port`: GPS-Empfaenger
-- `api_token`: Pflicht fuer schreibende REST-/WS-Zugriffe
-  In der WebUI kann der Wert oben in der Topbar als `API-Token` hinterlegt
-  werden. Ohne passendes Token bleiben geschuetzte Bereiche wie
-  `Einstellungen` leer bzw. liefern `401`.
-- `map_path`: Pfad zur Karten-Datei
-- `mqtt_enabled`: optionaler MQTT-Betrieb
-- `enable_mow_motor`: fuer Trockenlauf auf `false` moeglich
+- `driver`
+- `driver_port`
+- `gps_port`
+- `api_token`
+- `map_path`
+- `mqtt_enabled`
+- `enable_mow_motor`
 
-Freigaberelevante Hinweise stehen in [RELEASE_CONFIGURATION.md](docs/RELEASE_CONFIGURATION.md).
+Freigaberelevante Hinweise stehen in [docs/RELEASE_CONFIGURATION.md](docs/RELEASE_CONFIGURATION.md).
 
-## Karte und Mission
+## Karte Und Mission
 
 Der Core arbeitet mit einer JSON-Karte. Typische Inhalte:
 
@@ -259,26 +182,27 @@ Der Core arbeitet mit einer JSON-Karte. Typische Inhalte:
 - `zones`
 - `captureMeta`
 
-Die Karte kann ueber die WebUI bearbeitet und ueber die API geladen werden. Der aktuelle Mapping- und Editor-Stand ist eng mit der WebUI verzahnt.
+Die Karte wird ueber die WebUI und `/api/map` bearbeitet.
 
 ## WebUI
 
-Die WebUI bietet:
+Die aktive WebUI bietet:
 
-- Dashboard mit Live-Telemetrie und Karte
+- Dashboard mit Live-Telemetrie
 - Karteneditor fuer Perimeter, Zonen, Docking und Hindernisse
-- Diagnose-Ansichten
-- Verlauf und Statistiken
+- Missionsansicht
+- Diagnose
+- Historie und Statistik
 - Simulator-Steuerung
 
 Weitere Frontend-Details stehen in [webui-svelte/README.md](webui-svelte/README.md).
 
-## API und Telemetrie
+## API Und Telemetrie
 
-Der C++-Server startet HTTP + WebSocket und liefert:
+Der C++-Server liefert:
 
 - statische WebUI-Dateien
-- REST-Endpunkte fuer Config, Map, Schedule, Diagnose
+- REST-Endpunkte fuer Config, Map, Missions, Schedule, Diagnose, History
 - WebSocket-Telemetrie
 - WebSocket-Kommandos wie `start`, `stop`, `dock`, `drive`, `startZones`
 
@@ -294,44 +218,28 @@ Die wichtigsten Telemetriedaten umfassen unter anderem:
 - `event_reason`
 - `error_code`
 
-## Dokumentation im Repo
-
-Aktuelle, relevante Dateien:
-
-- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
-- [PROJECT_MAP.md](PROJECT_MAP.md)
-- [TASKS.md](TASKS.md)
-- [TODO.md](TODO.md)
-- [docs/OP_STATE_MACHINE.md](docs/OP_STATE_MACHINE.md)
-- [docs/USER_EXPERIENCE_IMPROVEMENTS.md](docs/USER_EXPERIENCE_IMPROVEMENTS.md)
-
-Historische bzw. analytische Alt-Dokumente liegen unter `ALTE_DATEIEN/`.
-
 ## Entwicklungsworkflow
 
 Typischer lokaler Ablauf:
 
 ```bash
-cd sunray-core
-cmake -S . -B build_linux
-cmake --build build_linux -j2
-ctest --test-dir build_linux --output-on-failure
+cmake -S . -B build_pi
+cmake --build build_pi -j2
+ctest --test-dir build_pi --output-on-failure
 
-cd webui
+cd webui-svelte
 npm install
+npm run check
 npm run build
-npm test
 ```
 
 ## Bekannte Grenzen
 
-- Die Software ist fuer Linux validiert, nicht fuer andere Plattformen.
-- Der Simulationsmodus deckt viel Logik ab, ersetzt aber keinen echten Hardware- und Feldtest.
-- Einige Alt-Dokumente beschreiben ein groesseres Zielbild als der aktuelle Core heute direkt implementiert.
-- Hardwarefragen wie RTK-Float-Grenzen oder Watchdog-Koordination muessen weiterhin am echten System verifiziert werden.
+- Belastbare Aussagen zu Hardwareverhalten brauchen echte Linux-/Pi-/Feldtests.
+- Bestehende Build-Artefakte im Repo sind nicht portabel und nicht autoritativ.
+- Themen wie RTK-Float-Grenzen und Watchdog-Koordination muessen am echten System verifiziert werden.
 
 ## Lizenz / Hinweise
 
 Im Repository gibt es aktuell keine separat gepflegte Top-Level-Lizenzdatei.
-Vor einer oeffentlichen Weitergabe oder einem breiteren Einsatz sollte die Lizenzlage deshalb explizit geklaert und im Repository dokumentiert werden.
-Das ist besonders wichtig, weil `sunray-core` auf Ardumower/Sunray aufbaut und diese Herkunft im Projekt selbst benannt ist.
+Vor breiterem Einsatz sollte die Lizenzlage explizit geklaert und dokumentiert werden.

@@ -23,6 +23,10 @@ void NavToStartOp::end(OpContext& ctx) {
 }
 
 void NavToStartOp::run(OpContext& ctx) {
+    if (!ctx.insidePerimeter) {
+        onPerimeterViolated(ctx);
+        return;
+    }
     if (ctx.lineTracker && ctx.map && ctx.stateEst) {
         ctx.lineTracker->track(ctx, *ctx.map, *ctx.stateEst);
     }
@@ -80,6 +84,23 @@ void NavToStartOp::onImuTilt(OpContext& ctx) {
 
 void NavToStartOp::onImuError(OpContext& ctx) {
     ctx.logger.error("NavToStart", "IMU error => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void NavToStartOp::onPerimeterViolated(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("NavToStart", "perimeter violated => DOCK");
+    changeOp(ctx, ctx.opMgr.dock());
+}
+
+void NavToStartOp::onMapChanged(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.warn("NavToStart", "map changed during navigation => IDLE");
+    changeOp(ctx, ctx.opMgr.idle());
+}
+
+void NavToStartOp::onBatteryUndervoltage(OpContext& ctx) {
+    ctx.logger.error("NavToStart", "battery undervoltage => ERROR");
     changeOp(ctx, ctx.opMgr.error());
 }
 

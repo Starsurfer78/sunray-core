@@ -89,7 +89,7 @@ private:
     // ── Private EKF step implementations ─────────────────────────────────────
 
     /// Predict step: update state + covariance from odometry deltas.
-    void predictStep(float dDist, float dTheta, const EkfNoise& n);
+    void predictStep(float dDist, float midHeading, const EkfNoise& n);
 
     /// GPS measurement update (RTK-Fix only).
     void gpsUpdate(float measE, float measN, const EkfNoise& n);

@@ -4,10 +4,10 @@
 
 Read in order:
 
-1. PROJECT_OVERVIEW.md
-2. PROJECT_MAP.md
-3. WORKING_RULES.md
-4. TASKS.md
+1. `PROJECT_OVERVIEW.md`
+2. `PROJECT_MAP.md`
+3. `WORKING_RULES.md`
+4. `TODO.md`
 
 ## Role
 

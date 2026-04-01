@@ -2,13 +2,21 @@
   import { onMount } from "svelte";
   import PageLayout from "../components/PageLayout.svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
-  import { getMapDocument, saveMapDocument, type MapZone } from "../api/rest";
+  import BottomPanel from "../components/Dashboard/BottomPanel.svelte";
+  import { getMapDocument, saveMapDocument, type MapDocument, type MapZone } from "../api/rest";
   import { type Telemetry } from "../api/types";
   import { connection } from "../stores/connection";
-  import { batteryPercent } from "../stores/telemetry";
-  import { mapStore, type MapTool, type Point, type Zone } from "../stores/map";
+  import {
+    mapStore,
+    type ExclusionMeta,
+    type MapLoadDocument,
+    type MapTool,
+    type Point,
+    type RobotMap,
+    type Zone,
+  } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
-  import { mapInfoOpen } from "../stores/mapInfo";
+  import { mappingTestMode } from "../stores/mapUi";
 
   let busy = false;
   let info = "";
@@ -18,8 +26,7 @@
   let sidebarCollapsed = false;
   let nowMs = Date.now();
   let hydrationDone = false;
-  let mappingTestMode = false;
-
+  const SHOW_ADVANCED_MAP_TUNING = false;
   const DRAFT_KEY = "sunray-map-draft-v1";
   const CONNECTION_FRESH_MS = 5000;
   const GOOD_ACCURACY_M = 0.05;
@@ -43,13 +50,7 @@
 
   type DraftDocument = {
     savedAt: number;
-    map: {
-      perimeter: Point[];
-      dock: Point[];
-      mow: Point[];
-      exclusions: Point[][];
-      zones: Zone[];
-    };
+    map: RobotMap;
   };
 
   type Segment = { a: Point; b: Point };
@@ -86,7 +87,30 @@
         edgeRounds: zone.settings.edgeRounds ?? 1,
         speed: zone.settings.speed ?? 1.0,
         pattern: zone.settings.pattern ?? "stripe",
+        reverseAllowed: zone.settings.reverseAllowed ?? false,
+        clearance: zone.settings.clearance ?? 0.25,
       },
+    };
+  }
+
+  function normalizeMapDocument(map: MapDocument): MapLoadDocument {
+    return {
+      perimeter: normalizePoints(map.perimeter),
+      dock: normalizePoints(map.dock),
+      mow: normalizePoints(map.mow),
+      exclusions: (map.exclusions ?? []).map((e) =>
+        normalizePoints(e as Array<[number, number]>),
+      ),
+      zones: (map.zones ?? []).map((zone, index) => normalizeZone(zone, index)),
+      planner: map.planner,
+      dockMeta: map.dockMeta
+        ? {
+            ...map.dockMeta,
+            corridor: normalizePoints(map.dockMeta.corridor),
+          }
+        : undefined,
+      exclusionMeta: map.exclusionMeta as ExclusionMeta[] | undefined,
+      captureMeta: map.captureMeta ?? {},
     };
   }
 
@@ -194,10 +218,23 @@
       exclusions: $mapStore.map.exclusions.map((ex) =>
         ex.map((p) => [p.x, p.y]),
       ),
+      exclusionMeta: ($mapStore.map.exclusionMeta ?? []).map((meta) => ({
+        type: meta.type,
+        clearance: meta.clearance,
+        costScale: meta.costScale,
+      })),
       zones: $mapStore.map.zones.map((zone) => ({
         ...zone,
         polygon: zone.polygon.map((p) => [p.x, p.y]),
       })),
+      planner: $mapStore.map.planner,
+      dockMeta: $mapStore.map.dockMeta
+        ? {
+            ...$mapStore.map.dockMeta,
+            corridor: $mapStore.map.dockMeta.corridor.map((p) => [p.x, p.y]),
+          }
+        : undefined,
+      captureMeta: $mapStore.map.captureMeta,
     };
   }
 
@@ -235,17 +272,7 @@
     busy = true;
     try {
       const map = await getMapDocument();
-      mapStore.load({
-        perimeter: normalizePoints(map.perimeter),
-        dock: normalizePoints(map.dock),
-        mow: normalizePoints(map.mow),
-        exclusions: (map.exclusions ?? []).map((e) =>
-          normalizePoints(e as Array<[number, number]>),
-        ),
-        zones: (map.zones ?? []).map((zone, index) =>
-          normalizeZone(zone, index),
-        ),
-      });
+      mapStore.load(normalizeMapDocument(map));
       if (!restoreDraft()) {
         showInfo("Geladen");
       }
@@ -284,8 +311,13 @@
       {
         perimeter: $mapStore.map.perimeter,
         dock: $mapStore.map.dock,
+        mow: $mapStore.map.mow,
         exclusions: $mapStore.map.exclusions,
+        exclusionMeta: $mapStore.map.exclusionMeta,
         zones: $mapStore.map.zones,
+        planner: $mapStore.map.planner,
+        dockMeta: $mapStore.map.dockMeta,
+        captureMeta: $mapStore.map.captureMeta,
       },
       null,
       2,
@@ -309,18 +341,8 @@
       if (!file) return;
       try {
         const text = await file.text();
-        const data = JSON.parse(text);
-        mapStore.load({
-          perimeter: normalizePoints(data.perimeter),
-          dock: normalizePoints(data.dock),
-          mow: normalizePoints(data.mow ?? []),
-          exclusions: (data.exclusions ?? []).map(
-            (e: Array<[number, number]>) => normalizePoints(e),
-          ),
-          zones: (data.zones ?? []).map((zone: MapZone, index: number) =>
-            normalizeZone(zone, index),
-          ),
-        });
+        const data = JSON.parse(text) as MapDocument;
+        mapStore.load(normalizeMapDocument(data));
         hydrationDone = true;
         saveDraft();
         showInfo("Importiert");
@@ -537,7 +559,7 @@
         : rtkFloat && acceptableAccuracy
           ? "RTK Float mit guter Genauigkeit"
           : "Kein stabiles RTK fuer neue Punkte";
-  $: effectivePreflightHint = mappingTestMode
+  $: effectivePreflightHint = $mappingTestMode
     ? "Testmodus aktiv: Punktaufnahme und Freigabe sind ohne RTK fuer UI-Tests erlaubt"
     : preflightHint;
 
@@ -581,13 +603,13 @@
           ? "Docking-Pfad fehlt noch"
           : "Docking-Pfad muss am Perimeter beginnen oder in seiner Naehe"
       : "",
-    !mappingSignalReady && !mappingTestMode
+    !mappingSignalReady && !$mappingTestMode
       ? "Fuer Aufnahme und Freigabe wird frische RTK-Telemetrie benoetigt"
       : "",
   ].filter(Boolean);
   $: saveHint = validationIssues[0] ?? "";
   $: canSaveMap = !busy && !saveHint;
-  $: allowPointAdd = mappingSignalReady || mappingTestMode;
+  $: allowPointAdd = mappingSignalReady || $mappingTestMode;
   $: pointAddBlockedReason = effectivePreflightHint;
   $: noGoPointCount = $mapStore.map.exclusions.reduce(
     (total, exclusion) => total + exclusion.length,
@@ -692,29 +714,11 @@
       (step) => step.status === "pending" || step.status === "blocked",
     ) ?? null;
   $: primaryBlocker =
-    validationIssues[0] ?? (!mappingSignalReady && !mappingTestMode ? preflightHint : "");
+    validationIssues[0] ?? (!mappingSignalReady && !$mappingTestMode ? preflightHint : "");
   $: connectionAgeSeconds =
     $connection.lastSeen > 0
       ? Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000))
       : null;
-  $: mapInfoConnectionState = !$connection.connected
-    ? "offline"
-    : connectionFresh
-      ? "live"
-      : connectionAgeSeconds !== null
-        ? `alt (${connectionAgeSeconds}s)`
-        : "verbunden";
-  $: mapInfoGpsStatus = rtkFix
-    ? "RTK Fix"
-    : rtkFloat
-      ? "RTK Float"
-      : $telemetry.gps_text || "invalid";
-  $: mapInfoTargetX = $telemetry.resume_target ? "—" : "—";
-  $: mapInfoTargetY = $telemetry.resume_target ? "—" : "—";
-  $: mapInfoIndex = $telemetry.mission_zone_count > 0
-    ? `${Math.max(1, $telemetry.mission_zone_index + 1)}/${$telemetry.mission_zone_count}`
-    : "—";
-
   onMount(() => {
     const interval = setInterval(() => {
       nowMs = Date.now();
@@ -736,57 +740,55 @@
   on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
 >
   <div class="map-stage">
+
+    <!-- Top toolbar -->
+    <div class="map-toolbar">
+      <span class="mt-section-label">Werkzeuge</span>
+      <div class="mt-tools">
+        <button
+          type="button"
+          class:active={moveActive}
+          title="Punkte verschieben"
+          on:click={toggleMove}
+        >↖ Zeiger</button>
+        <button
+          type="button"
+          class:active={activeTool === "perimeter" && !moveActive}
+          on:click={() => setLayer("perimeter")}
+        ><span class="mt-dot perimeter"></span>Perimeter</button>
+        <button
+          type="button"
+          class:active={layer === "nogo" && !moveActive}
+          on:click={() => setLayer("nogo")}
+        >
+          <span class="mt-dot nogo"></span>No-Go
+          {#if hasNogo}<span class="mt-badge">{$mapStore.map.exclusions.length}</span>{/if}
+        </button>
+        <button
+          type="button"
+          class:active={dockActive}
+          on:click={toggleDock}
+        ><span class="mt-dot dock"></span>Dock-Pfad</button>
+      </div>
+
+      <div class="mt-sep"></div>
+
+      <div class="mt-actions">
+        <button type="button" title="GeoJSON exportieren" on:click={exportMap}>↑ GeoJSON</button>
+        <button type="button" title="GeoJSON importieren" on:click={importMap}>↓ GeoJSON</button>
+        <button type="button" disabled={busy} on:click={loadMap}>Laden</button>
+        <button
+          type="button"
+          class:unsaved={$mapStore.dirty}
+          disabled={!$mapStore.dirty || !canSaveMap}
+          on:click={saveMap}
+        >Speichern{#if $mapStore.dirty}*{/if}</button>
+      </div>
+    </div>
+
     {#if info}
       <div class={`map-toast ${infoTone}`} role="status" aria-live="polite">
         {info}
-      </div>
-    {/if}
-
-    {#if $mapInfoOpen}
-      <div class="map-info-panel">
-        <div class="map-info-grid">
-          <div class="map-info-card">
-            <span class="map-info-label">GPS / RTK</span>
-            <strong>{mapInfoGpsStatus}</strong>
-            <span>Acc: {$telemetry.gps_acc > 0 ? `${$telemetry.gps_acc.toFixed(2)} m` : "—"}</span>
-            <span>Sat: — / —</span>
-            <span>Age: {connectionAgeSeconds !== null ? `${connectionAgeSeconds}s` : "—"}</span>
-          </div>
-
-          <div class="map-info-card">
-            <span class="map-info-label">Position</span>
-            <strong>{mapInfoConnectionState}</strong>
-            <span>Pos x: {$telemetry.x.toFixed(2)} m</span>
-            <span>Pos y: {$telemetry.y.toFixed(2)} m</span>
-            <span>Tgt x: {mapInfoTargetX}</span>
-            <span>Tgt y: {mapInfoTargetY}</span>
-            <span>Idx: {mapInfoIndex}</span>
-          </div>
-
-          <div class="map-info-card">
-            <span class="map-info-label">Akku</span>
-            <strong>{$batteryPercent}%</strong>
-            <span>Voltage: {$telemetry.battery_v.toFixed(2)} V</span>
-            <span>Current: {$telemetry.charge_a.toFixed(2)} A</span>
-            <span>Dock: {$telemetry.charge_v.toFixed(2)} V</span>
-          </div>
-
-          <div class="map-info-card">
-            <span class="map-info-label">System</span>
-            <strong>{$telemetry.pi_v || "—"}</strong>
-            <span>MCU: {$telemetry.mcu_v || "—"}</span>
-            <span>Mode: {mappingTestMode ? "Testmodus aktiv" : "Normal"}</span>
-            <span>{effectivePreflightHint}</span>
-            <button
-              type="button"
-              class="info-toggle"
-              class:active={mappingTestMode}
-              on:click={() => (mappingTestMode = !mappingTestMode)}
-            >
-              {mappingTestMode ? "Testmodus aktiv" : "Testmodus fuer Mauspunkte"}
-            </button>
-          </div>
-        </div>
       </div>
     {/if}
 
@@ -800,42 +802,8 @@
       on:pointrejected={handlePointRejected}
     />
 
-    <!-- Bottom center: edit tools -->
+    <!-- Floating action panel -->
     <div class="toolbar-wrap">
-      <!-- Layer selector -->
-      <div class="layer-bar">
-        <button
-          type="button"
-          class:active={layer === "perimeter" && !dockActive}
-          on:click={() => setLayer("perimeter")}
-        >
-          <span class="layer-dot perimeter"></span> Perimeter
-        </button>
-        <button
-          type="button"
-          class:active={layer === "nogo" && !dockActive}
-          on:click={() => setLayer("nogo")}
-        >
-          <span class="layer-dot nogo"></span>
-          NoGo {#if hasNogo}<small>({$mapStore.map.exclusions.length})</small
-            >{/if}
-        </button>
-        <div class="divider"></div>
-        <button
-          type="button"
-          class:active={dockActive}
-          title="Dock-Modus"
-          on:click={toggleDock}>D</button
-        >
-        <button
-          type="button"
-          class:active={moveActive}
-          title="Punkte verschieben"
-          on:click={toggleMove}>⇔</button
-        >
-      </div>
-
-      <!-- NoGo: new item row -->
       {#if layer === "nogo"}
         <div class="item-bar">
           {#each $mapStore.map.exclusions as _, i}
@@ -846,51 +814,38 @@
               on:click={() => {
                 mapStore.selectExclusion(i);
                 mapStore.setTool("nogo");
-              }}>NoGo {i + 1}</button
-            >
+              }}>NoGo {i + 1}</button>
           {/each}
-          <button type="button" class="item-new" on:click={addNew}>+ Neu</button
-          >
+          <button type="button" class="item-new" on:click={addNew}>+ Neu</button>
         </div>
       {/if}
 
-      <!-- Big action buttons -->
       <div class="big-btns">
         <button
           type="button"
           class="big add"
           disabled={moveActive}
           title={addBtnTitle}
-          on:click={addCurrentRobotPoint}>+</button
-        >
+          on:click={addCurrentRobotPoint}>+</button>
         <button
           type="button"
           class="big remove"
           title="Letzten Punkt entfernen"
-          on:click={removeLastPoint}>−</button
-        >
+          on:click={removeLastPoint}>−</button>
       </div>
     </div>
 
     <!-- Bottom left: zoom -->
     <div class="zoom-stack">
-      <button
-        type="button"
-        title="Heranzoomen"
-        on:click={() => mapCanvas?.zoomIn()}>+</button
-      >
-      <button
-        type="button"
-        title="Herauszoomen"
-        on:click={() => mapCanvas?.zoomOut()}>−</button
-      >
-      <button
-        type="button"
-        title="Auf Inhalt zoomen"
-        on:click={() => mapCanvas?.fitToContent()}>◎</button
-      >
+      <button type="button" title="Heranzoomen" on:click={() => mapCanvas?.zoomIn()}>+</button>
+      <button type="button" title="Herauszoomen" on:click={() => mapCanvas?.zoomOut()}>−</button>
+      <button type="button" title="Auf Inhalt zoomen" on:click={() => mapCanvas?.fitToContent()}>◎</button>
     </div>
   </div>
+
+  <svelte:fragment slot="bottom">
+    <BottomPanel />
+  </svelte:fragment>
 
   <svelte:fragment slot="sidebar">
     <div class="sidebar-inner">
@@ -988,6 +943,16 @@
         </div>
       </div>
 
+      {#if SHOW_ADVANCED_MAP_TUNING}
+        <div class="sb-section">
+          <span class="sb-label">NoGo-Regeln</span>
+          <div class="assistant-card">
+            <strong>Interne Planner-Regeln</strong>
+            <span>NoGo-Typen und Clearance werden im Standardmodus intern ueber Defaults und Diagnose-/Servicewerte gesteuert.</span>
+          </div>
+        </div>
+      {/if}
+
       <div class="sb-section">
         <span class="sb-label">4. Docking-Pfad</span>
         <div class="assistant-card" class:active={dockActive} class:blocked={!perimeterValid}>
@@ -1023,6 +988,16 @@
           </div>
         </div>
       </div>
+
+      {#if SHOW_ADVANCED_MAP_TUNING}
+        <div class="sb-section">
+          <span class="sb-label">Docking-Logik</span>
+          <div class="assistant-card">
+            <strong>Service-Tuning</strong>
+            <span>Docking-Tuning und lokale Planner-Parameter sind im Standardmodus ausgeblendet und werden ueber interne Defaults beziehungsweise Config geregelt.</span>
+          </div>
+        </div>
+      {/if}
 
       <div class="sb-section">
         <span class="sb-label">5. Validieren & Speichern</span>
@@ -1085,75 +1060,110 @@
     background: #070d18;
   }
 
-  .map-info-panel {
+  /* ── Top toolbar ── */
+  .map-toolbar {
     position: absolute;
-    top: 0.85rem;
-    right: 0.85rem;
-    z-index: 25;
-    width: min(24rem, calc(100% - 1.7rem));
-    padding: 0.7rem;
-    border-radius: 0.8rem;
-    border: 1px solid #1e3a5f;
-    background: rgba(7, 13, 24, 0.92);
-    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.34);
-    backdrop-filter: blur(10px);
-  }
-
-  .map-info-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-  }
-
-  .map-info-card {
-    display: grid;
-    gap: 0.2rem;
-    padding: 0.6rem;
-    border-radius: 0.6rem;
-    border: 1px solid rgba(30, 58, 95, 0.75);
-    background: rgba(15, 24, 41, 0.72);
-  }
-
-  .map-info-card strong {
-    color: #e2e8f0;
-    font-size: 0.78rem;
-  }
-
-  .map-info-card span {
-    color: #a9bacd;
-    font-size: 0.66rem;
-    line-height: 1.35;
-  }
-
-  .info-toggle {
-    margin-top: 0.25rem;
-    padding: 0.42rem 0.55rem;
-    border-radius: 0.45rem;
-    border: 1px solid #1e3a5f;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     background: #0f1829;
-    color: #bfdbfe;
-    font-size: 0.64rem;
+    border-bottom: 1px solid #1e3a5f;
+    padding: 6px 16px;
+    flex-shrink: 0;
+  }
+
+  .mt-section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    white-space: nowrap;
+    padding-right: 4px;
+    border-right: 1px solid #1e3a5f;
+    margin-right: 2px;
+  }
+
+  .mt-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+
+  .mt-tools button, .mt-actions button {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 0.35rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.72rem;
     font-weight: 600;
     cursor: pointer;
-    text-align: left;
+    white-space: nowrap;
+    transition: color 0.15s, background 0.15s;
   }
 
-  .info-toggle.active {
+  .mt-tools button:hover, .mt-actions button:hover:not(:disabled) {
+    background: rgba(30, 58, 95, 0.4);
+    color: #e2e8f0;
+  }
+
+  .mt-tools button.active {
+    background: rgba(30, 58, 95, 0.35);
+    border-color: #2563eb;
+    color: #93c5fd;
+  }
+
+  .mt-actions button.unsaved {
     border-color: #d97706;
-    background: rgba(28, 18, 0, 0.72);
     color: #fbbf24;
   }
 
-  .map-info-label {
-    color: #7a8da8 !important;
-    font-size: 0.57rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+  .mt-actions button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .mt-dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .mt-dot.perimeter { background: #2563eb; }
+  .mt-dot.nogo      { background: #dc2626; }
+  .mt-dot.dock      { background: #d97706; }
+  .mt-dot.dock-corridor { background: #facc15; }
+
+  .mt-badge {
+    background: #1e3a5f;
+    color: #60a5fa;
+    border-radius: 8px;
+    padding: 0px 4px;
+    font-size: 0.62rem;
+    font-family: monospace;
+  }
+
+  .mt-sep {
+    flex: 1;
+  }
+
+  .mt-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
   }
 
   .map-toast {
     position: absolute;
-    top: 0.85rem;
+    top: 3.2rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 30;
@@ -1216,35 +1226,6 @@
     min-height: 2rem;
   }
 
-  .layer-bar button {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.28rem 0.55rem;
-    border-radius: 0.38rem;
-    border: 1px solid transparent;
-    background: transparent;
-    color: #94a3b8;
-    font-size: 0.72rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .layer-bar button:hover {
-    background: rgba(30, 58, 95, 0.4);
-    color: #e2e8f0;
-  }
-  .layer-bar button.active {
-    background: rgba(30, 58, 95, 0.35);
-    border-color: #2563eb;
-    color: #93c5fd;
-  }
-  .layer-bar button small {
-    color: #475569;
-    font-weight: 400;
-  }
-
   .layer-dot {
     width: 0.45rem;
     height: 0.45rem;
@@ -1301,6 +1282,15 @@
     background: #450a0a;
     color: #fca5a5;
   }
+  .item-btn.corridor:hover {
+    border-color: #facc15;
+    color: #fde68a;
+  }
+  .item-btn.corridor.active {
+    border-color: #facc15;
+    background: rgba(113, 63, 18, 0.55);
+    color: #fde68a;
+  }
 
   .item-new {
     padding: 0.22rem 0.5rem;
@@ -1316,6 +1306,10 @@
   .item-new:hover {
     color: #94a3b8;
     border-color: #334155;
+  }
+  .item-new.corridor:hover {
+    color: #fde68a;
+    border-color: #facc15;
   }
 
   .divider {

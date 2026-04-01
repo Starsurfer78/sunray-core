@@ -116,6 +116,18 @@ static std::filesystem::path writeDockPathMap(const std::string& name) {
     return path;
 }
 
+static std::filesystem::path writeAlteredMap(const std::string& name) {
+    const auto path = std::filesystem::temp_directory_path() / name;
+    std::ofstream f(path);
+    f << R"({
+  "perimeter": [[-6,-5], [5,-5], [5,5], [-5,5]],
+  "mow": [[0,0], [2,0], [2,1]],
+  "dock": [[0,-1], [0,-2]],
+  "exclusions": []
+})";
+    return path;
+}
+
 static bool hasMotorStop(const std::vector<MockHardware::MotorCall>& calls) {
     for (const auto& c : calls) {
         if (c.left == 0 && c.right == 0 && c.mow == 0) return true;
@@ -487,8 +499,170 @@ TEST_CASE("A8 Scenario 6: critical battery forces Error and loop stop", "[a8_sim
     robot->run();
     robot->run();
 
-    REQUIRE(robot->activeOpName() == "Idle");
+    REQUIRE(robot->activeOpName() == "Error");
     REQUIRE_FALSE(robot->isRunning());
+}
+
+TEST_CASE("A8 Scenario 7: perimeter violation during Mow transitions to Dock", "[a8_sim][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_a8_perimeter_map.json")));
+
+    enterMowFromStartCommand(*robot);
+
+    robot->setPose(10.0f, 10.0f, 0.0f);
+    robot->run();
+    robot->run();
+
+    REQUIRE(robot->activeOpName() == "Dock");
+    REQUIRE(hasMotorStop(hw->motorCalls));
+}
+
+TEST_CASE("A8 Scenario 7b: perimeter violation during NavToStart transitions to Dock", "[a8_sim][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_a8_perimeter_nav_map.json")));
+
+    robot->startMowing();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "NavToStart");
+
+    robot->setPose(10.0f, 10.0f, 0.0f);
+    robot->run();
+    robot->run();
+
+    REQUIRE(robot->activeOpName() == "Dock");
+    REQUIRE(hasMotorStop(hw->motorCalls));
+}
+
+TEST_CASE("A8 Scenario 8: map change during Mow transitions to Idle", "[a8_sim][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_a8_mapchange_initial.json")));
+
+    enterMowFromStartCommand(*robot);
+
+    REQUIRE(robot->loadMap(writeAlteredMap("sunray_test_a8_mapchange_new.json")));
+    robot->run();
+    robot->run();
+
+    REQUIRE(robot->activeOpName() == "Idle");
+    REQUIRE(hasMotorStop(hw->motorCalls));
+}
+
+TEST_CASE("A8 Scenario 8b: map change during NavToStart transitions to Idle", "[a8_sim][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_a8_mapchange_nav_initial.json")));
+
+    robot->startMowing();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "NavToStart");
+
+    REQUIRE(robot->loadMap(writeAlteredMap("sunray_test_a8_mapchange_nav_new.json")));
+    robot->run();
+    robot->run();
+
+    REQUIRE(robot->activeOpName() == "Idle");
+    REQUIRE(hasMotorStop(hw->motorCalls));
+}
+
+TEST_CASE("A8 Scenario 9: EscapeForward escalates obstacle to EscapeReverse", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+
+    opMgr.changeOperationTypeByOperator(ctx, "EscapeForward");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeForward");
+
+    opMgr.activeOp()->onObstacle(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+}
+
+TEST_CASE("A8 Scenario 9b: EscapeForward lift event escalates to Error", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+
+    opMgr.changeOperationTypeByOperator(ctx, "EscapeForward");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeForward");
+
+    opMgr.activeOp()->onLiftTriggered(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Error");
+}
+
+TEST_CASE("A8 Scenario 9c: EscapeReverse obstacle extends reverse timer", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+    ctx.x = 1.0f;
+    ctx.y = 1.0f;
+
+    nav::Map map(cfg);
+    REQUIRE(map.load(writeSimpleMap("sunray_test_a8_escape_reverse_obstacle_map.json")));
+    ctx.map = &map;
+
+    opMgr.changeOperationTypeByOperator(ctx, "EscapeReverse");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+
+    auto& escape = opMgr.escape();
+    const unsigned long initialStop = escape.driveReverseStopTime_ms;
+    ctx.now_ms = 1000;
+    escape.onObstacle(ctx);
+    REQUIRE(escape.driveReverseStopTime_ms > initialStop);
+    REQUIRE(map.obstacles().size() == 1);
+}
+
+TEST_CASE("A8 Scenario 9d: EscapeReverse lift event escalates to Error", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+
+    opMgr.changeOperationTypeByOperator(ctx, "EscapeReverse");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+
+    opMgr.activeOp()->onLiftTriggered(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Error");
+}
+
+TEST_CASE("A8 Scenario 10: Dock watchdog timeout escalates to Error", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    cfg->set("dock_max_duration_ms", 1);
+    auto hwOwned = std::make_unique<MockHardware>();
+    MockHardware* hw = hwOwned.get();
+    Robot robot(std::move(hwOwned), cfg, makeLogger());
+    REQUIRE(robot.init());
+    REQUIRE(robot.loadMap(writeDockPathMap("sunray_test_a8_dock_watchdog.json")));
+
+    robot.startDocking();
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Dock");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    robot.run();
+    robot.run();
+
+    REQUIRE(robot.activeOpName() == "Error");
+    REQUIRE(hasMotorStop(hw->motorCalls));
 }
 
 TEST_CASE("E2x: Dock retries docking route when final contact is missing", "[e2x_dock]") {

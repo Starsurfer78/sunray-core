@@ -49,6 +49,12 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
     if (eventReason == "resume_blocked_map_changed") {
         return "Fortsetzen blockiert: Die Karte wurde seit dem Missionsstart verändert.";
     }
+    if (eventReason == "perimeter_violated") {
+        return "Perimeter verletzt: Der Roboter hat den erlaubten Bereich verlassen.";
+    }
+    if (eventReason == "op_watchdog_timeout") {
+        return "Sicherheits-Timeout: Der aktuelle Fahrzustand dauerte zu lange.";
+    }
     if (eventReason == "charger_connected") {
         return "Ladekontakt erkannt: Der Roboter lädt.";
     }

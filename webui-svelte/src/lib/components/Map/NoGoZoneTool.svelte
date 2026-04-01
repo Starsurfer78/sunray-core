@@ -20,6 +20,7 @@
     activateTool()
     mapStore.clearActive()
   }
+
 </script>
 
 <section class="panel">

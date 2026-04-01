@@ -1,31 +1,41 @@
 # WORKING RULES
 
 ## General
-- Keep changes minimal
-- Do not break build
-- Avoid unnecessary complexity
+
+- Keep changes minimal.
+- Do not break build or runtime behavior without intent.
+- Avoid unnecessary complexity.
 
 ## Code Style
-- Follow existing style
-- Do not reformat unrelated code
+
+- Follow existing style.
+- Do not reformat unrelated code.
 
 ## Git
-- One logical change per commit
-- Clear commit messages
+
+- One logical change per commit.
+- Clear commit messages.
 
 ## Safety Rules
-- Do NOT delete files without reason
-- Do NOT change build system unless necessary
 
-## When unsure
-- Ask or leave a TODO
-- Do not guess
+- Do not delete files without a concrete reason.
+- Do not change build system or deployment paths unless necessary.
+- For navigation, docking, recovery, or resume changes: update scenario tests in the same change.
 
 ## Testing
-- Always run build
-- Run tests if available
-- For navigation, recovery, docking, or resume changes: add or update scenario tests in the same change
+
+- Run a meaningful verification step for every change.
+- Prefer fresh build directories over checked-in build artifacts.
+- For frontend changes, run `npm run check` when possible.
 
 ## Docs
-- Update TASKS.md and TODO.md when a planned architecture-risk reduction commit is completed
-- Before refactoring `Robot::run()`, keep `docs/ROBOT_RUN_BASELINE.md` and `docs/TELEMETRY_CONTRACT.md` in sync with the observed pre-refactor behavior
+
+- `TODO.md` is the only open backlog.
+- Keep `README.md`, `PROJECT_OVERVIEW.md`, and `PROJECT_MAP.md` aligned with repo reality.
+- Keep durable fachliche Doku in `docs/`; do not create parallel temporary task lists unless explicitly needed.
+- Before refactoring `Robot::run()`, keep [docs/ROBOT_RUN_BASELINE.md](/mnt/LappiDaten/Projekte/sunray-core/docs/ROBOT_RUN_BASELINE.md) and [docs/TELEMETRY_CONTRACT.md](/mnt/LappiDaten/Projekte/sunray-core/docs/TELEMETRY_CONTRACT.md) in sync with observed behavior.
+
+## When Unsure
+
+- Ask or leave a focused TODO.
+- Do not guess about hardware behavior.

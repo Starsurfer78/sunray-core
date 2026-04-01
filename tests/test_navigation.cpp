@@ -16,6 +16,7 @@
 #include "core/navigation/LineTracker.h"
 #include "core/navigation/Map.h"
 #include "core/control/OpenLoopDriveController.h"
+#include "core/control/DifferentialDriveController.h"
 #include "core/op/Op.h"
 #include "core/Config.h"
 #include "core/Logger.h"
@@ -162,6 +163,49 @@ TEST_CASE("StateEstimator: reset() returns pose to (0,0,0)", "[state_est]") {
     REQUIRE_FALSE(est.gpsHasFix());
 }
 
+TEST_CASE("StateEstimator: repeated straight motion keeps heading and lateral drift stable", "[state_est]") {
+    StateEstimator est;
+
+    OdometryData prime;
+    prime.mcuConnected = true;
+    est.update(prime, 20);
+
+    OdometryData fwd;
+    fwd.mcuConnected = true;
+    fwd.leftTicks = 20;
+    fwd.rightTicks = 20;
+
+    for (int i = 0; i < 25; ++i) {
+        est.update(fwd, 20);
+    }
+
+    REQUIRE(est.x() > 0.5f);
+    REQUIRE(std::fabs(est.y()) < 0.05f);
+    REQUIRE(est.heading() == Approx(0.0f).margin(0.05f));
+}
+
+TEST_CASE("StateEstimator: repeated curved motion accumulates heading and lateral displacement consistently", "[state_est]") {
+    StateEstimator est;
+
+    OdometryData prime;
+    prime.mcuConnected = true;
+    est.update(prime, 20);
+
+    OdometryData curve;
+    curve.mcuConnected = true;
+    curve.leftTicks = 10;
+    curve.rightTicks = 20;
+
+    for (int i = 0; i < 20; ++i) {
+        est.update(curve, 20);
+    }
+
+    REQUIRE(est.x() > 0.1f);
+    REQUIRE(est.y() > 0.1f);
+    REQUIRE(est.heading() > 0.2f);
+    REQUIRE(est.heading() < static_cast<float>(M_PI));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LineTracker Tests
 //
@@ -262,6 +306,53 @@ TEST_CASE("OpenLoopDriveController: output is clamped to PWM range", "[drive]") 
     REQUIRE(pwm.right <= 255);
 }
 
+TEST_CASE("DifferentialDriveController: zero command resets to zero PWM", "[drive][pid]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    control::DifferentialDriveController controller;
+    OdometryData odom;
+    odom.mcuConnected = true;
+
+    const auto pwm = controller.compute(cfg, 0.0f, 0.0f, odom, 20);
+    REQUIRE(pwm.left == 0);
+    REQUIRE(pwm.right == 0);
+}
+
+TEST_CASE("DifferentialDriveController: falls back to open loop without odometry", "[drive][pid]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    cfg.set("motor_set_speed_ms", 0.5f);
+    cfg.set("wheel_base_m", 0.4f);
+    control::DifferentialDriveController controller;
+    OdometryData odom;
+    odom.mcuConnected = false;
+
+    const auto openLoop = control::OpenLoopDriveController::compute(cfg, 0.2f, 0.0f);
+    const auto pwm = controller.compute(cfg, 0.2f, 0.0f, odom, 20);
+    REQUIRE(pwm.left == openLoop.left);
+    REQUIRE(pwm.right == openLoop.right);
+}
+
+TEST_CASE("DifferentialDriveController: PID correction raises PWM when measured speed is too low", "[drive][pid]") {
+    Config cfg("/tmp/sunray_drive_controller_test_config.json");
+    cfg.set("motor_set_speed_ms", 0.3f);
+    cfg.set("wheel_base_m", 0.39f);
+    cfg.set("wheel_diameter_m", 0.205f);
+    cfg.set("ticks_per_revolution", 320);
+    cfg.set("motor_pid_kp", 0.5f);
+    cfg.set("motor_pid_ki", 0.0f);
+    cfg.set("motor_pid_kd", 0.0f);
+
+    control::DifferentialDriveController controller;
+    OdometryData odom;
+    odom.mcuConnected = true;
+    odom.leftTicks = 1;
+    odom.rightTicks = 1;
+
+    const auto openLoop = control::OpenLoopDriveController::compute(cfg, 0.2f, 0.0f);
+    const auto pwm = controller.compute(cfg, 0.2f, 0.0f, odom, 20);
+    REQUIRE(pwm.left >= openLoop.left);
+    REQUIRE(pwm.right >= openLoop.right);
+}
+
 TEST_CASE("Map: load() with non-existent path returns false", "[map]") {
     Map map;
     REQUIRE_FALSE(map.load("/tmp/sunray_no_such_map_99999.json"));
@@ -273,12 +364,67 @@ TEST_CASE("Map: load() with valid JSON stores mow points", "[map]") {
 
     Map map;
     REQUIRE(map.load(tmpPath));
-    REQUIRE(map.mowPoints().size() == 3);
-    REQUIRE(map.mowPoints()[0].p.x == Approx(1.0f));
-    REQUIRE(map.mowPoints()[0].p.y == Approx(1.0f));
-    REQUIRE(map.mowPoints()[2].p.x == Approx(3.0f));
+    REQUIRE(map.mowRoutePlan().points.size() == 3);
+    REQUIRE(map.mowRoutePlan().points[0].p.x == Approx(1.0f));
+    REQUIRE(map.mowRoutePlan().points[0].p.y == Approx(1.0f));
+    REQUIRE(map.mowRoutePlan().points[2].p.x == Approx(3.0f));
 
     std::filesystem::remove(tmpPath);
+}
+
+TEST_CASE("Map: load() reads planner, dockMeta, exclusionMeta and zone planner fields", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+          "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+          "dock":[[1,1],[1.5,1.0]],
+          "exclusions":[[[2,2],[3,2],[3,3],[2,3]]],
+          "exclusionMeta":[{"type":"soft","clearance":0.4,"costScale":1.7}],
+          "planner":{
+            "defaultClearance":0.3,
+            "perimeterSoftMargin":0.25,
+            "perimeterHardMargin":0.1,
+            "obstacleInflation":0.45,
+            "softNoGoCostScale":0.8,
+            "replanPeriodMs":400,
+            "gridCellSize":0.12
+          },
+          "dockMeta":{
+            "approachMode":"reverse_allowed",
+            "corridor":[[0.8,0.8],[1.8,0.8],[1.8,1.4],[0.8,1.4]],
+            "finalAlignHeadingDeg":180.0,
+            "slowZoneRadius":0.7
+          },
+          "zones":[{
+            "id":"z1",
+            "order":1,
+            "polygon":[[0.5,0.5],[4,0.5],[4,4],[0.5,4]],
+            "settings":{
+              "name":"Front",
+              "stripWidth":0.2,
+              "speed":0.8,
+              "pattern":"stripe",
+              "reverseAllowed":true,
+              "clearance":0.35
+            }
+          }]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+
+    REQUIRE(map.plannerSettings().defaultClearance_m == Approx(0.3f));
+    REQUIRE(map.plannerSettings().replanPeriod_ms == 400);
+    REQUIRE(map.dockMeta().approachMode == DockApproachMode::REVERSE_ALLOWED);
+    REQUIRE(map.dockMeta().hasFinalAlignHeading);
+    REQUIRE(map.dockMeta().finalAlignHeading_deg == Approx(180.0f));
+    REQUIRE(map.exclusionMeta().size() == 1);
+    REQUIRE(map.exclusionMeta()[0].type == ExclusionType::SOFT);
+    REQUIRE(map.exclusionMeta()[0].clearance_m == Approx(0.4f));
+    REQUIRE(map.exclusionMeta()[0].costScale == Approx(1.7f));
+    REQUIRE(map.zones().size() == 1);
+    REQUIRE(map.zones()[0].settings.reverseAllowed);
+    REQUIRE(map.zones()[0].settings.clearance == Approx(0.35f));
 }
 
 TEST_CASE("Map: load() with inconsistent JSON returns false and clears state", "[map]") {
@@ -288,7 +434,7 @@ TEST_CASE("Map: load() with inconsistent JSON returns false and clears state", "
     Map map;
     REQUIRE_FALSE(map.load(tmpPath));
     REQUIRE_FALSE(map.isLoaded());
-    REQUIRE(map.mowPoints().empty());
+    REQUIRE(map.mowRoutePlan().points.empty());
     REQUIRE(map.zones().empty());
 
     std::filesystem::remove(tmpPath);
@@ -346,9 +492,9 @@ TEST_CASE("Map: startMowingZones() filters mow points to requested zone", "[map]
     Map map;
     REQUIRE(map.load(tmpPath));
     REQUIRE(map.startMowingZones(0.0f, 0.0f, {"zone-b"}));
-    REQUIRE(map.mowPoints().size() == 1);
-    REQUIRE(map.mowPoints()[0].p.x == Approx(8.0f));
-    REQUIRE(map.mowPoints()[0].p.y == Approx(8.0f));
+    REQUIRE(map.mowRoutePlan().points.size() == 1);
+    REQUIRE(map.mowRoutePlan().points[0].p.x == Approx(8.0f));
+    REQUIRE(map.mowRoutePlan().points[0].p.y == Approx(8.0f));
     REQUIRE(map.targetPoint.x == Approx(8.0f));
     REQUIRE(map.targetPoint.y == Approx(8.0f));
 
@@ -369,11 +515,74 @@ TEST_CASE("Map: startMowingZones() falls back to all mow points for unknown zone
     Map map;
     REQUIRE(map.load(tmpPath));
     REQUIRE(map.startMowingZones(0.0f, 0.0f, {"does-not-exist"}));
-    REQUIRE(map.mowPoints().size() == 3);
+    REQUIRE(map.mowRoutePlan().points.size() == 3);
     REQUIRE(map.targetPoint.x == Approx(1.0f));
     REQUIRE(map.targetPoint.y == Approx(1.0f));
 
     std::filesystem::remove(tmpPath);
+}
+
+TEST_CASE("Map: currentTrackingSegment applies dock final align and reverse policy", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+            "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+            "dock":[[1.0,1.0],[1.4,1.0]],
+            "dockMeta":{
+                "approachMode":"reverse_allowed",
+                "finalAlignHeadingDeg":180.0,
+                "slowZoneRadius":0.6
+            }
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+    REQUIRE(map.startDocking(0.5f, 1.0f));
+
+    map.wayMode = WayType::DOCK;
+    map.targetPoint = map.dockRoutePlan().points.back().p;
+    map.lastTargetPoint = map.dockRoutePlan().points.front().p;
+
+    const auto segmentFacingWest = map.currentTrackingSegment(
+        map.dockRoutePlan().points.back().p.x,
+        map.dockRoutePlan().points.back().p.y,
+        static_cast<float>(M_PI));
+    REQUIRE(segmentFacingWest.slow);
+    REQUIRE_FALSE(segmentFacingWest.reverse);
+    REQUIRE(segmentFacingWest.sourceMode == WayType::DOCK);
+
+    const auto segmentFacingEast = map.currentTrackingSegment(
+        map.dockRoutePlan().points.back().p.x,
+        map.dockRoutePlan().points.back().p.y,
+        0.0f);
+    REQUIRE(segmentFacingEast.slow);
+    REQUIRE(segmentFacingEast.reverse);
+    REQUIRE(segmentFacingEast.kidnapTolerance_m == Approx(0.85f));
+}
+
+TEST_CASE("Map: currentTrackingSegment without dockMeta keeps normal dock behavior", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+            "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+            "dock":[[1.0,1.0],[1.4,1.0]]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+    REQUIRE(map.startDocking(0.5f, 1.0f));
+
+    map.wayMode = WayType::DOCK;
+    map.targetPoint = map.dockRoutePlan().points.back().p;
+    map.lastTargetPoint = map.dockRoutePlan().points.front().p;
+
+    const auto segment = map.currentTrackingSegment(
+        map.dockRoutePlan().points.back().p.x,
+        map.dockRoutePlan().points.back().p.y,
+        0.0f);
+    REQUIRE_FALSE(map.dockingFinalAlignActive(map.dockRoutePlan().points.back().p.x, map.dockRoutePlan().points.back().p.y));
+    REQUIRE_FALSE(segment.reverse);
+    REQUIRE(segment.sourceMode == WayType::DOCK);
 }
 
 TEST_CASE("Map: load/save preserves capture metadata", "[map]") {
@@ -429,6 +638,21 @@ TEST_CASE("Map: isInsideAllowedArea returns false for point outside perimeter", 
     REQUIRE(map.load(tmpPath));
     REQUIRE_FALSE(map.isInsideAllowedArea(15.0f, 5.0f));
     REQUIRE_FALSE(map.isInsideAllowedArea(-1.0f, 5.0f));
+
+    std::filesystem::remove(tmpPath);
+}
+
+TEST_CASE("Map: isInsideAllowedArea returns false for point inside exclusion", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+            "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+            "exclusions":[[[4,4],[6,4],[6,6],[4,6]]]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    REQUIRE_FALSE(map.isInsideAllowedArea(5.0f, 5.0f));
+    REQUIRE(map.isInsideAllowedArea(3.0f, 3.0f));
 
     std::filesystem::remove(tmpPath);
 }
@@ -523,6 +747,98 @@ TEST_CASE("GridMap: planPath routes around occupied obstacle and keeps exact des
     REQUIRE(tookDetour);
 }
 
+TEST_CASE("GridMap: planPath selects nearest free cell when destination is blocked", "[gridmap]") {
+    auto tmpPath = writeTmpMap(
+        R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,0],[2,0]]})");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+
+    REQUIRE(map.addObstacle(2.0f, 0.0f, 1000u, true));
+
+    GridMap grid;
+    grid.build(map, 0.0f, 0.0f);
+
+    const Point src{-2.0f, 0.0f};
+    const Point dst{ 2.0f, 0.0f};
+    const auto path = grid.planPath(src, dst);
+
+    REQUIRE_FALSE(path.empty());
+    REQUIRE(path.back().distanceTo(dst) < 1.0f);
+    REQUIRE(map.isInsideAllowedArea(path.back().x, path.back().y));
+}
+
+TEST_CASE("GridMap: planPath returns empty path when no free cell exists", "[gridmap]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+            "perimeter":[[-1,-1],[1,-1],[1,1],[-1,1]],
+            "exclusions":[[[-1,-1],[1,-1],[1,1],[-1,1]]]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+
+    GridMap grid;
+    grid.build(map, 0.0f, 0.0f, 0.1f, 20, 20, 0.2f, WayType::MOW);
+
+    const auto path = grid.planPath({0.0f, 0.0f}, {0.5f, 0.5f});
+    REQUIRE(path.empty());
+}
+
+TEST_CASE("GridMap: planPath handles obstacle inflation at perimeter edge", "[gridmap]") {
+    auto tmpPath = writeTmpMap(
+        R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-4.5,0],[4.5,0]]})");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+
+    REQUIRE(map.addObstacle(-4.6f, 0.0f, 1000u, true));
+
+    GridMap grid;
+    grid.build(map, 0.0f, 0.0f);
+
+    const auto path = grid.planPath({-4.5f, 0.0f}, {4.5f, 0.0f});
+    REQUIRE_FALSE(path.empty());
+    for (const auto& p : path) {
+        REQUIRE(map.isInsideAllowedArea(p.x, p.y));
+    }
+}
+
+TEST_CASE("GridMap: planPath avoids exclusion polygons", "[gridmap]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+            "perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],
+            "mow":[[-2,0],[2,0]],
+            "exclusions":[[[-0.5,-1.0],[0.5,-1.0],[0.5,1.0],[-0.5,1.0]]]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+
+    GridMap grid;
+    grid.build(map, 0.0f, 0.0f);
+
+    const Point src{-2.0f, 0.0f};
+    const Point dst{ 2.0f, 0.0f};
+    const auto path = grid.planPath(src, dst);
+
+    REQUIRE_FALSE(path.empty());
+
+    bool touchedExclusion = false;
+    bool tookDetour = false;
+    for (const auto& p : path) {
+        if (!map.isInsideAllowedArea(p.x, p.y)) touchedExclusion = true;
+        if (std::fabs(p.y) > 0.2f) tookDetour = true;
+    }
+
+    REQUIRE_FALSE(touchedExclusion);
+    REQUIRE(tookDetour);
+}
+
 TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridmap]") {
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,-2],[2,2]]})");
@@ -549,6 +865,54 @@ TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridma
     REQUIRE(smoothed.front().y == Approx(rawPath.front().y).margin(1e-5f));
     REQUIRE(smoothed.back().x == Approx(rawPath.back().x).margin(1e-5f));
     REQUIRE(smoothed.back().y == Approx(rawPath.back().y).margin(1e-5f));
+}
+
+TEST_CASE("Map: replanToCurrentTarget returns to MOW route after free path is consumed", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[1,0],[3,0],[4,0]]})");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+    REQUIRE(map.startMowing(0.0f, 0.0f));
+    REQUIRE(map.addObstacle(2.0f, 0.0f, 1000u, true));
+
+    const int resumeIdx = map.mowPointsIdx;
+    const Point resumeTarget = map.targetPoint;
+    REQUIRE(map.replanToCurrentTarget(0.0f, 0.0f));
+    REQUIRE(map.wayMode == WayType::FREE);
+
+    int guard = 0;
+    while (map.wayMode == WayType::FREE && guard++ < 32) {
+        REQUIRE(map.nextPoint(false, map.targetPoint.x, map.targetPoint.y));
+    }
+
+    REQUIRE(map.wayMode == WayType::MOW);
+    REQUIRE(map.mowPointsIdx == resumeIdx);
+    REQUIRE(map.targetPoint.x == Approx(resumeTarget.x).margin(1e-5f));
+    REQUIRE(map.targetPoint.y == Approx(resumeTarget.y).margin(1e-5f));
+}
+
+TEST_CASE("Map: startDocking returns to DOCK route after free approach path is consumed", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"dock":[[3,0],[4,0]]})");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+    REQUIRE(map.addObstacle(1.5f, 0.0f, 1000u, true));
+    REQUIRE(map.startDocking(0.0f, 0.0f));
+    REQUIRE(map.wayMode == WayType::FREE);
+
+    int guard = 0;
+    while (map.wayMode == WayType::FREE && guard++ < 32) {
+        REQUIRE(map.nextPoint(false, map.targetPoint.x, map.targetPoint.y));
+    }
+
+    REQUIRE(map.wayMode == WayType::DOCK);
+    REQUIRE(map.targetPoint.x == Approx(map.dockRoutePlan().points.front().p.x).margin(1e-5f));
+    REQUIRE(map.targetPoint.y == Approx(map.dockRoutePlan().points.front().p.y).margin(1e-5f));
+    REQUIRE(map.isDocking());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

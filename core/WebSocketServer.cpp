@@ -163,6 +163,11 @@ void WebSocketServer::setMapPath(const std::string& mapPath) {
     mapPath_ = mapPath;
 }
 
+void WebSocketServer::onMapGet(MapGetCallback cb) {
+    std::lock_guard<std::mutex> lk(mapReloadMutex_);
+    mapGetCallback_ = std::move(cb);
+}
+
 void WebSocketServer::onMapReload(MapReloadCallback cb) {
     std::lock_guard<std::mutex> lk(mapReloadMutex_);
     mapReloadCallback_ = std::move(cb);
@@ -275,7 +280,23 @@ void WebSocketServer::setupHttpRoutes() {
         [this, isAuthorized](const crow::request& req) -> crow::response {
             try {
                 if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
-                crow::response res(200, kDefaultMapJson);
+                nlohmann::json mapJson;
+                {
+                    std::lock_guard<std::mutex> lk(mapReloadMutex_);
+                    if (mapGetCallback_) {
+                        mapJson = mapGetCallback_();
+                    }
+                }
+                if (mapJson.is_null() || mapJson.empty()) {
+                    const std::string raw = mapPath_.empty() ? std::string() : readFile(mapPath_);
+                    if (!raw.empty()) {
+                        mapJson = nlohmann::json::parse(raw, nullptr, false);
+                    }
+                }
+                if (mapJson.is_discarded() || mapJson.is_null() || !mapJson.is_object()) {
+                    mapJson = nlohmann::json::parse(kDefaultMapJson);
+                }
+                crow::response res(200, mapJson.dump());
                 res.set_header("Content-Type", "application/json");
                 res.set_header("Access-Control-Allow-Origin", "*");
                 return res;

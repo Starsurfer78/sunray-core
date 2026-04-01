@@ -12,6 +12,8 @@ add_library(sunray_core STATIC
     storage/EventRecorder.cpp
     storage/HistoryDatabase.cpp
     control/OpenLoopDriveController.cpp
+    control/PidController.cpp
+    control/DifferentialDriveController.cpp
     op/Op.cpp
     op/IdleOp.cpp
     op/ChargeOp.cpp
@@ -24,6 +26,8 @@ add_library(sunray_core STATIC
     op/GpsWaitFixOp.cpp
     op/ErrorOp.cpp
     navigation/StateEstimator.cpp
+    navigation/Costmap.cpp
+    navigation/Planner.cpp
     navigation/Map.cpp
     navigation/LineTracker.cpp
     navigation/GridMap.cpp

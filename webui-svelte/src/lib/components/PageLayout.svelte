@@ -9,7 +9,10 @@
 <main class="page">
     <section class="layout" class:collapsed={sidebarCollapsed}>
         <div class="main-column">
-            <slot />
+            <div class="main-content">
+                <slot />
+            </div>
+            <slot name="bottom" />
         </div>
 
         <aside class="sidebar" class:collapsed={sidebarCollapsed}>
@@ -52,6 +55,13 @@
         height: 100%;
         margin-right: 275px;
         transition: margin-right 0.2s;
+        display: grid;
+        grid-template-rows: 1fr auto;
+    }
+
+    .main-content {
+        min-height: 0;
+        overflow: hidden;
     }
 
     .sidebar {
@@ -74,7 +84,8 @@
         background: #0a1020;
         border: 1px solid #1e3a5f;
         border-radius: 0.75rem;
-        overflow: hidden;
+        overflow-y: auto;
+        overflow-x: hidden;
         height: 100%;
         box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
     }

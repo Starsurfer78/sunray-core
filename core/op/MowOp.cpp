@@ -24,6 +24,10 @@ void MowOp::end(OpContext& ctx) {
 }
 
 void MowOp::run(OpContext& ctx) {
+    if (!ctx.insidePerimeter) {
+        onPerimeterViolated(ctx);
+        return;
+    }
     if (ctx.lineTracker && ctx.map && ctx.stateEst) {
         ctx.lineTracker->track(ctx, *ctx.map, *ctx.stateEst);
     }
@@ -90,6 +94,23 @@ void MowOp::onImuTilt(OpContext& ctx) {
 
 void MowOp::onImuError(OpContext& ctx) {
     ctx.logger.error("Mow", "IMU error => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void MowOp::onPerimeterViolated(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("Mow", "perimeter violated => DOCK");
+    changeOp(ctx, ctx.opMgr.dock());
+}
+
+void MowOp::onMapChanged(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.warn("Mow", "map changed during mission => IDLE");
+    changeOp(ctx, ctx.opMgr.idle());
+}
+
+void MowOp::onBatteryUndervoltage(OpContext& ctx) {
+    ctx.logger.error("Mow", "battery undervoltage => ERROR");
     changeOp(ctx, ctx.opMgr.error());
 }
 

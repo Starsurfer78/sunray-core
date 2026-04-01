@@ -18,6 +18,7 @@
 
 #include "hal/HardwareInterface.h"
 #include "core/Config.h"
+#include "core/control/DifferentialDriveController.h"
 #include "core/control/OpenLoopDriveController.h"
 #include "core/Logger.h"
 
@@ -75,14 +76,19 @@ struct OpContext {
     nav::StateEstimator* stateEst    = nullptr;  ///< pose estimator (owned by Robot)
     nav::Map*            map         = nullptr;  ///< active waypoint map
     nav::LineTracker*    lineTracker = nullptr;  ///< Stanley controller
+    control::DifferentialDriveController* driveController = nullptr; ///< wheel speed controller
 
     // ── Timing ─────────────────────────────────────────────────────────────────
     unsigned long now_ms = 0;  ///< Robot::run() timestamp (ms since epoch)
+    unsigned long dt_ms  = 0;  ///< loop delta used for speed controller
 
     // ── Motor helpers ──────────────────────────────────────────────────────────
 
     /// Stop all motors immediately.
-    void stopMotors() { hw.setMotorPwm(0, 0, 0); }
+    void stopMotors() {
+        if (driveController) driveController->reset();
+        hw.setMotorPwm(0, 0, 0);
+    }
 
     /// Set mow motor (on=true: PWM 200, off: PWM 0).
     void setMowMotor(bool on) { hw.setMotorPwm(0, 0, on ? 200 : 0); }
@@ -90,9 +96,12 @@ struct OpContext {
     /// Differential-drive speed control (replaces motor.setLinearAngularSpeed).
     ///   v:     linear velocity  (m/s, + = forward)
     ///   omega: angular velocity (rad/s, + = turn left)
-    /// Converts to left/right PWM via OpenLoopDriveController.
+    /// Converts to left/right PWM via DifferentialDriveController with
+    /// OpenLoop fallback if no controller is attached.
     void setLinearAngularSpeed(float v, float omega) {
-        const auto pwm = control::OpenLoopDriveController::compute(config, v, omega);
+        const auto pwm = driveController
+            ? driveController->compute(config, v, omega, odometry, dt_ms)
+            : control::OpenLoopDriveController::compute(config, v, omega);
         hw.setMotorPwm(pwm.left, pwm.right, 0);  // mow unchanged by speed calls
     }
 };
@@ -166,8 +175,12 @@ public:
     virtual void onKidnapped(OpContext& ctx, bool state);
     virtual void onImuTilt(OpContext& ctx);
     virtual void onImuError(OpContext& ctx);
+    virtual void onPerimeterViolated(OpContext& ctx);
+    virtual void onMapChanged(OpContext& ctx);
+    virtual void onWatchdogTimeout(OpContext& ctx);
     virtual void onTimetableStartMowing(OpContext& ctx);
     virtual void onTimetableStopMowing(OpContext& ctx);
+    virtual unsigned long watchdogTimeoutMs(const OpContext& ctx) const;
 
     // ── Op chain helpers ───────────────────────────────────────────────────────
 
@@ -271,11 +284,13 @@ public:
     void onKidnapped(OpContext& ctx, bool state) override;
     void onImuTilt(OpContext& ctx)             override;
     void onImuError(OpContext& ctx)            override;
+    void onPerimeterViolated(OpContext& ctx)   override;
+    void onMapChanged(OpContext& ctx)          override;
+    void onBatteryUndervoltage(OpContext& ctx) override;
 };
 
 class DockOp : public Op {
 public:
-    bool lastMapRoutingFailed   = false;
     int  mapRoutingFailedCounter = 0;
 
     std::string name() const override { return "Dock"; }
@@ -291,6 +306,11 @@ public:
     void onGpsNoSignal(OpContext& ctx)       override;
     void onChargerConnected(OpContext& ctx)  override;
     void onKidnapped(OpContext& ctx, bool state) override;
+    void onPerimeterViolated(OpContext& ctx) override;
+    void onMapChanged(OpContext& ctx)        override;
+    void onBatteryUndervoltage(OpContext& ctx) override;
+    void onWatchdogTimeout(OpContext& ctx)   override;
+    unsigned long watchdogTimeoutMs(const OpContext& ctx) const override;
 };
 
 class ChargeOp : public Op {
@@ -298,6 +318,7 @@ public:
     unsigned long retryTime_ms          = 0;
     unsigned long nextConsoleDetails_ms = 0;
     bool          retryTouchDock        = false;
+    bool          chargingComplete_     = false;
     int           contactRetryCount     = 0;
 
     std::string name() const override { return "Charge"; }
@@ -345,6 +366,9 @@ public:
     void onKidnapped(OpContext& ctx, bool state) override;
     void onImuTilt(OpContext& ctx) override;
     void onImuError(OpContext& ctx) override;
+    void onPerimeterViolated(OpContext& ctx) override;
+    void onMapChanged(OpContext& ctx) override;
+    void onBatteryUndervoltage(OpContext& ctx) override;
 };
 
 class WaitRainOp : public Op {
@@ -370,9 +394,13 @@ public:
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
+    void onObstacle(OpContext& ctx) override;
+    void onLiftTriggered(OpContext& ctx) override;
+    void onBatteryUndervoltage(OpContext& ctx) override;
     void onKidnapped(OpContext& ctx, bool state) override;
     void onImuTilt(OpContext& ctx)  override;
     void onImuError(OpContext& ctx) override;
+    void onPerimeterViolated(OpContext& ctx) override;
 };
 
 class EscapeForwardOp : public Op {
@@ -383,9 +411,13 @@ public:
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
+    void onObstacle(OpContext& ctx) override;
+    void onLiftTriggered(OpContext& ctx) override;
+    void onBatteryUndervoltage(OpContext& ctx) override;
     void onKidnapped(OpContext& ctx, bool state) override;
     void onImuTilt(OpContext& ctx)  override;
     void onImuError(OpContext& ctx) override;
+    void onPerimeterViolated(OpContext& ctx) override;
 };
 
 class GpsWaitFixOp : public Op {

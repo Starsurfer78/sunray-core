@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { runMotorDiag, setMowMotor } from '../../api/rest'
+  import { runDriveDiag, runMotorDiag, runTurnDiag, setMowMotor } from '../../api/rest'
   import { diagnostics } from '../../stores/diagnostics'
   import { telemetry } from '../../stores/telemetry'
 
   let pwm = 0.15
   let durationMs = 3000
   let revolutions = 0
+  let driveDistanceM = 3
+  let drivePwm = 0.15
+  let turnPwm = 0.15
 
   async function runMotor(motor: 'left' | 'right' | 'mow') {
     diagnostics.start(`motor:${motor}`)
@@ -26,6 +29,46 @@
     }
   }
 
+  async function runDriveDistance() {
+    diagnostics.start(`drive:${driveDistanceM.toFixed(2)}m`)
+    try {
+      const result = await runDriveDiag({
+        distance_m: driveDistanceM,
+        pwm: drivePwm,
+      })
+      if (!result.ok) {
+        diagnostics.fail(result.error ?? 'Fahrtest fehlgeschlagen')
+        return
+      }
+      diagnostics.success({
+        ...result,
+        message: `Geradeausfahrt beendet: ${Number(result.distance_m ?? 0).toFixed(2)} m bei L/R ${result.left_ticks ?? 0}/${result.right_ticks ?? 0} Ticks`,
+      })
+    } catch (error) {
+      diagnostics.fail(error instanceof Error ? error.message : 'Fahrtest fehlgeschlagen')
+    }
+  }
+
+  async function runTurn(angleDeg: number) {
+    diagnostics.start(`turn:${angleDeg}deg`)
+    try {
+      const result = await runTurnDiag({
+        angle_deg: angleDeg,
+        pwm: turnPwm,
+      })
+      if (!result.ok) {
+        diagnostics.fail(result.error ?? 'Drehtest fehlgeschlagen')
+        return
+      }
+      diagnostics.success({
+        ...result,
+        message: `Drehtest beendet: ${Number(result.heading_delta_deg ?? 0).toFixed(1)}° bei L/R ${result.left_ticks ?? 0}/${result.right_ticks ?? 0} Ticks`,
+      })
+    } catch (error) {
+      diagnostics.fail(error instanceof Error ? error.message : 'Drehtest fehlgeschlagen')
+    }
+  }
+
   async function toggleMowMotor(on: boolean) {
     diagnostics.start(on ? 'mow:on' : 'mow:off')
     try {
@@ -43,37 +86,109 @@
 
 <section class="panel">
   <header>
-    <h2>Motor-Test</h2>
-    <p>Direkte Tests fuer linkes/rechtes Rad und den Maehmotor als Grundlage fuer die Kalibrierung.</p>
+    <h2>Motor- und Fahrtests</h2>
+    <p>Direkte Service-Tests fuer Einzelmotoren, 3-Meter-Fahrt und definierte Drehungen.</p>
   </header>
 
-  <div class="settings">
-    <label>
-      PWM
-      <input type="number" min="0.05" max="1" step="0.01" bind:value={pwm} />
-    </label>
-    <label>
-      Dauer ms
-      <input type="number" min="250" max="15000" step="250" bind:value={durationMs} />
-    </label>
-    <label>
-      Umdrehungen
-      <input type="number" min="0" max="10" step="1" bind:value={revolutions} />
-    </label>
+  <div class="block">
+    <div class="block-header">
+      <strong>Einzelmotor</strong>
+      <span>Radmotoren und Maehmotor separat pruefen.</span>
+    </div>
+
+    <div class="settings">
+      <label>
+        PWM
+        <input type="number" min="0.05" max="1" step="0.01" bind:value={pwm} />
+      </label>
+      <label>
+        Dauer ms
+        <input type="number" min="250" max="15000" step="250" bind:value={durationMs} />
+      </label>
+      <label>
+        Umdrehungen
+        <input type="number" min="0" max="10" step="1" bind:value={revolutions} />
+      </label>
+    </div>
+
+    <div class="actions">
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('left')}>Linkes Rad</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('right')}>Rechtes Rad</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('mow')}>Maehmotor PWM</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(true)}>Maehmotor EIN</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(false)}>Maehmotor AUS</button>
+    </div>
   </div>
 
-  <div class="actions">
-    <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('left')}>Linkes Rad</button>
-    <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('right')}>Rechtes Rad</button>
-    <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('mow')}>Maehmotor PWM</button>
-    <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(true)}>Maehmotor EIN</button>
-    <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(false)}>Maehmotor AUS</button>
+  <div class="block">
+    <div class="block-header">
+      <strong>Streckentest</strong>
+      <span>Geradeausfahrt ueber Tick-Ziel, um Strecke und Ticks gegenzupruefen.</span>
+    </div>
+
+    <div class="settings">
+      <label>
+        Strecke m
+        <input type="number" min="0.5" max="10" step="0.1" bind:value={driveDistanceM} />
+      </label>
+      <label>
+        Test-PWM
+        <input type="number" min="0.05" max="1" step="0.01" bind:value={drivePwm} />
+      </label>
+    </div>
+
+    <div class="actions">
+      <button type="button" disabled={$diagnostics.busy} on:click={runDriveDistance}>
+        {driveDistanceM.toFixed(1)} m fahren
+      </button>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-header">
+      <strong>Drehtest</strong>
+      <span>In-Place-Drehung fuer 90 / 180 / 360 Grad.</span>
+    </div>
+
+    <div class="settings">
+      <label>
+        Dreh-PWM
+        <input type="number" min="0.05" max="1" step="0.01" bind:value={turnPwm} />
+      </label>
+    </div>
+
+    <div class="actions">
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runTurn(90)}>90°</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runTurn(180)}>180°</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runTurn(360)}>360°</button>
+    </div>
   </div>
 
   <div class="summary">
     <span>Diag-Ticks live: {$telemetry.diag_ticks}</span>
     {#if $diagnostics.lastResult}
       <span>Letztes Ergebnis: {$diagnostics.lastResult.ok ? 'OK' : 'Fehler'}</span>
+      {#if $diagnostics.lastResult.distance_target_m !== undefined}
+        <span>
+          Strecke Soll/Ist:
+          {Number($diagnostics.lastResult.distance_target_m ?? 0).toFixed(2)} /
+          {Number($diagnostics.lastResult.distance_m ?? 0).toFixed(2)} m
+        </span>
+      {/if}
+      {#if $diagnostics.lastResult.target_angle_deg !== undefined}
+        <span>
+          Drehung Soll/Ist:
+          {Number($diagnostics.lastResult.target_angle_deg ?? 0).toFixed(0)} /
+          {Number($diagnostics.lastResult.heading_delta_deg ?? 0).toFixed(1)} °
+        </span>
+      {/if}
+      {#if $diagnostics.lastResult.left_ticks !== undefined || $diagnostics.lastResult.right_ticks !== undefined}
+        <span>
+          L/R Ticks:
+          {$diagnostics.lastResult.left_ticks ?? 0} /
+          {$diagnostics.lastResult.right_ticks ?? 0}
+        </span>
+      {/if}
     {/if}
   </div>
 </section>
@@ -88,16 +203,31 @@
     border: 1px solid #1e3a5f;
   }
 
-  header {
+  header,
+  .block,
+  .block-header {
     display: grid;
     gap: 0.25rem;
   }
 
-  h2, p {
+  h2,
+  p {
     margin: 0;
   }
 
-  p { color: #64748b; font-size: 0.84rem; }
+  p,
+  .block-header span {
+    color: #64748b;
+    font-size: 0.84rem;
+  }
+
+  .block {
+    gap: 0.8rem;
+    padding: 0.85rem;
+    border-radius: 0.7rem;
+    background: #0a1020;
+    border: 1px solid #1a2a40;
+  }
 
   .settings {
     display: grid;
@@ -117,7 +247,7 @@
     padding: 0.7rem 0.8rem;
     border: 1px solid #1a2a40;
     border-radius: 0.6rem;
-    background: #0a1020;
+    background: #08101d;
     color: #dce8e8;
   }
 

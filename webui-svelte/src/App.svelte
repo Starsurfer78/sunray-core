@@ -5,7 +5,8 @@
   import Map from './lib/pages/Map.svelte'
   import Mission from './lib/pages/Mission.svelte'
   import StatusBar from './lib/components/StatusBar.svelte'
-  import { startTelemetry, stopTelemetry } from './lib/api/websocket'
+  import GlobalInfoPanel from './lib/components/GlobalInfoPanel.svelte'
+  import { sendCmd, startTelemetry, stopTelemetry } from './lib/api/websocket'
   import { telemetry } from './lib/stores/telemetry'
   import { connection } from './lib/stores/connection'
   import { joystickOpen } from './lib/stores/joystick'
@@ -16,6 +17,7 @@
 
   let currentView: View = 'dashboard'
   let emergencyInfo = ''
+  let emergencyInfoTimer: ReturnType<typeof setTimeout> | null = null
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', enabled: true },
@@ -27,11 +29,28 @@
     { id: 'diagnostics', label: 'Diagnose', enabled: true },
   ]
 
+  function showEmergencyInfo(message: string, durationMs = 3000) {
+    emergencyInfo = message
+    if (emergencyInfoTimer) window.clearTimeout(emergencyInfoTimer)
+    emergencyInfoTimer = window.setTimeout(() => {
+      if (emergencyInfo === message) emergencyInfo = ''
+      emergencyInfoTimer = null
+    }, durationMs)
+  }
+
   function triggerEmergencyStop() {
-    emergencyInfo = 'NOTAUS ist aktuell noch ein Platzhalter'
-    window.setTimeout(() => {
-      if (emergencyInfo === 'NOTAUS ist aktuell noch ein Platzhalter') emergencyInfo = ''
-    }, 2600)
+    if (!$connection.connected) {
+      showEmergencyInfo('NOTAUS nicht gesendet: keine Live-Verbindung', 3400)
+      return
+    }
+
+    const sent = sendCmd('stop')
+    if (!sent) {
+      showEmergencyInfo('NOTAUS nicht gesendet: Verbindung nicht bereit', 3400)
+      return
+    }
+
+    showEmergencyInfo('NOTAUS gesendet - Roboter stoppt sofort', 3400)
   }
 
   function humanizeReason(reason: string) {
@@ -121,13 +140,10 @@
         type="button"
         class="topbar-info-btn"
         class:active={$mapInfoOpen}
-        disabled={currentView !== 'map'}
         title={
-          currentView !== 'map'
-            ? 'Karteninfo ist in der Kartenansicht verfuegbar'
-            : $mapInfoOpen
-              ? 'Karteninfo ausblenden'
-              : 'Karteninfo einblenden'
+          $mapInfoOpen
+            ? 'Info ausblenden'
+            : 'Info einblenden'
         }
         on:click={toggleMapInfo}
       >
@@ -151,6 +167,7 @@
   </header>
 
   <section class="view">
+    <GlobalInfoPanel {currentView} />
     {#if currentView === 'dashboard'}
       <Dashboard />
     {:else if currentView === 'diagnostics'}

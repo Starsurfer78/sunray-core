@@ -4,6 +4,7 @@
   import PathPreview from "../components/Mission/PathPreview.svelte";
   import ZoneSettings from "../components/Mission/ZoneSettings.svelte";
   import PageLayout from "../components/PageLayout.svelte";
+  import BottomPanel from "../components/Dashboard/BottomPanel.svelte";
   import {
     createMissionDocument,
     deleteMissionDocument,
@@ -72,7 +73,7 @@
   }
 
   async function ensureZonesLoaded() {
-    if ($mapStore.map.zones.length > 0) return;
+    if ($mapStore.map.zones.length > 0 || $mapStore.dirty) return;
     busy = true;
     error = "";
     try {
@@ -297,6 +298,8 @@
     <div class="ms-canvas-wrap">
       <PathPreview
         zones={$mapStore.map.zones}
+        perimeter={$mapStore.map.perimeter}
+        exclusions={$mapStore.map.exclusions}
         mission={selectedMission}
         {selectedZoneId}
         on:selectzone={(e) => {
@@ -316,6 +319,10 @@
       />
     {/if}
   </div>
+
+  <svelte:fragment slot="bottom">
+    <BottomPanel />
+  </svelte:fragment>
 
   <svelte:fragment slot="sidebar">
     <div class="ms-sb-hd">

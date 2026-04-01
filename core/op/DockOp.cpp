@@ -9,7 +9,6 @@ static constexpr int MAX_ROUTING_FAILURES = 5;
 
 void DockOp::begin(OpContext& ctx) {
     ctx.logger.info("Dock", "OP_DOCK");
-    lastMapRoutingFailed    = false;
     mapRoutingFailedCounter = 0;
     ctx.stopMotors();
 
@@ -51,7 +50,6 @@ void DockOp::onMotorError(OpContext& ctx) {
 
 void DockOp::onTargetReached(OpContext& ctx) {
     ctx.logger.info("Dock", "dock waypoint reached");
-    lastMapRoutingFailed = false;
 }
 
 void DockOp::onNoFurtherWaypoints(OpContext& ctx) {
@@ -73,7 +71,6 @@ void DockOp::onNoFurtherWaypoints(OpContext& ctx) {
     }
 
     ++mapRoutingFailedCounter;
-    lastMapRoutingFailed = false;
     ctx.stopMotors();
     if (ctx.lineTracker) ctx.lineTracker->reset();
     ctx.logger.warn("Dock",
@@ -104,6 +101,34 @@ void DockOp::onKidnapped(OpContext& ctx, bool state) {
         ctx.logger.warn("Dock", "GPS kidnap during dock => GpsWait");
         changeOp(ctx, ctx.opMgr.gpsWait(), true);
     }
+}
+
+void DockOp::onPerimeterViolated(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("Dock", "perimeter violated during docking => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void DockOp::onMapChanged(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.warn("Dock", "map changed during docking => IDLE");
+    changeOp(ctx, ctx.opMgr.idle());
+}
+
+void DockOp::onBatteryUndervoltage(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("Dock", "battery undervoltage during docking => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+void DockOp::onWatchdogTimeout(OpContext& ctx) {
+    ctx.stopMotors();
+    ctx.logger.error("Dock", "dock watchdog timeout => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
+unsigned long DockOp::watchdogTimeoutMs(const OpContext& ctx) const {
+    return static_cast<unsigned long>(ctx.config.get<int>("dock_max_duration_ms", 180000));
 }
 
 } // namespace sunray

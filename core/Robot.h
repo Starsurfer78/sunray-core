@@ -35,6 +35,7 @@
 #include "core/storage/HistoryDatabase.h"
 #include "core/storage/SessionRecord.h"
 #include "core/op/Op.h"
+#include "core/control/DifferentialDriveController.h"
 #include "core/navigation/StateEstimator.h"
 #include "core/navigation/Map.h"
 #include "core/navigation/LineTracker.h"
@@ -155,6 +156,7 @@ public:
     nlohmann::json getHistoryEvents(unsigned limit = 100) const;
     nlohmann::json getHistorySessions(unsigned limit = 100) const;
     nlohmann::json getHistoryStatisticsSummary() const;
+    nlohmann::json getMapJson() const;
 
     /// Direct pose override (e.g. from AT+P command / Mission Service setpos).
     void setPose(float x, float y, float heading);
@@ -179,7 +181,11 @@ public:
     nlohmann::json diagMowMotor(bool on);
 
     /// Drive straight for distance_m at low speed, return tick totals (C.10b).
-    nlohmann::json diagDriveStraight(float distance_m);
+    nlohmann::json diagDriveStraight(float distance_m, float pwm = 0.15f);
+
+    /// Turn in place by the requested angle in degrees.
+    /// Positive values turn left, negative values turn right.
+    nlohmann::json diagTurnInPlace(float angle_deg, float pwm = 0.15f);
 
     /// Start IMU calibration (gyro bias estimation). Blocks for ~5 seconds.
     nlohmann::json diagImuCalib();
@@ -241,6 +247,9 @@ private:
     void checkBattery(OpContext& ctx);
     /// Monitor GPS quality/fix age and fire resilience events with hysteresis.
     void monitorGpsResilience(OpContext& ctx);
+    void monitorPerimeterSafety(OpContext& ctx);
+    void monitorMapChangeSafety(OpContext& ctx);
+    void monitorOpWatchdog(OpContext& ctx);
     void armMissionResumeGuard();
     std::string currentStatePhase() const;
     std::string currentResumeTarget() const;
@@ -285,8 +294,10 @@ private:
     std::string currentMapFingerprint_;
     std::string activeMissionMapFingerprint_;
     bool        resumeBlockedByMapChange_ = false;
+    bool        previousResumeBlockedByMapChange_ = false;
     bool        batteryLowEventLatched_ = false;
     bool        batteryCriticalEventLatched_ = false;
+    bool        previousInsidePerimeter_ = true;
     bool        sessionActive_ = false;
     SessionRecord currentSession_;
     float       sessionLastX_ = 0.0f;
@@ -326,19 +337,34 @@ private:
     bool         previousChargerConnected_ = false;
 
     unsigned long                          now_ms_    = 0;
+    unsigned long                          lastDt_ms_ = 0;
     std::chrono::steady_clock::time_point  startTime_;
+    control::DifferentialDriveController   driveController_;
 
     // ── Diagnostic motor test state (C.10b) ───────────────────────────────────
     // Scheduled from HTTP handler thread; executed in run(); result signalled back.
 
     struct DiagReq {
-        std::string  motor;           ///< "left" | "right" | "mow" | "both"
-        float        pwm       = 0.1f;
+        std::string  motor;           ///< "left" | "right" | "mow" | "both" | "turn"
+        float        leftPwm   = 0.0f;
+        float        rightPwm  = 0.0f;
+        float        mowPwm    = 0.0f;
         unsigned     duration_ms = 3000;
-        int          ticksTarget = 0; ///< 0 = time-based; >0 = stop after this many ticks
+        int          leftTicksTarget  = 0; ///< 0 = ignore for completion
+        int          rightTicksTarget = 0; ///< 0 = ignore for completion
+        int          mowTicksTarget   = 0; ///< 0 = ignore for completion
         bool         active    = false;
         unsigned long startMs  = 0;
-        long         accTicks  = 0;   ///< accumulated encoder ticks during test
+        long         accTicks  = 0;   ///< legacy summary field for simple tests
+        long         leftTicks = 0;
+        long         rightTicks = 0;
+        long         mowTicks = 0;
+        float        startX = 0.0f;
+        float        startY = 0.0f;
+        float        startHeading = 0.0f;
+        bool         poseCaptured = false;
+        float        targetDistance_m = 0.0f;
+        float        targetAngle_deg = 0.0f;
         bool         done      = false;
         std::string  resultJson;
     };

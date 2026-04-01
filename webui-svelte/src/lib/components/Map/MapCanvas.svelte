@@ -52,6 +52,7 @@
   type DragTarget =
     | { kind: 'perimeter'; index: number }
     | { kind: 'dock'; index: number }
+    | { kind: 'dock-corridor'; index: number }
     | { kind: 'zone'; zoneId: string; index: number }
     | { kind: 'exclusion'; exclusionIndex: number; index: number }
 
@@ -116,6 +117,15 @@
       }
     }
 
+    for (let index = 0; index < ($mapStore.map.dockMeta?.corridor.length ?? 0); index += 1) {
+      const point = $mapStore.map.dockMeta?.corridor[index]
+      if (!point) continue
+      const screen = worldToScreen(point, currentScale, offsetX, offsetY)
+      if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
+        return { kind: 'dock-corridor', index } as DragTarget
+      }
+    }
+
     for (let index = 0; index < $mapStore.map.perimeter.length; index += 1) {
       const screen = worldToScreen($mapStore.map.perimeter[index], currentScale, offsetX, offsetY)
       if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
@@ -150,6 +160,8 @@
       mapStore.movePerimeterPoint(target.index, point)
     } else if (target.kind === 'dock') {
       mapStore.moveDockPoint(target.index, point)
+    } else if (target.kind === 'dock-corridor') {
+      mapStore.moveDockCorridorPoint(target.index, point)
     } else if (target.kind === 'zone') {
       mapStore.moveZonePoint(target.zoneId, target.index, point)
     } else if (target.kind === 'exclusion') {
@@ -162,6 +174,8 @@
       mapStore.deletePerimeterPoint(target.index)
     } else if (target.kind === 'dock') {
       mapStore.deleteDockPoint(target.index)
+    } else if (target.kind === 'dock-corridor') {
+      mapStore.deleteDockCorridorPoint(target.index)
     } else if (target.kind === 'zone') {
       mapStore.deleteZonePoint(target.zoneId, target.index)
     } else if (target.kind === 'exclusion') {
@@ -171,7 +185,7 @@
 
   function isSelected(target: DragTarget) {
     if (!selectedTarget || selectedTarget.kind !== target.kind) return false
-    if (target.kind === 'perimeter' || target.kind === 'dock') {
+    if (target.kind === 'perimeter' || target.kind === 'dock' || target.kind === 'dock-corridor') {
       return selectedTarget.index === target.index
     }
     if (target.kind === 'zone' && selectedTarget.kind === 'zone') {
@@ -215,10 +229,14 @@
     target.setPointerCapture(event.pointerId)
   }
 
+  let cursorWorld: { x: number; y: number } | null = null
+
   function handlePointerMove(event: PointerEvent) {
     const target = event.currentTarget as SVGSVGElement
+    cursorWorld = screenToWorldFromCoordinates(event.clientX, event.clientY, target)
+
     if (dragTarget) {
-      applyDraggedPoint(dragTarget, screenToWorldFromCoordinates(event.clientX, event.clientY, target))
+      applyDraggedPoint(dragTarget, cursorWorld)
       suppressClick = true
       return
     }
@@ -303,6 +321,7 @@
     const points = [
       ...$mapStore.map.perimeter,
       ...$mapStore.map.dock,
+      ...($mapStore.map.dockMeta?.corridor ?? []),
       ...$mapStore.map.mow,
       ...$mapStore.map.zones.flatMap((zone) => zone.polygon),
       ...$mapStore.map.exclusions.flatMap((exclusion) => exclusion),
@@ -359,9 +378,19 @@
   $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y }, currentScale, offsetX, offsetY)
   $: robotHeadingDeg = -(($telemetry.heading ?? 0) * RAD_TO_DEG)
   $: robotScale = Number(zoom.toFixed(3))
-  $: pointRadius = Number(clamp(5 * zoom, 2.2, 5.6).toFixed(2))
+  $: pointRadius = Number(clamp(4 * zoom, 2.5, 5).toFixed(2))
   $: selectionRadius = Number((pointRadius + 4).toFixed(2))
   $: dockHalfSize = Number(clamp(8 * zoom, 4.5, 8).toFixed(2))
+  $: strokeWidth = Number(clamp(1.5 / zoom, 0.6, 2).toFixed(2))
+  $: corridorCenter = centroid($mapStore.map.dockMeta?.corridor ?? [])
+
+  function scaleBarMeters(scale: number): number {
+    const raw = 80 / scale
+    for (const c of [0.5, 1, 2, 5, 10, 20, 50, 100]) if (c >= raw) return c
+    return 100
+  }
+  $: scaleMeters = scaleBarMeters(currentScale)
+  $: scaleBarPx = Number((scaleMeters * currentScale).toFixed(1))
   $: mapPointCount = allMapPoints().length
   $: if (!hasAutoFit && mapPointCount > 1) {
     fitToContent()
@@ -391,6 +420,12 @@
   {/if}
 
   <div class="canvas-wrap">
+    {#if cursorWorld}
+      <div class="cursor-coords">
+        x {cursorWorld.x.toFixed(2)} m &nbsp; y {cursorWorld.y.toFixed(2)} m
+      </div>
+    {/if}
+
     {#if showZoomControls}
       <div class="zoom-controls">
         <button type="button" title="Heranzoomen" on:click={zoomIn}>+</button>
@@ -410,7 +445,7 @@
       on:pointerdown={handlePointerDown}
       on:pointermove={handlePointerMove}
       on:pointerup={releasePointer}
-      on:pointerleave={releasePointer}
+      on:pointerleave={(e) => { releasePointer(e); cursorWorld = null }}
       on:wheel|nonpassive={handleWheel}
     >
       <defs>
@@ -428,14 +463,16 @@
           points={path($mapStore.map.perimeter, currentScale, offsetX, offsetY)}
           fill="none"
           stroke="#2563eb"
-          stroke-width="2"
+          stroke-width={strokeWidth}
+          stroke-dasharray="6 4"
         />
       {:else if $mapStore.map.perimeter.length > 2}
         <polygon
           points={path($mapStore.map.perimeter, currentScale, offsetX, offsetY)}
           fill="rgba(29, 78, 216, 0.10)"
           stroke="#2563eb"
-          stroke-width="2"
+          stroke-width={strokeWidth}
+          stroke-dasharray={$mapStore.selectedTool === 'perimeter' ? '6 4' : 'none'}
         />
       {/if}
 
@@ -452,7 +489,7 @@
           points={path($mapStore.map.dock, currentScale, offsetX, offsetY)}
           fill="none"
           stroke="#d97706"
-          stroke-width="2.2"
+          stroke-width={strokeWidth}
           stroke-dasharray="6 4"
         />
       {:else if $mapStore.map.dock.length > 2}
@@ -460,7 +497,7 @@
           points={path($mapStore.map.dock, currentScale, offsetX, offsetY)}
           fill="none"
           stroke="#d97706"
-          stroke-width="2.2"
+          stroke-width={strokeWidth}
           stroke-dasharray="6 4"
         />
       {/if}
@@ -479,13 +516,50 @@
         {/if}
       {/each}
 
+      {#if ($mapStore.map.dockMeta?.corridor.length ?? 0) === 2}
+        <polyline
+          points={path($mapStore.map.dockMeta?.corridor ?? [], currentScale, offsetX, offsetY)}
+          fill="rgba(250, 204, 21, 0.06)"
+          stroke="#facc15"
+          stroke-width={strokeWidth}
+          stroke-dasharray="4 4"
+        />
+      {:else if ($mapStore.map.dockMeta?.corridor.length ?? 0) > 2}
+        <polygon
+          points={path($mapStore.map.dockMeta?.corridor ?? [], currentScale, offsetX, offsetY)}
+          fill="rgba(250, 204, 21, 0.10)"
+          stroke="#facc15"
+          stroke-width={strokeWidth}
+          stroke-dasharray={$mapStore.selectedTool === 'dock-corridor' ? '4 4' : 'none'}
+        />
+      {/if}
+
+      {#each $mapStore.map.dockMeta?.corridor ?? [] as point, index}
+        {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
+        <rect
+          x={p.x - pointRadius}
+          y={p.y - pointRadius}
+          width={pointRadius * 2}
+          height={pointRadius * 2}
+          fill="#facc15"
+          rx="1.6"
+        />
+        {#if isSelected({ kind: 'dock-corridor', index })}
+          <circle cx={p.x} cy={p.y} r={selectionRadius + 1} class="selection-ring corridor-selection" />
+        {/if}
+      {/each}
+      {#if corridorCenter}
+        {@const center = worldToScreen(corridorCenter, currentScale, offsetX, offsetY)}
+        <text x={center.x + 8} y={center.y - 8} class="label corridor-label">Dock-Korridor</text>
+      {/if}
+
       {#each $mapStore.map.exclusions as exclusion, exclusionIndex}
         {#if exclusion.length === 2}
           <polyline
             points={path(exclusion, currentScale, offsetX, offsetY)}
             fill="none"
             stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
-            stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
+            stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? strokeWidth * 1.6 : strokeWidth}
             stroke-dasharray="5 3"
           />
         {:else if exclusion.length > 2}
@@ -493,7 +567,7 @@
             points={path(exclusion, currentScale, offsetX, offsetY)}
             fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(220, 38, 38, 0.16)' : 'rgba(220, 38, 38, 0.08)'}
             stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
-            stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? '3' : '2'}
+            stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? strokeWidth * 1.6 : strokeWidth}
             stroke-dasharray="5 3"
             role="button"
             tabindex="-1"
@@ -529,10 +603,10 @@
             points={path(zone.polygon, currentScale, offsetX, offsetY)}
             fill="none"
             stroke="#0891b2"
-            stroke-width="1.8"
+            stroke-width={strokeWidth}
           />
         {:else if zone.polygon.length > 2}
-          <polygon points={path(zone.polygon, currentScale, offsetX, offsetY)} fill="rgba(8, 145, 178, 0.08)" stroke="#0891b2" stroke-width="1.8" />
+          <polygon points={path(zone.polygon, currentScale, offsetX, offsetY)} fill="rgba(8, 145, 178, 0.08)" stroke="#0891b2" stroke-width={strokeWidth} />
         {/if}
         {#each zone.polygon as point, index}
           {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
@@ -547,6 +621,14 @@
           <text x={center.x + 8} y={center.y - 8} class="label zone-label">{zone.settings.name}</text>
         {/if}
       {/each}
+
+      <!-- Scale bar -->
+      <g transform={`translate(${width - scaleBarPx - 16}, 20)`} class="scale-bar">
+        <line x1="0" y1="0" x2={scaleBarPx} y2="0" stroke-linecap="round" />
+        <line x1="0" y1="-3" x2="0" y2="5" />
+        <line x1={scaleBarPx} y1="-3" x2={scaleBarPx} y2="5" />
+        <text x={scaleBarPx / 2} y="14" text-anchor="middle">{scaleMeters >= 1 ? `${scaleMeters} m` : `${scaleMeters * 100} cm`}</text>
+      </g>
 
       {#if showRobot}
         <g
@@ -709,6 +791,10 @@
     fill: #fdba74;
   }
 
+  .corridor-label {
+    fill: #fde047;
+  }
+
   .selection-ring {
     fill: none;
     stroke: #f8fafc;
@@ -727,6 +813,10 @@
 
   .dock-selection {
     stroke: #fbbf24;
+  }
+
+  .corridor-selection {
+    stroke: #fde047;
   }
 
   .dock-entry-ring {
@@ -757,5 +847,32 @@
   .robot-arrow {
     stroke: rgba(96, 165, 250, 0.92);
     fill: rgba(96, 165, 250, 0.92);
+  }
+
+  .cursor-coords {
+    position: absolute;
+    right: 0.6rem;
+    bottom: 0.6rem;
+    z-index: 2;
+    font-size: 10px;
+    font-family: monospace;
+    color: rgba(148, 163, 184, 0.75);
+    background: rgba(7, 13, 24, 0.65);
+    padding: 2px 7px;
+    border-radius: 4px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .scale-bar {
+    pointer-events: none;
+  }
+  .scale-bar line {
+    stroke: rgba(148, 163, 184, 0.7);
+    stroke-width: 1.5;
+  }
+  .scale-bar text {
+    font-size: 10px;
+    fill: rgba(148, 163, 184, 0.7);
   }
 </style>

@@ -18,8 +18,9 @@
 //   addObstacle(x,y,t)       — mark a virtual obstacle (C.7: OnTheFlyObstacle)
 
 #include "core/Config.h"
+#include "core/navigation/PlannerContext.h"
+#include "core/navigation/Route.h"
 
-#include <cmath>
 #include <filesystem>
 #include <string>
 #include <unordered_set>
@@ -28,27 +29,6 @@
 
 namespace sunray {
 namespace nav {
-
-// ── Geometry primitives ───────────────────────────────────────────────────────
-
-struct Point {
-    float x = 0.0f;  ///< metres east
-    float y = 0.0f;  ///< metres north
-
-    Point() = default;
-    Point(float ax, float ay) : x(ax), y(ay) {}
-
-    float distanceTo(const Point& o) const {
-        float dx = x - o.x, dy = y - o.y;
-        return std::sqrt(dx*dx + dy*dy);
-    }
-};
-
-using PolygonPoints = std::vector<Point>;
-
-// ── WayType ───────────────────────────────────────────────────────────────────
-
-enum class WayType { PERIMETER, EXCLUSION, DOCK, MOW, FREE };
 
 // ── Per-waypoint mow metadata (C.4c — K-turn support) ────────────────────────
 
@@ -64,6 +44,8 @@ struct MowPoint {
 // ── Mow-zone data (from WebUI MapEditor C.4b) ─────────────────────────────────
 
 enum class ZonePattern { STRIPE, SPIRAL };
+enum class ExclusionType { HARD, SOFT };
+enum class DockApproachMode { FORWARD_ONLY, REVERSE_ALLOWED };
 
 // ── On-The-Fly Obstacle (C.7) ─────────────────────────────────────────────────
 
@@ -85,6 +67,8 @@ struct ZoneSettings {
     int         edgeRounds  = 1;       ///< local preview headland rounds
     float       speed       = 1.0f;    ///< target speed in m/s
     ZonePattern pattern     = ZonePattern::STRIPE;
+    bool        reverseAllowed = false; ///< planner may use reverse segments in this zone
+    float       clearance   = 0.25f;   ///< planner clearance in metres
 };
 
 struct Zone {
@@ -94,10 +78,36 @@ struct Zone {
     ZoneSettings  settings;
 };
 
+struct PlannerSettings {
+    float         defaultClearance_m    = 0.25f;
+    float         perimeterSoftMargin_m = 0.15f;
+    float         perimeterHardMargin_m = 0.05f;
+    float         obstacleInflation_m   = 0.35f;
+    float         softNoGoCostScale     = 0.6f;
+    unsigned long replanPeriod_ms       = 250;
+    float         gridCellSize_m        = 0.10f;
+};
+
+struct ExclusionMeta {
+    ExclusionType type        = ExclusionType::HARD;
+    float         clearance_m = 0.25f;
+    float         costScale   = 1.0f;
+};
+
+struct DockMeta {
+    DockApproachMode approachMode        = DockApproachMode::FORWARD_ONLY;
+    PolygonPoints    corridor;
+    float            finalAlignHeading_deg = 0.0f;
+    bool             hasFinalAlignHeading  = false;
+    float            slowZoneRadius_m      = 0.6f;
+};
+
 // ── Map ───────────────────────────────────────────────────────────────────────
 
 class Map {
 public:
+    friend class Planner;
+
     explicit Map(std::shared_ptr<Config> config = nullptr);
 
     // ── Persistence ───────────────────────────────────────────────────────────
@@ -108,6 +118,7 @@ public:
 
     /// Save current map to JSON file.
     bool save(const std::filesystem::path& path) const;
+    nlohmann::json exportMapJson() const;
 
     /// Reset all waypoint lists and polygon data.
     void clear();
@@ -177,7 +188,6 @@ public:
     bool  trackReverse = false; ///< drive in reverse to reach target
     bool  trackSlow    = false; ///< reduce speed (docking approach)
     WayType wayMode    = WayType::MOW;
-    WayType previousWayMode = WayType::MOW;  ///< stores mode before switching to FREE
     int  percentCompleted = 0;
 
     // ── Obstacle management ───────────────────────────────────────────────────
@@ -201,9 +211,16 @@ public:
     /// Inject a pre-computed path as FREE waypoints.
     /// Sets wayMode = FREE, freePointsIdx = 0, targetPoint = first waypoint.
     /// The next call to nextFreePoint() will advance through the injected path,
-    /// then restore previousWayMode.
+    /// then restore the explicit free-route resume context.
     /// waypoints must NOT include the current robot position (start point).
     void injectFreePath(const std::vector<Point>& waypoints);
+
+    /// Replan from the robot's current position to the current mission target and
+    /// switch into FREE path following on success.
+    bool replanToCurrentTarget(float robotX, float robotY);
+
+    /// Periodic replanning gate using plannerSettings().replanPeriod_ms.
+    bool maybeReplanToCurrentTarget(unsigned long now_ms, float robotX, float robotY);
 
     // ── Boundary queries ──────────────────────────────────────────────────────
 
@@ -213,12 +230,23 @@ public:
     // ── Raw data access (for telemetry / debug) ───────────────────────────────
 
     const PolygonPoints&                   perimeterPoints() const { return perimeterPoints_; }
-    const std::vector<MowPoint>&          mowPoints()       const { return mowPoints_; }
-    const PolygonPoints&                   dockPoints()      const { return dockPoints_; }
+    const RoutePlan&                       mowRoutePlan()    const { return mowRoute_; }
+    const RoutePlan&                       dockRoutePlan()   const { return dockRoute_; }
+    const RoutePlan&                       freeRoutePlan()   const { return localRoute_; }
     const std::vector<PolygonPoints>&      exclusions()      const { return exclusions_; }
     const std::vector<Zone>&               zones()           const { return zones_; }
     const std::vector<OnTheFlyObstacle>&   obstacles()       const { return obstacles_; }  ///< C.7
+    const PlannerSettings&                 plannerSettings() const { return planner_; }
+    const std::vector<ExclusionMeta>&      exclusionMeta()   const { return exclusionMeta_; }
+    const DockMeta&                        dockMeta()        const { return dockMeta_; }
     const nlohmann::json&                  captureMeta()     const { return captureMeta_; }
+    RouteSegment currentTrackingSegment(float robotX, float robotY, float robotHeadingRad) const;
+    bool refreshTracking(unsigned long now_ms, float robotX, float robotY);
+    bool advanceTracking(float robotX, float robotY);
+    bool dockingFinalAlignActive(float robotX, float robotY) const;
+    float dockingFinalAlignHeadingRad() const;
+    bool dockingReverseAllowed() const;
+    bool dockingShouldReverseOnFinalApproach(float robotX, float robotY, float robotHeadingRad) const;
     std::string zoneIdForPoint(float x, float y,
                                const std::vector<std::string>& preferredOrder = {}) const;
 
@@ -240,6 +268,25 @@ private:
                         const Point& p2, const Point& p3) const;
     bool linePolygonIntersection(const Point& src, const Point& dst,
                                  const PolygonPoints& poly) const;
+    bool segmentAllowed(const Point& src, const Point& dst) const;
+    bool pathAllowed(const std::vector<Point>& path) const;
+    bool currentSegmentNeedsReplan(float robotX, float robotY) const;
+    const ZoneSettings* zoneSettingsForPoint(float x, float y) const;
+    float routeClearanceForPoint(const Point& point, WayType mode) const;
+    bool routeReverseAllowedForPoint(const Point& point, WayType mode) const;
+    void applyConfigDefaults();
+    static RoutePlan buildMowRoutePlan(const std::vector<MowPoint>& points);
+    static RoutePlan buildDockRoutePlan(const PolygonPoints& points);
+    void activateMowRoute(const RoutePlan& route);
+    void beginFreeRoute(WayType resumeMode,
+                        const Point& resumeTarget,
+                        bool resumeTrackReverse,
+                        bool resumeTrackSlow,
+                        int resumeMowIdx,
+                        int resumeDockIdx,
+                        const RoutePlan& route);
+    Point dockApproachTarget() const;
+    float kidnapToleranceForMode(WayType mode) const;
 
     // ── A* pathfinding (simplified for Phase 1) ───────────────────────────────
 
@@ -256,14 +303,29 @@ private:
     // ── Data ──────────────────────────────────────────────────────────────────
 
     PolygonPoints              perimeterPoints_;
-    std::vector<MowPoint>      mowPoints_;
-    std::vector<MowPoint>      allMowPoints_;  ///< immutable source set loaded from map.json
-    PolygonPoints              dockPoints_;
     PolygonPoints              freePoints_;
+    RoutePlan                  allMowRoute_;
+    RoutePlan                  mowRoute_;
+    RoutePlan                  dockRoute_;
+    RoutePlan                  localRoute_;
     std::vector<PolygonPoints> exclusions_;
+    std::vector<ExclusionMeta> exclusionMeta_;
     std::vector<OnTheFlyObstacle> obstacles_;  ///< virtual obstacles from addObstacle() (C.7)
     std::vector<Zone>          zones_;       ///< mow zones (C.4b — ordered by zone.order)
+    PlannerSettings            planner_;
+    DockMeta                   dockMeta_;
     nlohmann::json             captureMeta_ = nlohmann::json::object();  ///< optional map capture metadata (C.14-g)
+
+    struct FreeRouteContext {
+        bool    active             = false;
+        WayType resumeMode         = WayType::MOW;
+        Point   resumeTarget;
+        bool    resumeTrackReverse = false;
+        bool    resumeTrackSlow    = false;
+        int     resumeMowIdx       = 0;
+        int     resumeDockIdx      = 0;
+    } freeRoute_;
+    unsigned long lastReplanAttempt_ms_ = 0;
 
     bool isDocked_   = false;
     bool shouldDock_ = false;
