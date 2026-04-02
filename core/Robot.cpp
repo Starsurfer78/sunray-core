@@ -23,6 +23,13 @@
 
 namespace sunray {
 
+namespace {
+uint64_t steadyNowMs() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+} // namespace
+
 // ── Construction ───────────────────────────────────────────────────────────────
 
 Robot::Robot(std::unique_ptr<HardwareInterface> hw,
@@ -102,6 +109,22 @@ void Robot::loop() {
     hw_->setLed(LedId::LED_3, LedState::OFF);
     hw_->setMotorPwm(0, 0, 0);
     hw_->keepPowerOn(false);
+}
+
+void Robot::setStmFlashMaintenance(bool active, uint64_t recoveryGraceMs) {
+    stmFlashMaintenanceActive_.store(active);
+    if (active) {
+        stmFlashMaintenanceUntil_ms_.store(0);
+        logger_->info(TAG, "STM flash maintenance window active");
+        return;
+    }
+
+    uint64_t untilMs = 0;
+    if (recoveryGraceMs > 0) {
+        untilMs = steadyNowMs() + recoveryGraceMs;
+    }
+    stmFlashMaintenanceUntil_ms_.store(untilMs);
+    logger_->info(TAG, "STM flash maintenance window cleared");
 }
 
 void Robot::run() {
@@ -1301,6 +1324,20 @@ void Robot::monitorMapChangeSafety(OpContext& ctx) {
 }
 
 void Robot::monitorMcuConnectivity(OpContext& ctx) {
+    const bool stmFlashMaintenance =
+        stmFlashMaintenanceActive_.load()
+        || steadyNowMs() < stmFlashMaintenanceUntil_ms_.load();
+
+    if (stmFlashMaintenance) {
+        if (ctx.odometry.mcuConnected) {
+            mcuConnectedEver_ = true;
+            if (mcuCommLossLatched_ && activeOpName() != "Error") {
+                mcuCommLossLatched_ = false;
+            }
+        }
+        return;
+    }
+
     if (ctx.odometry.mcuConnected) {
         mcuConnectedEver_ = true;
         if (mcuCommLossLatched_ && activeOpName() != "Error") {

@@ -118,6 +118,7 @@ public:
     using MapGetCallback = std::function<nlohmann::json()>;
     using HistoryGetCallback = std::function<nlohmann::json(unsigned limit)>;
     using StatisticsGetCallback = std::function<nlohmann::json()>;
+    using StmFlashStateCallback = std::function<void(bool active, uint64_t recoveryGraceMs)>;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -209,6 +210,7 @@ public:
     /// Set the path of the STM flash helper script used by POST /api/stm/*.
     /// When empty (default), the STM probe endpoint returns 503.
     void setStmFlashScriptPath(const std::string& path);
+    void onStmFlashStateChange(StmFlashStateCallback cb);
 
     // ── Testable helper ───────────────────────────────────────────────────────
 
@@ -271,6 +273,8 @@ private:
     std::atomic<bool> otaRunning_{false};
     std::string       stmFlashScriptPath_;
     std::atomic<bool> stmFlashRunning_{false};
+    std::mutex        stmFlashStateMutex_;
+    StmFlashStateCallback stmFlashStateCb_;
 
     // Map file path + reload callback (GET/POST /api/map)
     std::string      mapPath_;

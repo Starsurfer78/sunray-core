@@ -733,6 +733,34 @@ TEST_CASE("Robot: MCU comm loss during mowing transitions to error and stops mot
     REQUIRE(telemetry.mcu_comm_loss == true);
 }
 
+TEST_CASE("Robot: STM flash maintenance suppresses transient MCU comm-loss fault", "[run][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_stm_flash_grace_map.json")));
+
+    hw->odometry.mcuConnected = true;
+    robot->run();
+
+    robot->startMowing();
+    robot->run();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "Mow");
+
+    robot->setStmFlashMaintenance(true);
+    hw->odometry.mcuConnected = false;
+    hw->motorCalls.clear();
+    robot->run();
+
+    REQUIRE_FALSE(hw->hadMotorStop());
+    REQUIRE(robot->activeOpName() == "Mow");
+
+    robot->setStmFlashMaintenance(false, 0);
+    robot->run();
+
+    REQUIRE(hw->hadMotorStop());
+    REQUIRE(robot->activeOpName() == "Error");
+}
+
 TEST_CASE("Robot: stuck detection during mowing transitions to EscapeReverse", "[run][safety]") {
     auto hw_owned = std::make_unique<MockHardware>();
     MockHardware* hw = hw_owned.get();

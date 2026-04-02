@@ -147,6 +147,12 @@ public:
     /// Call before loop(). GPS data is polled each run() cycle.
     void setGpsDriver(std::unique_ptr<GpsDriver> gps) { gps_ = std::move(gps); }
 
+    /// Mark the runtime as being in a controlled STM flash maintenance window.
+    /// While active, transient MCU comm dropouts are tolerated. After the flash
+    /// completes, recoveryGraceMs keeps the tolerance alive briefly so the STM
+    /// can reboot cleanly before normal comm-loss handling resumes.
+    void setStmFlashMaintenance(bool active, uint64_t recoveryGraceMs = 0);
+
     /// Load map from JSON file. Returns true on success.
     /// Call before startMowing() / startDocking().
     bool loadMap(const std::filesystem::path& path);
@@ -331,6 +337,8 @@ private:
     bool        batteryCriticalEventLatched_ = false;
     bool        mcuConnectedEver_ = false;
     bool        mcuCommLossLatched_ = false;
+    std::atomic<bool> stmFlashMaintenanceActive_{false};
+    std::atomic<uint64_t> stmFlashMaintenanceUntil_ms_{0};
     unsigned long stuckSince_ms_ = 0;
     unsigned    stuckRecoveryCount_ = 0;
     bool        stuckRecoveryExhaustedLatched_ = false;

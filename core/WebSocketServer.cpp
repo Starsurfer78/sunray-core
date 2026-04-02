@@ -14,7 +14,9 @@
 #include <unordered_set>
 #include <vector>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
+#include <thread>
 #include <sstream>
 #include <iomanip>
 
@@ -244,6 +246,11 @@ void WebSocketServer::setOtaScriptPath(const std::string& path) {
 
 void WebSocketServer::setStmFlashScriptPath(const std::string& path) {
     stmFlashScriptPath_ = path;
+}
+
+void WebSocketServer::onStmFlashStateChange(StmFlashStateCallback cb) {
+    std::lock_guard<std::mutex> lk(stmFlashStateMutex_);
+    stmFlashStateCb_ = std::move(cb);
 }
 
 // ── HTTP route setup ──────────────────────────────────────────────────────────
@@ -1175,10 +1182,18 @@ void WebSocketServer::setupHttpRoutes() {
             if (stmFlashRunning_.exchange(true)) {
                 return crow::response(409, R"({"error":"stm_flash_already_running"})");
             }
+            {
+                std::lock_guard<std::mutex> lk(stmFlashStateMutex_);
+                if (stmFlashStateCb_) stmFlashStateCb_(true, 0);
+            }
 
             const std::filesystem::path wrapperPath =
                 std::filesystem::path(scriptPath).parent_path() / "flash_uploaded_stm.sh";
             if (!std::filesystem::exists(wrapperPath)) {
+                {
+                    std::lock_guard<std::mutex> lk(stmFlashStateMutex_);
+                    if (stmFlashStateCb_) stmFlashStateCb_(false, 0);
+                }
                 stmFlashRunning_.store(false);
                 return crow::response(503, R"({"error":"stm_flash_wrapper_not_found"})");
             }
@@ -1187,6 +1202,10 @@ void WebSocketServer::setupHttpRoutes() {
             const std::string cmd = "sudo /bin/bash \"" + wrapperPath.string() + "\" 2>&1";
             FILE* pipe = popen(cmd.c_str(), "r");
             if (!pipe) {
+                {
+                    std::lock_guard<std::mutex> lk(stmFlashStateMutex_);
+                    if (stmFlashStateCb_) stmFlashStateCb_(false, 0);
+                }
                 stmFlashRunning_.store(false);
                 return crow::response(500, R"({"error":"popen_failed"})");
             }
@@ -1196,6 +1215,10 @@ void WebSocketServer::setupHttpRoutes() {
             while (fgets(buf, sizeof(buf), pipe)) output += buf;
             const int rc = pclose(pipe);
             stmFlashRunning_.store(false);
+            {
+                std::lock_guard<std::mutex> lk(stmFlashStateMutex_);
+                if (stmFlashStateCb_) stmFlashStateCb_(false, rc == 0 ? 15000 : 0);
+            }
 
             while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
                 output.pop_back();
@@ -1207,6 +1230,23 @@ void WebSocketServer::setupHttpRoutes() {
             j["detail"] = output.empty()
                 ? ((rc == 0) ? "STM flash completed" : "STM flash failed")
                 : output;
+
+            if (rc == 0) {
+                auto logger = logger_;
+                std::thread([logger]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+                    if (logger) {
+                        logger->info("WsServer",
+                                     "STM flash successful — restarting sunray-core.service");
+                    }
+                    const int restartRc = std::system(
+                        "sudo /bin/systemctl restart sunray-core.service >/dev/null 2>&1");
+                    if (restartRc != 0 && logger) {
+                        logger->warn("WsServer",
+                                     "Automatic restart after STM flash failed");
+                    }
+                }).detach();
+            }
 
             crow::response res(200, j.dump());
             res.set_header("Content-Type", "application/json");

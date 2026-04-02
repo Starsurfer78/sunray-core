@@ -125,4 +125,6 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: `scripts/flash_alfred.sh probe` now ends with `reset run`, so a successful SWD probe should no longer leave the STM32 halted and invisible to the Pi-side UART runtime.
 - `FACT`: WebUI settings now support uploading a prebuilt STM `.bin` to `/var/lib/sunray-core/stm-upload/rm18-upload.bin`, reading back its metadata, and flashing exactly that uploaded binary through a dedicated sudo-approved wrapper.
 - `FACT`: The uploaded-binary flash path is intentionally gated to `Idle` or `Charge` based on live telemetry, rather than allowing arbitrary flash attempts mid-mission.
+- `FACT`: A controlled STM WebUI flash now raises a dedicated maintenance window inside `Robot`, so temporary UART loss during OpenOCD reset/program/verify no longer immediately latches `ERR_MCU_COMMS`.
+- `FACT`: After a successful WebUI STM flash, `WebSocketServer` schedules an automatic `sudo /bin/systemctl restart sunray-core.service`, because Alfred field logs showed that the cleanest way back from post-flash UART garbage and brief MCU reboot gaps is a fast service restart.
 - `UNKNOWN`: STM32 firmware OTA, dedicated dock-contact hardware, and hard electrical emergency-stop proof remain blocked by missing evidence.

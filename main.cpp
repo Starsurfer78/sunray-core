@@ -277,6 +277,9 @@ int main(int argc, char* argv[]) {
     if (const std::string flashScript = resolveFlashScriptPath(); !flashScript.empty()) {
         wsServer->setStmFlashScriptPath(flashScript);
     }
+    wsServer->onStmFlashStateChange([&robot](bool active, uint64_t recoveryGraceMs) {
+        robot.setStmFlashMaintenance(active, recoveryGraceMs);
+    });
     wsServer->onMapGet([&robot]() -> nlohmann::json {
         return robot.getMapJson();
     });
