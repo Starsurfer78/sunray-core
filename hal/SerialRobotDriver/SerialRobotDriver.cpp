@@ -514,12 +514,16 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
         }
         if (f.size() > 6) sensors_.lift       = (fieldInt(f[6]) != 0);
         if (f.size() > 7) sensors_.stopButton = (fieldInt(f[7]) != 0);
-        if (f.size() > 8) sensors_.motorFault = (fieldInt(f[8]) != 0);
+        if (f.size() > 8) motorFaultFast_ = (fieldInt(f[8]) != 0);
         if (f.size() > 9) sensors_.bumperLeft  = (fieldInt(f[9])  != 0);  // precise
         if (f.size() > 10) sensors_.bumperRight = (fieldInt(f[10]) != 0); // precise
     } catch (...) {
         return;  // malformed frame — ignore
     }
+
+    // AT+M field 8 is the fast overload/fault hint. It may assert early, but a
+    // low value must not clear a fault latched by the slower AT+S summary path.
+    sensors_.motorFault = (motorFaultFast_ || motorFaultSummary_);
 
     updateChargerConnected(chargerConnectedFromVoltage(
         battery_.chargeVoltage,
@@ -554,16 +558,18 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
             sensors_.bumperRight = false;
         }
         if (f.size() > 6)  sensors_.rain      = (fieldInt(f[6])  != 0);
-        if (f.size() > 7)  sensors_.motorFault = (fieldInt(f[7]) != 0);
+        motorFaultSummary_ = (f.size() > 7) ? (fieldInt(f[7]) != 0) : false;
         // f[8]=mowCurr, f[9]=leftCurr, f[10]=rightCurr — not in SensorData/BatteryData
         if (f.size() > 11) battery_.batteryTemp   = fieldFloat(f[11]);
         if (f.size() > 12 && fieldInt(f[12]) != 0)
-            sensors_.motorFault = true;  // IMP-01: hardware overvoltage signal
+            motorFaultSummary_ = true;  // IMP-01: hardware overvoltage signal
         if (f.size() > 13) sensors_.bumperLeft  = (fieldInt(f[13]) != 0);
         if (f.size() > 14) sensors_.bumperRight = (fieldInt(f[14]) != 0);
     } catch (...) {
         return;
     }
+
+    sensors_.motorFault = (motorFaultFast_ || motorFaultSummary_);
 
     updateChargerConnected(chargerConnectedFromVoltage(
         battery_.chargeVoltage,

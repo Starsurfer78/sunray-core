@@ -82,6 +82,7 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: History summary now also exposes grouped counters as `event_reason_counts`, `event_type_counts`, and `event_level_counts`.
 - `FACT`: History summary now also exposes `last_event_wall_ts_ms`, so the `Verlauf` landing cards can show real date/time instead of formatting uptime as if it were epoch time.
 - `FACT`: This grouped summary is suitable for field statistics such as repeated `lift_triggered`, `battery_critical`, `gps_signal_lost`, `mcu_comm_lost`, or `stuck_recovery_exhausted` patterns without re-reading the full event list.
+- `FACT`: On Alfred with `RM18 v1.1.20`, `AT+M` field 8 should be treated as a fast overload/fault hint, while `AT+S` remains the durable combined motor-fault summary. The Pi-side parser must not let a low 50 Hz motor-frame bit clear a still-latched summary fault, otherwise `motor_err` flickers in Diagnose.
 
 ## Watchdog Chain
 

@@ -126,6 +126,8 @@ private:
     SensorData  sensors_{};
     BatteryData battery_{};
     bool        rawChargerConnected_ = false;
+    bool        motorFaultFast_ = false;
+    bool        motorFaultSummary_ = false;
     unsigned    chargerConnectedStableCount_ = 0;
     unsigned    chargerDisconnectedStableCount_ = 0;
 

@@ -58,6 +58,7 @@
 - `FACT`: Automated regression coverage now includes repeated charger-contact flap damping, Charge grace-expiry handling, and degraded MQTT enabled lifecycle behavior.
 - `FACT`: History summary now exposes grouped incident counters by reason, type, and level for field diagnostics and optimization statistics.
 - `FACT`: History summary now also exposes `last_event_wall_ts_ms` for operator-facing real-time chronology on the `Verlauf` page.
+- `FACT`: Alfred field testing after flashing `RM18 v1.1.20` showed `Motorfehler` blinking in Diagnose while the runtime stayed stable in `Charge`; root cause was mixed Pi-side parsing semantics between fast `AT+M` frames and slower `AT+S` summary frames, not an immediately recurring hard motor fault.
 
 ## Bugs
 

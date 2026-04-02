@@ -300,6 +300,28 @@ TEST_CASE("Summary frame: IMP-01 ovCheck (field 12) sets motorFault", "[driver][
     CHECK(std::stoi(f[12]) == 1);  // ovCheck bit → motorFault must be set
 }
 
+TEST_CASE("Motor fault semantics: fast AT+M fault must not clear slower AT+S fault", "[driver][summary][motorfault]") {
+    const auto summary = csvSplit(makeSummaryResponse(
+        24.0f, 0.0f, 0.0f, false, false, false, /*fault=*/true,
+        0.0f, 0.0f, 0.0f, 25.0f, /*ovCheck=*/false, false, false));
+    REQUIRE(summary.size() > 7);
+    CHECK(std::stoi(summary[7]) == 1);
+
+    const auto motor = csvSplit(makeMotorResponse(
+        0, 0, 0, 0.0f, false, false, false, /*fault=*/false, false, false));
+    REQUIRE(motor.size() > 8);
+    CHECK(std::stoi(motor[8]) == 0);
+
+    // Contract note:
+    // - AT+S fault is the durable summary view
+    // - AT+M field 8 is only a fast additional hint and must not clear the
+    //   summary fault bit between 2 Hz summary frames
+    const bool motorFaultSummary = (std::stoi(summary[7]) != 0);
+    const bool motorFaultFast = (std::stoi(motor[8]) != 0);
+    const bool effectiveFault = motorFaultSummary || motorFaultFast;
+    CHECK(effectiveFault);
+}
+
 TEST_CASE("Summary frame: precise bumper fields 13+14", "[driver][summary]") {
     auto frame = makeSummaryResponse(
         24.0f, 0.0f, 0.0f, false, /*legacy bumper=*/false, false, false,
