@@ -17,7 +17,9 @@
 - `FACT`: A read-only deployment verifier now exists at `scripts/check_deploy_state.sh` for artefacts, runtime files, and rollback-anchor visibility.
 - `FACT`: `config.example.json` now covers the active Alfred runtime baseline for key hardware, docking, planner, and path defaults.
 - `FACT`: WebUI now includes a `Verlauf` page backed by `/api/history/events`, `/api/history/sessions`, `/api/statistics/summary`, and `/api/history/export`.
+- `FACT`: Pi-side OTA/update assistant is now functional through the WebUI for `sunray-core` userspace update/check/restart.
 - `UNKNOWN`: OTA/update rollback beyond the documented manual paths.
+- `UNKNOWN`: STM32 firmware OTA and rollback remain unproven.
 
 ## Hardware
 

@@ -110,4 +110,5 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: Future operator-facing features have clear landing zones only in the existing backend surfaces: `Robot`, `WebSocketServer`, `MqttClient`, diagnostics, and history/event storage.
 - `FACT`: Current repo evidence does not justify parallel control paths outside those backend surfaces.
 - `FACT`: Future remote-command features must inherit the same safety and determinism constraints as local UI commands.
-- `UNKNOWN`: Features that assume OTA, dedicated dock-contact hardware, or hard electrical emergency-stop proof remain blocked by missing evidence.
+- `FACT`: Pi-side OTA is now functionally proven for `sunray-core` userspace: check, update trigger, version write, service restart, and reconnect flow.
+- `UNKNOWN`: STM32 firmware OTA, dedicated dock-contact hardware, and hard electrical emergency-stop proof remain blocked by missing evidence.

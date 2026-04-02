@@ -299,6 +299,44 @@ Feature does not mean:
   - F2
 - Confidence level:
   - High
+- Current status:
+  - Pi-side update assistant is now functionally landed:
+    - WebUI can check for updates
+    - WebUI can trigger Pi-side update/install/restart
+    - version file and reconnect flow are visible to the operator
+  - Remaining gap is STM32 firmware OTA, which is tracked separately as `FF-014`.
+
+### FF-014
+
+- Title: STM32 Firmware OTA for Alfred
+- Category: deployment robustness, remote management
+- User/operator value:
+  - Extends the now-working Pi-side update flow to the RM18 STM32 firmware, so Alfred can be updated without a separate wired flashing session.
+- Architecture fit:
+  - Must land on top of the existing Pi-side OTA/update assistant, not beside it.
+  - Must integrate with the current firmware flashing path in `scripts/flash_alfred.sh` and the documented OpenOCD / `arduino-cli` workflow.
+- Affected modules:
+  - `scripts/flash_alfred.sh`
+  - OTA/update backend surface
+  - update docs and rollback notes
+- Hardware dependencies:
+  - Requires the existing STM32 flashing path on Alfred to be callable and recoverable remotely.
+  - No repository evidence yet proves a safe unattended rollback path after a bad STM flash.
+- Safety implications:
+  - High: a failed or interrupted STM update can remove the low-level motion/safety runtime.
+  - Must not be presented as safe unattended OTA until rollback/recovery is proven.
+- Implementation risk:
+  - High
+- Estimated complexity:
+  - Medium to High
+- Blockers:
+  - No proven automated rollback for failed STM flash
+  - no verified production-safe recovery path after interrupted firmware update
+  - no field proof yet that the current flash tooling can be safely driven through the WebUI
+- Recommended phase:
+  - F3
+- Confidence level:
+  - Medium
 
 ### FF-010
 
