@@ -36,6 +36,11 @@ sudo apt-get update
 sudo apt-get install openocd
 ```
 
+`sunray-core` nutzt auf Alfred (Raspberry Pi 4) den nativen OpenOCD-Adapter
+`bcm2835gpio`. Das ältere `sysfsgpio`-Backend wird bewusst nicht mehr verwendet,
+weil es auf aktuellen Pi-OS-Ständen bereits vor dem eigentlichen SWD-Probe mit
+GPIO-Exportfehlern scheitern kann.
+
 ### 2. Arduino-CLI installieren (für STM32-Kompilierung)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
@@ -118,6 +123,7 @@ BIN_PATH=/path/to/rm18.ino.bin    # default: ~/sunray_install/firmware/rm18.ino.
 | Problem | Lösung |
 |---------|--------|
 | `openocd: command not found` | `sudo apt-get install openocd` |
+| `Couldn't export gpio 25` / `sysfsgpio: Invalid argument` | veraltete `sysfsgpio`-Konfiguration; `docs/swd-pi.ocd` auf `bcm2835gpio`-Variante aktualisieren und erneut probieren |
 | `Probe: failed` | GPIO-Pins prüfen, Verkabelung überprüfen, Pi reboot |
 | `Permission denied /dev/mem` | `sudo` verwenden oder `udev`-Regel setzen |
 | `stm32f1x.cfg not found` | OpenOCD-Skripte in `/usr/share/openocd/scripts` prüfen |

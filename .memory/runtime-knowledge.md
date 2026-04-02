@@ -113,4 +113,5 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: Future remote-command features must inherit the same safety and determinism constraints as local UI commands.
 - `FACT`: Pi-side OTA is now functionally proven for `sunray-core` userspace: check, update trigger, version write, service restart, and reconnect flow.
 - `FACT`: The STM32 SWD probe now distinguishes a missing `openocd` tool from a real SWD probe failure; Alfred's installer also installs `openocd` as part of the standard hardware-side dependency set.
+- `FACT`: Alfred's STM32 SWD probe now targets Raspberry Pi 4 via OpenOCD `bcm2835gpio`; the older `sysfsgpio` backend was removed because it failed before the real probe on current Pi OS releases.
 - `UNKNOWN`: STM32 firmware OTA, dedicated dock-contact hardware, and hard electrical emergency-stop proof remain blocked by missing evidence.
