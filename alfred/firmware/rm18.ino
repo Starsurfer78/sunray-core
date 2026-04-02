@@ -83,7 +83,7 @@
 
 // #define DEBUG 1
 
-#define VER "RM18,1.1.23" // Bump Software version to 1.1.23 for release (OV-check is now treated as safety-relevant only while the mower is actually commanded; previous 1.1.22 detailed fault-cause telemetry remains)
+#define VER "RM18,1.1.24" // Bump Software version to 1.1.24 for release (odometry ISRs now use a simple deterministic debounce path without the old experimental spike eliminator; previous 1.1.23 OV-check gating remains)
 
 #define pinSwdCLK PA14
 #define pinSwdSDA PA13
@@ -171,14 +171,6 @@ volatile unsigned long motorLeftTicksTimeout = 0;
 volatile unsigned long motorRightTicksTimeout = 0;
 volatile unsigned long motorMowTicksTimeout = 0;
 
-volatile unsigned long motorLeftTransitionTime = 0;
-volatile unsigned long motorRightTransitionTime = 0;
-volatile unsigned long motorMowTransitionTime = 0;
-
-volatile float motorLeftDurationMax = 0;
-volatile float motorRightDurationMax = 0;
-volatile float motorMowDurationMax = 0;
-
 volatile bool stopButton = false;
 volatile int testValue = false;
 
@@ -257,7 +249,7 @@ HardwareSerial mSerial2(pinBluetoothRX, pinBluetoothTX); // rx, tx  - UART avail
 #define CONSOLE2 mSerial2
 #define CONSOLE2_BAUDRATE 115200
 
-// #define SUPER_SPIKE_ELIMINATOR 1  // advanced spike elimination  (experimental, comment out to disable)
+static constexpr unsigned long ODOMETRY_DEBOUNCE_MS = 3;
 
 // answer Bluetooth with CRC
 void cmdAnswer(String s)
@@ -274,22 +266,21 @@ void cmdAnswer(String s)
   cmdResponse = s;
 }
 
+inline bool acceptOdomTick(volatile unsigned long& nextAllowedMs)
+{
+  const unsigned long now = millis();
+  if (now < nextAllowedMs)
+    return false;
+  nextAllowedMs = now + ODOMETRY_DEBOUNCE_MS;
+  return true;
+}
+
 void OdometryMowISR()
 {
   if (digitalRead(pinMotorMowImp) == LOW)
     return;
-  if (millis() < motorMowTicksTimeout)
-    return; // eliminate spikes
-#ifdef SUPER_SPIKE_ELIMINATOR
-  unsigned long duration = millis() - motorMowTransitionTime;
-  if (duration > 5)
-    duration = 0;
-  motorMowTransitionTime = millis();
-  motorMowDurationMax = 0.7 * max(((float)motorMowDurationMax), ((float)duration));
-  motorMowTicksTimeout = millis() + motorMowDurationMax;
-#else
-  motorMowTicksTimeout = millis() + 3;
-#endif
+  if (!acceptOdomTick(motorMowTicksTimeout))
+    return;
   odomTicksMow++;
 }
 
@@ -297,18 +288,8 @@ void OdometryLeftISR()
 {
   if (digitalRead(pinMotorLeftImp) == LOW)
     return;
-  if (millis() < motorLeftTicksTimeout)
-    return; // eliminate spikes
-#ifdef SUPER_SPIKE_ELIMINATOR
-  unsigned long duration = millis() - motorLeftTransitionTime;
-  if (duration > 5)
-    duration = 0;
-  motorLeftTransitionTime = millis();
-  motorLeftDurationMax = 0.7 * max(((float)motorLeftDurationMax), ((float)duration));
-  motorLeftTicksTimeout = millis() + motorLeftDurationMax;
-#else
-  motorLeftTicksTimeout = millis() + 3;
-#endif
+  if (!acceptOdomTick(motorLeftTicksTimeout))
+    return;
   odomTicksLeft++;
 }
 
@@ -316,18 +297,8 @@ void OdometryRightISR()
 {
   if (digitalRead(pinMotorRightImp) == LOW)
     return;
-  if (millis() < motorRightTicksTimeout)
-    return; // eliminate spikes
-#ifdef SUPER_SPIKE_ELIMINATOR
-  unsigned long duration = millis() - motorRightTransitionTime;
-  if (duration > 5)
-    duration = 0;
-  motorRightTransitionTime = millis();
-  motorRightDurationMax = 0.7 * max(((float)motorRightDurationMax), ((float)duration));
-  motorRightTicksTimeout = millis() + motorRightDurationMax;
-#else
-  motorRightTicksTimeout = millis() + 3;
-#endif
+  if (!acceptOdomTick(motorRightTicksTimeout))
+    return;
   odomTicksRight++;
 
 #ifdef TEST_PIN_ODOMETRY
