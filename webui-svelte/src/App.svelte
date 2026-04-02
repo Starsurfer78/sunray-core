@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import Diagnostics from './lib/pages/Diagnostics.svelte'
   import Dashboard from './lib/pages/Dashboard.svelte'
   import History from './lib/pages/History.svelte'
   import Map from './lib/pages/Map.svelte'
   import Mission from './lib/pages/Mission.svelte'
+  import Settings from './lib/pages/Settings.svelte'
   import StatusBar from './lib/components/StatusBar.svelte'
   import GlobalInfoPanel from './lib/components/GlobalInfoPanel.svelte'
   import { sendCmd, startTelemetry, stopTelemetry } from './lib/api/websocket'
@@ -13,7 +13,7 @@
   import { joystickOpen } from './lib/stores/joystick'
   import { mapInfoOpen } from './lib/stores/mapInfo'
 
-  type View = 'dashboard' | 'diagnostics' | 'history' | 'map' | 'mission'
+  type View = 'dashboard' | 'history' | 'map' | 'mission' | 'settings'
   type NavItem = { id: View | null; label: string; enabled: boolean }
 
   let currentView: View = 'dashboard'
@@ -26,8 +26,6 @@
     { id: 'mission', label: 'Missionen', enabled: true },
     { id: 'history', label: 'Verlauf', enabled: true },
     { id: null, label: 'Simulator', enabled: false },
-    { id: null, label: 'Einstellungen', enabled: false },
-    { id: 'diagnostics', label: 'Diagnose', enabled: true },
   ]
 
   function showEmergencyInfo(message: string, durationMs = 3000) {
@@ -78,6 +76,10 @@
 
   function toggleMapInfo() {
     mapInfoOpen.update((open) => !open)
+  }
+
+  function openSettings() {
+    currentView = 'settings'
   }
 
   onMount(() => {
@@ -139,6 +141,16 @@
 
       <button
         type="button"
+        class="topbar-tool-btn"
+        class:active={currentView === 'settings'}
+        title="Einstellungen und Diagnose"
+        on:click={openSettings}
+      >
+        <span aria-hidden="true">⚙</span>
+      </button>
+
+      <button
+        type="button"
         class="topbar-info-btn"
         class:active={$mapInfoOpen}
         title={
@@ -171,14 +183,14 @@
     <GlobalInfoPanel {currentView} />
     {#if currentView === 'dashboard'}
       <Dashboard />
-    {:else if currentView === 'diagnostics'}
-      <Diagnostics />
     {:else if currentView === 'map'}
       <Map />
     {:else if currentView === 'mission'}
       <Mission />
     {:else if currentView === 'history'}
       <History />
+    {:else if currentView === 'settings'}
+      <Settings />
     {/if}
   </section>
 </main>
@@ -315,6 +327,21 @@
     cursor: pointer;
   }
 
+  .topbar-tool-btn {
+    flex-shrink: 0;
+    width: 2.4rem;
+    height: 2.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #060c17;
+    color: #94a3b8;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
   .topbar-info-btn {
     flex-shrink: 0;
     width: 2.4rem;
@@ -331,6 +358,12 @@
     cursor: pointer;
   }
 
+  .topbar-tool-btn.active {
+    border-color: #60a5fa;
+    background: #10213b;
+    color: #dbeafe;
+  }
+
   .topbar-info-btn.active {
     border-color: #0891b2;
     background: #082f49;
@@ -340,6 +373,11 @@
   .topbar-info-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .topbar-tool-btn:hover {
+    border-color: #60a5fa;
+    color: #dbeafe;
   }
 
   .topbar-joystick.active {

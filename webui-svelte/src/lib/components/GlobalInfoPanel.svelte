@@ -5,7 +5,7 @@
   import { mapInfoOpen } from "../stores/mapInfo";
   import { mappingTestMode } from "../stores/mapUi";
 
-  export let currentView: "dashboard" | "diagnostics" | "history" | "map" | "mission";
+  export let currentView: "dashboard" | "history" | "map" | "mission" | "settings";
 
   let nowMs = Date.now();
   const CONNECTION_FRESH_MS = 5000;
@@ -71,6 +71,10 @@
     }
   }
 
+  function closePanel() {
+    mapInfoOpen.set(false);
+  }
+
   const interval = setInterval(() => {
     nowMs = Date.now();
   }, 1000);
@@ -92,7 +96,12 @@
       on:pointerup={onHeaderPointerUp}
     >
       <strong>Info</strong>
-      <span>ziehen zum Verschieben</span>
+      <div class="global-info-actions">
+        <span>ziehen zum Verschieben</span>
+        <button type="button" class="global-info-close" on:click|stopPropagation={closePanel}>
+          Schließen
+        </button>
+      </div>
     </div>
     <div class="global-info-grid">
       <div class="global-info-card">
@@ -182,6 +191,27 @@
   .global-info-head span {
     color: #7a8da8;
     font-size: 0.62rem;
+  }
+
+  .global-info-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .global-info-close {
+    padding: 0.28rem 0.48rem;
+    border-radius: 0.42rem;
+    border: 1px solid #1e3a5f;
+    background: #0f1829;
+    color: #bfdbfe;
+    font-size: 0.62rem;
+    cursor: pointer;
+  }
+
+  .global-info-close:hover {
+    border-color: #60a5fa;
+    color: #dbeafe;
   }
 
   .global-info-grid {
