@@ -121,6 +121,20 @@ bool chargerConnectedFromVoltage(float chargeVoltage, float threshold = 7.0f) {
     return chargeVoltage > threshold;
 }
 
+bool debounceChargerConnected(bool latched, bool rawConnected,
+                              unsigned& highCount, unsigned& lowCount,
+                              unsigned required = 2) {
+    if (rawConnected) {
+        ++highCount;
+        lowCount = 0;
+        return (!latched && highCount >= required) ? true : latched;
+    }
+
+    ++lowCount;
+    highCount = 0;
+    return (latched && lowCount >= required) ? false : latched;
+}
+
 } // anonymous namespace
 
 // ── CRC tests ────────────────────────────────────────────────────────────────
@@ -305,6 +319,44 @@ TEST_CASE("Charge detect: dock requires realistic charger voltage threshold", "[
     CHECK(chargerConnectedFromVoltage(28.7f));
     CHECK_FALSE(chargerConnectedFromVoltage(7.1f, 8.0f));
     CHECK(chargerConnectedFromVoltage(8.1f, 8.0f));
+}
+
+TEST_CASE("Charge detect: charger contact is debounced across short flaps", "[driver][summary][charge]") {
+    unsigned highCount = 0;
+    unsigned lowCount = 0;
+    bool latched = false;
+
+    latched = debounceChargerConnected(latched, true, highCount, lowCount);
+    CHECK_FALSE(latched);
+    latched = debounceChargerConnected(latched, true, highCount, lowCount);
+    CHECK(latched);
+
+    latched = debounceChargerConnected(latched, false, highCount, lowCount);
+    CHECK(latched);
+    latched = debounceChargerConnected(latched, true, highCount, lowCount);
+    CHECK(latched);
+
+    latched = debounceChargerConnected(latched, false, highCount, lowCount);
+    CHECK(latched);
+    latched = debounceChargerConnected(latched, false, highCount, lowCount);
+    CHECK_FALSE(latched);
+}
+
+TEST_CASE("Charge detect: latched contact survives repeated one-sample disconnect flaps", "[driver][summary][charge]") {
+    unsigned highCount = 0;
+    unsigned lowCount = 0;
+    bool latched = false;
+
+    latched = debounceChargerConnected(latched, true, highCount, lowCount);
+    latched = debounceChargerConnected(latched, true, highCount, lowCount);
+    REQUIRE(latched);
+
+    for (int i = 0; i < 10; ++i) {
+        latched = debounceChargerConnected(latched, false, highCount, lowCount);
+        CHECK(latched);
+        latched = debounceChargerConnected(latched, true, highCount, lowCount);
+        CHECK(latched);
+    }
 }
 
 // ── AT+V frame ───────────────────────────────────────────────────────────────

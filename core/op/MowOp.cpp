@@ -48,6 +48,11 @@ void MowOp::onObstacle(OpContext& ctx) {
     changeOp(ctx, ctx.opMgr.escape(), true);  // return to Mow after escape
 }
 
+void MowOp::onStuck(OpContext& ctx) {
+    ctx.logger.warn("Mow", "stuck => EscapeReverse");
+    changeOp(ctx, ctx.opMgr.escape(), true);
+}
+
 void MowOp::onLiftTriggered(OpContext& ctx) {
     ctx.logger.error("Mow", "lift sensor => ERROR");
     changeOp(ctx, ctx.opMgr.error());

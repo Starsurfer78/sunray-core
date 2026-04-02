@@ -141,6 +141,16 @@ Beispiele:
 ./scripts/install_sunray.sh --no-start
 ```
 
+### `scripts/check_deploy_state.sh`
+
+Prueft read-only, ob Build-Artefakte, Runtime-Dateien, `sunray-core.service` und der dokumentierte `sunray`-Rollback-Anker sichtbar sind.
+
+Beispiel:
+
+```bash
+bash scripts/check_deploy_state.sh
+```
+
 ### `scripts/flash_alfred.sh`
 
 Baut und flasht die Alfred-STM32-Firmware ueber SWD/OpenOCD.
@@ -158,6 +168,7 @@ Details stehen in [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md).
 ## Konfiguration
 
 Ausgangspunkt ist [config.example.json](config.example.json).
+Die Datei deckt jetzt die aktiven Alfred-Defaults fuer UART, I2C, Docking und Planner-Basisparameter explizit ab und ist damit die kanonische Repo-Basis fuer neue Runtime-Konfigurationen.
 
 Wichtige Schluessel:
 

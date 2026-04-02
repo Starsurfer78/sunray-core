@@ -1,82 +1,208 @@
 # Project Map
 
-## Core Runtime
+## Repository Shape
 
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| Main loop | Process entry and runtime assembly | `main.cpp`, `core/Robot.cpp`, `core/Robot.h` | Fault propagation, hidden startup assumptions | What services or env vars are required in production? |
-| Config and logging | Runtime parameters and structured logs | `core/Config.*`, `core/Logger.h` | Drift between defaults and real hardware | Which defaults are field-authoritative? |
-| State machine | High-level robot operations | `core/op/*` | Incorrect transitions can create unsafe motion | Which transitions are contractual for the UI and HA? |
-| Telemetry and APIs | WebSocket and HTTP surface | `core/WebSocketServer.*` | Command auth, stale state, serialization drift | What public API is considered stable? |
-| MQTT | Remote telemetry and command path | `core/MqttClient.*` | Disconnect handling, retain misuse, stale command replay | Which topics are production-critical today? |
+### FACT
 
-## Hardware Layer
+Active top-level source areas from the repository tree and build files:
 
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| HAL contracts | Shared hardware interface | `hal/HardwareInterface.h` | Interface changes ripple widely | Which HAL methods are hard real-time? |
-| Alfred serial driver | Pi to MCU integration | `hal/SerialRobotDriver/*` | Safety-critical parsing and command mapping | Which fields are MCU truth vs Pi-derived? |
-| Simulation driver | Test and software-only mode | `hal/SimulationDriver/*` | Simulation drift from hardware behavior | Which failure modes are still missing? |
-| GPS driver | RTK/GNSS ingest | `hal/GpsDriver/*` | Fix handling, age calculation, failover | Which receiver configurations are deployed? |
-| IMU driver | Orientation feed | `hal/Imu/*` | Calibration and drift assumptions | Which IMU board variant is final? |
+- [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
+- [`core/`](/mnt/LappiDaten/Projekte/sunray-core/core)
+- [`hal/`](/mnt/LappiDaten/Projekte/sunray-core/hal)
+- [`platform/`](/mnt/LappiDaten/Projekte/sunray-core/platform)
+- [`tests/`](/mnt/LappiDaten/Projekte/sunray-core/tests)
+- [`tools/`](/mnt/LappiDaten/Projekte/sunray-core/tools)
+- [`webui-svelte/`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte)
+- [`docs/`](/mnt/LappiDaten/Projekte/sunray-core/docs)
+- [`scripts/`](/mnt/LappiDaten/Projekte/sunray-core/scripts)
 
-## Motion And Navigation
+Generated or local-only areas visible in the workspace:
 
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| State estimation | Odometry plus GPS plus IMU fusion | `core/navigation/StateEstimator.cpp` | Pose drift, wrong defaults, failover behavior | Which geometry values are field-calibrated? |
-| Map and planner | Mission routing and local replans | `core/navigation/Map.*`, `Planner.*`, `GridMap.*`, `Costmap.*` | Boundary safety, dock approach failures | What dock corridor data is mandatory? |
-| Tracking and control | Route following and drive commands | `LineTracker.*`, controllers under `core/control/*` | Overshoot, incorrect reverse behavior | What tuning is Alfred-specific vs generic? |
+- [`build_verify/`](/mnt/LappiDaten/Projekte/sunray-core/build_verify)
+- [`webui-svelte/dist/`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/dist)
+- [`webui-svelte/node_modules/`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/node_modules)
 
-## Safety
-
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| Safety guards | Battery, GPS, perimeter, watchdog | `core/Robot.cpp` | Ordering bugs can mask stop requests | Is any guard intentionally delegated to STM32? |
-| Error handling | Terminal safe state | `core/op/ErrorOp.cpp`, `Robot.cpp` | Partial stop without full fault latching | What should auto-recover and what must remain latched? |
-| Obstacle recovery | Escape behavior | `core/op/EscapeReverseOp.cpp` | Re-entry into unsafe route | Are recovery timers field-validated? |
-
-## Communication
-
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| Web UI backend | Local UI telemetry and commands | `core/WebSocketServer.*` | Auth and schema drift | Which endpoints are required for production UI? |
-| MQTT bridge | Remote state integration | `core/MqttClient.*` | Heartbeat and reconnect correctness | What HA discovery model is intended? |
-| Frontend | Browser UI | `webui-svelte/*` | UI assumptions drifting from backend semantics | Which workflows are already operator-facing? |
-
-## Build And Config
-
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| Backend build | CMake and dependencies | root `CMakeLists.txt`, subdir `CMakeLists.txt` | Hidden network dependency via `FetchContent` | Should dependencies be vendored for field builds? |
-| Frontend build | Node and Vite | `webui-svelte/package.json` | Node version drift | Is frontend build part of deployment pipeline? |
-| Runtime config | JSON plus defaults | `config.example.json`, `core/Config.cpp` | Default mismatch vs deployed robots | Where do production configs live? |
-
-## Tests And Tools
-
-| Area | Role | Typical Files | Risks | Open Questions |
-| --- | --- | --- | --- | --- |
-| Unit and scenario tests | Runtime verification | `tests/*.cpp` | Tests can drift from real hardware semantics | Which scenarios still need hardware-backed tests? |
-| Probes | Hardware bring-up helpers | `tools/*.cpp` | Operators may run probes on live hardware without procedure | Which probes are safe in deployed systems? |
+These generated areas are not source-of-truth code.
 
 ## Entry Points
 
-- Backend: `main.cpp`
-- Frontend: `webui-svelte`
-- Primary control object: `Robot`
-- Primary operation dispatcher: `OpManager`
+### FACT
+
+- Backend executable entry point: [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
+- Backend runtime control object: [`core/Robot.h`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.h)
+- Backend operation dispatcher: `OpManager` in [`core/op/Op.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/op/Op.cpp)
+- Frontend entry point for build/dev tooling: [`webui-svelte/package.json`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/package.json)
+- Test entry point: `sunray_tests` target from [`tests/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/tests/CMakeLists.txt)
+
+## Startup Path
+
+### FACT
+
+Runtime startup path from [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp):
+
+- config resolution
+- logger creation
+- backend driver selection
+- `Robot` construction
+- `robot.init()`
+- optional GPS driver setup
+- `WebSocketServer` construction and callback registration
+- `MqttClient` construction and callback registration
+- `robot.loop()`
+
+## Build System
+
+### FACT
+
+- Root backend build file: [`CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/CMakeLists.txt)
+- Core module build file: [`core/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/core/CMakeLists.txt)
+- HAL build file: [`hal/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/hal/CMakeLists.txt)
+- Platform build file: [`platform/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/platform/CMakeLists.txt)
+- Tests build file: [`tests/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/tests/CMakeLists.txt)
+- Frontend build manifest: [`webui-svelte/package.json`](/mnt/LappiDaten/Projekte/sunray-core/webui-svelte/package.json)
+
+### Build Paths
+
+- Backend executable: `sunray-core`
+- Test executable: `sunray_tests`
+- Probe executables:
+  - `rm18_serial_probe`
+  - `ex3_led_probe`
+  - `ex2_buzzer_probe`
+  - `ex_led_buzzer_test`
+  - `pca9555_probe`
+- Frontend scripts:
+  - `npm run dev`
+  - `npm run build`
+  - `npm run preview`
+  - `npm run check`
+
+## Platform Separation
+
+### Core Runtime
+
+### FACT
+
+[`core/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/core/CMakeLists.txt) builds the platform-independent runtime library from:
+
+- control logic
+- state machine ops
+- navigation
+- config
+- WebSocket server
+- MQTT client
+- history/event storage
+- schedule logic
+
+### HAL
+
+### FACT
+
+[`hal/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/hal/CMakeLists.txt) defines:
+
+- interface-only `sunray_hal`
+- `SerialRobotDriver`
+- `SimulationDriver`
+- `GpsDriver`
+- `Imu`
+
+### Platform
+
+### FACT
+
+[`platform/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/platform/CMakeLists.txt) contains Linux/Posix accessors:
+
+- `Serial`
+- `I2C`
+- `I2cMux`
+- `PortExpander`
+
+### INFERENCE
+
+- The intended separation is:
+  - `platform`: Linux device access
+  - `hal`: hardware backend contracts and drivers
+  - `core`: runtime behavior independent of direct Linux device APIs
+
+## Linux Versus STM32 Responsibilities
+
+## Linux / Pi
+
+### FACT
+
+- Owns process startup and loop execution
+- Hosts WebSocket and MQTT integrations
+- Runs navigation, scheduling, and state machine logic
+- Accesses serial and I2C through Linux-facing platform code
+
+## STM32
+
+### FACT
+
+- The Alfred runtime path uses `SerialRobotDriver`, indicating an MCU-backed hardware peer
+- Board-facing telemetry and actuator exchange are abstracted through that driver
+
+### UNKNOWN
+
+- Exact internal STM32 module ownership
+
+## Safety-Relevant Areas
+
+### FACT
+
+High-sensitivity runtime areas visible from file structure and startup path:
+
+- [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
+- [`core/op/`](/mnt/LappiDaten/Projekte/sunray-core/core/op)
+- [`core/navigation/`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation)
+- [`hal/SerialRobotDriver/`](/mnt/LappiDaten/Projekte/sunray-core/hal/SerialRobotDriver)
+- [`platform/Serial.cpp`](/mnt/LappiDaten/Projekte/sunray-core/platform/Serial.cpp)
+- [`platform/I2C.cpp`](/mnt/LappiDaten/Projekte/sunray-core/platform/I2C.cpp)
 
 ## High-Risk Files
 
-- `core/Robot.cpp`
-- `core/op/Op.cpp`
-- `core/navigation/Map.cpp`
-- `core/navigation/StateEstimator.cpp`
-- `hal/SerialRobotDriver/SerialRobotDriver.cpp`
-- `core/WebSocketServer.cpp`
+### FACT
 
-## Unknowns
+- [`main.cpp`](/mnt/LappiDaten/Projekte/sunray-core/main.cpp)
+  Reason: startup assembly, driver selection, external interface wiring
+- [`core/Robot.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/Robot.cpp)
+  Reason: loop ordering, safety guards, telemetry, shutdown behavior
+- [`core/op/Op.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/op/Op.cpp)
+  Reason: operation switching and operator-command routing
+- [`core/navigation/Map.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/Map.cpp)
+  Reason: dock and route behavior, local replans, perimeter-related path decisions
+- [`core/navigation/StateEstimator.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/navigation/StateEstimator.cpp)
+  Reason: pose propagation and sensor-fusion behavior
+- [`core/WebSocketServer.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/WebSocketServer.cpp)
+  Reason: command and API surface
+- [`core/MqttClient.cpp`](/mnt/LappiDaten/Projekte/sunray-core/core/MqttClient.cpp)
+  Reason: remote command and telemetry path
+- [`hal/SerialRobotDriver/SerialRobotDriver.cpp`](/mnt/LappiDaten/Projekte/sunray-core/hal/SerialRobotDriver/SerialRobotDriver.cpp)
+  Reason: Alfred hardware protocol boundary
 
-- Production systemd units and service order
-- Exact Alfred hardware revision matrix
-- Full mapping of GPIO and expanders in the field
+## Tests And Tools
+
+### FACT
+
+- [`tests/CMakeLists.txt`](/mnt/LappiDaten/Projekte/sunray-core/tests/CMakeLists.txt) builds a single Catch2-based test executable from multiple scenario and unit files.
+- `tools/*.cpp` produce probe binaries for hardware-oriented checks.
+
+## FACT / INFERENCE / UNKNOWN
+
+### FACT
+
+- The repository has clear backend module separation.
+- The backend startup path is centralized in `main.cpp`.
+- The frontend is a separate Svelte/Vite project.
+- Tests are first-class and compiled through CMake.
+
+### INFERENCE
+
+- The repo is organized to keep direct Linux device access out of most runtime logic.
+- `SerialRobotDriver` is the critical hardware boundary for real Alfred operation.
+
+### UNKNOWN
+
+- Production packaging and service orchestration
+- Exact hardware revision spread in deployed Alfred units
+- Whether any external repo or service owns part of runtime startup

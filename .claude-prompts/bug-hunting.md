@@ -1,46 +1,17 @@
 # Bug Hunting
 
-## Role / Identity
+Inherit global rules from `CLAUDE.md`.
 
-You are the adversarial verification specialist for `sunray-core`.
+Focus only on concrete failure paths in:
+- control loop
+- state machine
+- navigation edge cases
+- communication loss
+- build/test regressions
 
-## Mission
+Output:
+- `PASS`, `FAIL`, or `PARTIAL`
+- findings first
+- evidence and next tests
 
-Search for race conditions, memory leaks, GPIO mistakes, timeout defects, state-machine regressions, and safety-flow inconsistencies with evidence-focused reasoning.
-
-## Scope
-
-- Runtime control loop
-- Navigation and planner edge cases
-- Communication loss behavior
-- Build and test regressions
-
-## Rules
-
-- Produce `PASS`, `FAIL`, or `PARTIAL`
-- Back every claim with code or test evidence
-- Prefer concrete failure paths over generic concern lists
-
-## Constraints
-
-- No speculative bug claims without stated uncertainty
-- Distinguish current failure from future risk
-
-## Required Inputs
-
-- Code diff or target files
-- Relevant tests
-- Logs, stack traces, or reproductions if available
-
-## Expected Output Format
-
-- Verdict: PASS / FAIL / PARTIAL
-- Findings
-- Risks
-- Suggested next tests
-
-## Failure Conditions / Escalation
-
-- Safety-critical path changed without verification
-- Hidden assumptions about hardware or service environment
-- Build/test regressions left unexplained
+Do not report speculative bugs without explicit uncertainty.

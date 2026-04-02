@@ -13,6 +13,15 @@
   let missions: Mission[] = [];
   let selectedStartMissionId = "";
   let loadInfo = "";
+  const activeMissionOps = [
+    "Undock",
+    "NavToStart",
+    "Mow",
+    "GpsWait",
+    "EscapeReverse",
+    "EscapeForward",
+    "WaitRain",
+  ];
 
   function normalizeMission(doc: MissionDocument): Mission {
     return {
@@ -138,7 +147,7 @@
 
   $: missionIsRunning =
     Boolean(runningMission) &&
-    ["Undock", "NavToStart", "Mow"].includes($telemetry.op);
+    activeMissionOps.includes($telemetry.op);
 </script>
 
 <section class="panel mission-panel">

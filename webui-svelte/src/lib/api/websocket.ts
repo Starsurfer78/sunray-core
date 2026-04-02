@@ -2,6 +2,7 @@ import { connection } from '../stores/connection'
 import { telemetry } from '../stores/telemetry'
 import type { TelemetryEnvelope, WsMessage } from './types'
 import { logStore } from '../stores/logs'
+import { commandFeedback } from '../stores/commandFeedback'
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -79,7 +80,16 @@ export function stopTelemetry() {
 }
 
 export function sendCmd(cmd: string, extra: Record<string, unknown> = {}) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return false
-  ws.send(JSON.stringify({ cmd, ...extra }))
-  return true
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    commandFeedback.show(`Befehl "${cmd}" wurde nicht gesendet. Keine aktive WebSocket-Verbindung.`)
+    return false
+  }
+
+  try {
+    ws.send(JSON.stringify({ cmd, ...extra }))
+    return true
+  } catch {
+    commandFeedback.show(`Befehl "${cmd}" konnte nicht gesendet werden.`)
+    return false
+  }
 }

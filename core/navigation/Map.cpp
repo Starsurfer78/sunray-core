@@ -537,8 +537,45 @@ bool Map::startDocking(float robotX, float robotY) {
     return true;
 }
 
-bool Map::retryDocking(float robotX, float robotY) {
-    return startDocking(robotX, robotY);
+bool Map::retryDocking(float robotX, float robotY, float lateralOffsetM) {
+    if (std::fabs(lateralOffsetM) < 1e-4f) {
+        return startDocking(robotX, robotY);
+    }
+
+    if (dockRoute_.points.size() < 2) {
+        return startDocking(robotX, robotY);
+    }
+
+    const Point& last = dockRoute_.points.back().p;
+    const Point& penultimate = dockRoute_.points[dockRoute_.points.size() - 2].p;
+    const float dx = last.x - penultimate.x;
+    const float dy = last.y - penultimate.y;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-4f) {
+        return startDocking(robotX, robotY);
+    }
+
+    const Point baseApproach = dockApproachTarget();
+    const float nx = (-dy / len) * lateralOffsetM;
+    const float ny = ( dx / len) * lateralOffsetM;
+    const Point offsetApproach{baseApproach.x + nx, baseApproach.y + ny};
+
+    if (!findPath({robotX, robotY}, offsetApproach) || freePoints_.empty()) {
+        return startDocking(robotX, robotY);
+    }
+
+    dockPointsIdx = 0;
+    shouldDock_   = true;
+    shouldMow_    = false;
+    setLastTargetPoint(robotX, robotY);
+    beginFreeRoute(WayType::DOCK,
+                   dockRoute_.points.front().p,
+                   false,
+                   (dockRoute_.points.size() <= 2),
+                   mowPointsIdx,
+                   0,
+                   localRoute_);
+    return true;
 }
 
 bool Map::isDocking() const {

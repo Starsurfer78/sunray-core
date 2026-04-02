@@ -47,9 +47,11 @@ namespace sunray
             {"gps_motion_detection", true},        // GPS_MOTION_DETECTION
             {"gps_motion_detection_timeout_s", 5}, // GPS_MOTION_DETECTION_TIMEOUT
             {"gps_no_motion_threshold_m", 0.05},
-            {"gps_no_signal_ms", 3000},          // ab hier: onGpsNoSignal()
+            {"gps_no_signal_ms", 15000},         // ab hier: onGpsNoSignal()
             {"gps_fix_timeout_ms", 120000},      // ab hier: onGpsFixTimeout()
-            {"gps_recover_hysteresis_ms", 1000}, // Signal muss stabil sein
+            {"gps_recover_hysteresis_ms", 3000}, // Signal muss stabil sein
+            {"mow_gps_coast_ms", 20000},         // bounded mowing continuation on degraded fusion
+            {"ekf_gps_failover_ms", 20000},      // EKF GPS failover on configured Alfred runtime
 
             // ── NTRIP ────────────────────────────────────────────────────────────
             {"ntrip_enabled", false},
@@ -161,6 +163,7 @@ namespace sunray
             {"dock_retry_max_attempts", 3},
             {"dock_retry_approach_ms", 2000},
             {"dock_retry_contact_timeout_ms", 3000},
+            {"dock_retry_lateral_offset_m", 0.10},
             {"dock_max_duration_ms", 180000},
             {"dock_approach_mode", "forward_only"},
             {"dock_slow_zone_radius_m", 0.6},
@@ -179,8 +182,8 @@ namespace sunray
             {"planner_grid_cell_size_m", 0.10},
 
             // ── Stuck recovery (StuckRecoveryOp) ──────────────────────────────────
-            {"stuck_detect_timeout_ms", 5000},
-            {"stuck_detect_min_speed_ms", 0.01},
+            {"stuck_detect_timeout_ms", 3000},
+            {"stuck_detect_min_speed_ms", 0.03},
             {"stuck_recovery_max_attempts", 3},
             {"stuck_recovery_reverse_ms", 2000},
             {"stuck_recovery_pause_ms", 1000},

@@ -45,6 +45,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -117,6 +118,13 @@ public:
     void startMowing();
     void startDocking();
     void emergencyStop();
+    void requestStartMowing();
+    void requestStartMowingZones(const std::vector<std::string>& zoneIds);
+    void requestStartMowingMission(const std::string& missionId,
+                                   const std::vector<std::string>& zoneIds);
+    void requestStartDocking();
+    void requestEmergencyStop();
+    void requestSetPose(float x, float y, float heading);
 
     /// Start mowing only the specified zones (C.12).
     /// zoneIds: list of zone IDs from the map JSON. Empty = all zones (same as startMowing()).
@@ -204,6 +212,7 @@ private:
     void tickSchedule();
     void tickObstacleCleanup();
     void tickStateEstimation(unsigned long dt_ms);
+    void processPendingExternalCommands();
     OpContext assembleOpContext();
     void tickSafetyGuards(OpContext& ctx);
     void tickStateMachine(OpContext& ctx);
@@ -249,12 +258,33 @@ private:
     void monitorGpsResilience(OpContext& ctx);
     void monitorPerimeterSafety(OpContext& ctx);
     void monitorMapChangeSafety(OpContext& ctx);
+    void monitorMcuConnectivity(OpContext& ctx);
+    void monitorStuckDetection(OpContext& ctx);
     void monitorOpWatchdog(OpContext& ctx);
     void armMissionResumeGuard();
     std::string currentStatePhase() const;
     std::string currentResumeTarget() const;
     static long long wallClockNowMs();
     static std::string computeMapFingerprint(const std::filesystem::path& path);
+
+    struct PendingExternalCommand {
+        enum class Type {
+            StartMowing,
+            StartMowingZones,
+            StartMowingMission,
+            StartDocking,
+            EmergencyStop,
+            SetPose,
+        };
+
+        Type type = Type::StartMowing;
+        std::vector<std::string> zoneIds;
+        std::string missionId;
+        float x = 0.0f;
+        float y = 0.0f;
+        float heading = 0.0f;
+    };
+    void enqueueExternalCommand(PendingExternalCommand cmd);
 
     // ── Dependencies ──────────────────────────────────────────────────────────
 
@@ -280,8 +310,10 @@ private:
     bool          imuCalibrationActive_ = false;
     std::string   lastNmeaGGA_;         ///< last NMEA GGA line forwarded to WebSocket
     unsigned long gpsLastFixTime_ms_      = 0;  ///< now_ms_ when last valid GPS fix arrived (BUG-006)
+    bool          gpsSignalEver_          = false;  ///< true after the first valid GPS sample
     bool          gpsNoSignalLatched_     = false;
     bool          gpsFixTimeoutLatched_   = false;
+    unsigned long gpsSignalLostStart_ms_  = 0;  ///< first cycle of current no-signal span
     unsigned long gpsRecoveryStart_ms_    = 0;  ///< set when signal first comes back
     unsigned long lastObstacleCleanup_ms_ = 0;  ///< last cleanupExpiredObstacles() call (C.7)
     unsigned long lastScheduleCheck_ms_   = 0;  ///< last timetable check timestamp (C.11)
@@ -297,6 +329,11 @@ private:
     bool        previousResumeBlockedByMapChange_ = false;
     bool        batteryLowEventLatched_ = false;
     bool        batteryCriticalEventLatched_ = false;
+    bool        mcuConnectedEver_ = false;
+    bool        mcuCommLossLatched_ = false;
+    unsigned long stuckSince_ms_ = 0;
+    unsigned    stuckRecoveryCount_ = 0;
+    bool        stuckRecoveryExhaustedLatched_ = false;
     bool        previousInsidePerimeter_ = true;
     bool        sessionActive_ = false;
     SessionRecord currentSession_;
@@ -311,6 +348,8 @@ private:
 
     std::atomic<bool>     running_{false};
     unsigned long         controlLoops_ = 0;
+    mutable std::mutex    externalCmdMutex_;
+    std::deque<PendingExternalCommand> externalCmdQueue_;
 
     // Manual drive (set from WebSocket thread, read in run())
     // Stored as int × 1000 for lock-free atomic access on all platforms.

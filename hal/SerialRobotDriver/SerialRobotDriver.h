@@ -125,6 +125,9 @@ private:
     // Sensor snapshots (updated by AT frame parsers)
     SensorData  sensors_{};
     BatteryData battery_{};
+    bool        rawChargerConnected_ = false;
+    unsigned    chargerConnectedStableCount_ = 0;
+    unsigned    chargerDisconnectedStableCount_ = 0;
 
     // Raw cumulative encoder ticks from MCU (unsigned, as sent by STM32)
     unsigned long rawTicksLeft_  = 0;
@@ -173,6 +176,7 @@ private:
     void parseMotorFrame  (const std::string& frame);
     void parseSummaryFrame(const std::string& frame);
     void parseVersionFrame(const std::string& frame);
+    void updateChargerConnected(bool rawConnected);
 
     static bool    verifyCrc(std::string& frame);  // strips CRC suffix on success
     static uint8_t calcCrc  (const std::string& s);

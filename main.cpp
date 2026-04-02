@@ -193,6 +193,15 @@ int main(int argc, char* argv[]) {
         config->get<std::string>("mission_path", (configDir / "missions.json").string());
     wsServer->setMapPath(mapPath);
     wsServer->setMissionPath(missionPath);
+
+    // OTA update script: resolved relative to the running binary or config dir.
+    {
+        namespace fs = std::filesystem;
+        const fs::path otaScript = fs::path(configDir).parent_path() / "scripts" / "ota_update.sh";
+        if (fs::exists(otaScript)) {
+            wsServer->setOtaScriptPath(otaScript.string());
+        }
+    }
     wsServer->onMapGet([&robot]() -> nlohmann::json {
         return robot.getMapJson();
     });
@@ -207,21 +216,22 @@ int main(int argc, char* argv[]) {
             const std::string missionId = params.value("missionId", std::string());
             if (!missionId.empty()) {
                 try {
-                    robot.startMowingMission(missionId, loadMissionZoneIds(missionPath, missionId));
+                    robot.requestStartMowingMission(
+                        missionId, loadMissionZoneIds(missionPath, missionId));
                 } catch (...) {
-                    robot.startMowing();
+                    robot.requestStartMowing();
                 }
             } else {
-                robot.startMowing();
+                robot.requestStartMowing();
             }
         }
-        else if (cmd == "stop")   { robot.emergencyStop(); }
-        else if (cmd == "dock")   { robot.startDocking(); }
-        else if (cmd == "charge") { robot.startDocking(); }  // alias
+        else if (cmd == "stop")   { robot.requestEmergencyStop(); }
+        else if (cmd == "dock")   { robot.requestStartDocking(); }
+        else if (cmd == "charge") { robot.requestStartDocking(); }  // alias
         else if (cmd == "setpos") {
             const float lat = static_cast<float>(params.value("lat", 0.0));
             const float lon = static_cast<float>(params.value("lon", 0.0));
-            robot.setPose(lon, lat, 0.0f);
+            robot.requestSetPose(lon, lat, 0.0f);
         }
         else if (cmd == "drive") {
             const float lin = static_cast<float>(params.value("linear",  0.0));
@@ -232,7 +242,7 @@ int main(int argc, char* argv[]) {
             std::vector<std::string> ids;
             if (params.contains("zones") && params["zones"].is_array())
                 for (const auto& z : params["zones"]) ids.push_back(z.get<std::string>());
-            robot.startMowingZones(ids);
+            robot.requestStartMowingZones(ids);
         }
         else {
             logger->warn("main", "Unknown WebSocket command ignored: " + cmd);
@@ -336,17 +346,18 @@ int main(int argc, char* argv[]) {
             const std::string missionId = params.value("missionId", std::string());
             if (!missionId.empty()) {
                 try {
-                    robot.startMowingMission(missionId, loadMissionZoneIds(missionPath, missionId));
+                    robot.requestStartMowingMission(
+                        missionId, loadMissionZoneIds(missionPath, missionId));
                 } catch (...) {
-                    robot.startMowing();
+                    robot.requestStartMowing();
                 }
             } else {
-                robot.startMowing();
+                robot.requestStartMowing();
             }
         }
-        else if (cmd == "stop")   { robot.emergencyStop(); }
-        else if (cmd == "dock")   { robot.startDocking(); }
-        else if (cmd == "charge") { robot.startDocking(); }
+        else if (cmd == "stop")   { robot.requestEmergencyStop(); }
+        else if (cmd == "dock")   { robot.requestStartDocking(); }
+        else if (cmd == "charge") { robot.requestStartDocking(); }
         else {
             logger->warn("main", "Unknown MQTT command ignored: " + cmd);
         }

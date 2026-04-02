@@ -3,13 +3,20 @@
 #include "core/navigation/Map.h"
 #include "core/navigation/LineTracker.h"
 
+#include <cmath>
+
 namespace sunray {
 
 static constexpr int MAX_ROUTING_FAILURES = 5;
+static constexpr int MAX_NON_PROGRESSIVE_RETRIES = 2;
+static constexpr float MIN_RETRY_PROGRESS_M = 0.15f;
 
 void DockOp::begin(OpContext& ctx) {
     ctx.logger.info("Dock", "OP_DOCK");
     mapRoutingFailedCounter = 0;
+    nonProgressiveRetryCounter = 0;
+    retryStartX = ctx.x;
+    retryStartY = ctx.y;
     ctx.stopMotors();
 
     if (ctx.map && !ctx.map->startDocking(ctx.x, ctx.y)) {
@@ -38,6 +45,11 @@ void DockOp::onObstacle(OpContext& ctx) {
     changeOp(ctx, ctx.opMgr.escape(), true);
 }
 
+void DockOp::onStuck(OpContext& ctx) {
+    ctx.logger.warn("Dock", "stuck during dock => EscapeReverse");
+    changeOp(ctx, ctx.opMgr.escape(), true);
+}
+
 void DockOp::onLiftTriggered(OpContext& ctx) {
     ctx.logger.error("Dock", "lift sensor => ERROR");
     changeOp(ctx, ctx.opMgr.error());
@@ -57,6 +69,21 @@ void DockOp::onNoFurtherWaypoints(OpContext& ctx) {
         ctx.config.get<int>("dock_retry_max_attempts", MAX_ROUTING_FAILURES),
         1,
         MAX_ROUTING_FAILURES);
+    const int nextRetryNumber = mapRoutingFailedCounter + 1;
+    const float dx = ctx.x - retryStartX;
+    const float dy = ctx.y - retryStartY;
+    const float progressM = std::sqrt(dx * dx + dy * dy);
+
+    if (progressM < MIN_RETRY_PROGRESS_M) {
+        ++nonProgressiveRetryCounter;
+        if (nonProgressiveRetryCounter >= MAX_NON_PROGRESSIVE_RETRIES) {
+            ctx.logger.error("Dock", "dock retry made no progress => ERROR");
+            changeOp(ctx, ctx.opMgr.error());
+            return;
+        }
+    } else {
+        nonProgressiveRetryCounter = 0;
+    }
 
     if (mapRoutingFailedCounter >= maxRetries) {
         ctx.logger.error("Dock", "dock contact failed after retries => ERROR");
@@ -64,19 +91,30 @@ void DockOp::onNoFurtherWaypoints(OpContext& ctx) {
         return;
     }
 
-    if (!ctx.map || !ctx.map->retryDocking(ctx.x, ctx.y)) {
+    float lateralOffsetM = 0.0f;
+    const float configuredOffset = std::fabs(
+        ctx.config.get<float>("dock_retry_lateral_offset_m", 0.10f));
+    if (nextRetryNumber == 3) lateralOffsetM = configuredOffset;
+    if (nextRetryNumber == 4) lateralOffsetM = -configuredOffset;
+
+    if (!ctx.map || !ctx.map->retryDocking(ctx.x, ctx.y, lateralOffsetM)) {
         ctx.logger.error("Dock", "dock retry routing failed => ERROR");
         changeOp(ctx, ctx.opMgr.error());
         return;
     }
 
     ++mapRoutingFailedCounter;
+    retryStartX = ctx.x;
+    retryStartY = ctx.y;
     ctx.stopMotors();
     if (ctx.lineTracker) ctx.lineTracker->reset();
     ctx.logger.warn("Dock",
         "dock path exhausted without charger contact => retry "
         + std::to_string(mapRoutingFailedCounter) + "/"
-        + std::to_string(maxRetries));
+        + std::to_string(maxRetries)
+        + (std::fabs(lateralOffsetM) > 1e-4f
+            ? " with lateral offset " + std::to_string(lateralOffsetM) + "m"
+            : ""));
 }
 
 void DockOp::onGpsFixTimeout(OpContext& ctx) {

@@ -318,6 +318,9 @@ nlohmann::json HistoryDatabase::buildSummary(Logger& logger) const {
         {"ok", true},
         {"backend_ready", enabled_ && available_},
         {"events_total", 0},
+        {"event_reason_counts", nlohmann::json::object()},
+        {"event_type_counts", nlohmann::json::object()},
+        {"event_level_counts", nlohmann::json::object()},
         {"sessions_total", 0},
         {"sessions_completed", 0},
         {"mowing_duration_ms_total", 0},
@@ -371,6 +374,41 @@ nlohmann::json HistoryDatabase::buildSummary(Logger& logger) const {
     queryScalar("SELECT COALESCE(SUM(distance_m), 0) FROM sessions;", "mowing_distance_m_total", false);
     queryScalar("SELECT COALESCE(MAX(ts_ms), 0) FROM events;", "last_event_ts_ms");
     queryScalar("SELECT COALESCE(MAX(started_at_ms), 0) FROM sessions;", "last_session_started_at_ms");
+
+    auto queryGroupedCounts = [&](const char* sql, const char* key) {
+        sqlite3_stmt* stmt = nullptr;
+        const int prepRc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        if (prepRc != SQLITE_OK) {
+            logger.error("HistoryDatabase",
+                         "failed to prepare grouped summary query: " + std::string(sqlite3_errmsg(db)));
+            return;
+        }
+        auto counts = nlohmann::json::object();
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const auto* rawKey = sqlite3_column_text(stmt, 0);
+            if (!rawKey) continue;
+            counts[reinterpret_cast<const char*>(rawKey)] =
+                static_cast<long long>(sqlite3_column_int64(stmt, 1));
+        }
+        sqlite3_finalize(stmt);
+        result[key] = std::move(counts);
+    };
+
+    queryGroupedCounts(
+        "SELECT event_reason, COUNT(*) FROM events "
+        "WHERE event_reason IS NOT NULL AND event_reason != '' "
+        "GROUP BY event_reason;",
+        "event_reason_counts");
+    queryGroupedCounts(
+        "SELECT event_type, COUNT(*) FROM events "
+        "WHERE event_type IS NOT NULL AND event_type != '' "
+        "GROUP BY event_type;",
+        "event_type_counts");
+    queryGroupedCounts(
+        "SELECT level, COUNT(*) FROM events "
+        "WHERE level IS NOT NULL AND level != '' "
+        "GROUP BY level;",
+        "event_level_counts");
 
     sqlite3_close(db);
     return result;

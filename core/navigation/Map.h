@@ -144,7 +144,7 @@ public:
     bool startDocking(float robotX, float robotY);
 
     /// Retry docking (drive back to first docking point).
-    bool retryDocking(float robotX, float robotY);
+    bool retryDocking(float robotX, float robotY, float lateralOffsetM = 0.0f);
 
     /// Mark the map as manually docked (robot placed on dock without driving).
     void setIsDocked(bool flag) { isDocked_ = flag; }

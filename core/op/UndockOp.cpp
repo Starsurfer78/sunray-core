@@ -59,6 +59,11 @@ void UndockOp::onObstacle(OpContext& ctx) {
     changeOp(ctx, ctx.opMgr.error());
 }
 
+void UndockOp::onStuck(OpContext& ctx) {
+    ctx.logger.error("Undock", "stuck during undock => ERROR");
+    changeOp(ctx, ctx.opMgr.error());
+}
+
 void UndockOp::onLiftTriggered(OpContext& ctx) {
     ctx.logger.error("Undock", "lift sensor => ERROR");
     changeOp(ctx, ctx.opMgr.error());

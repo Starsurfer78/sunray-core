@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <nlohmann/json.hpp>
 #include <string>
 
 #include "../core/Config.h"
@@ -49,6 +50,12 @@ TEST_CASE("Config: missing file yields built-in defaults", "[config]") {
     CHECK(cfg.get<double>     ("stanley_k",   0.0)   == Approx(0.5));
     CHECK(cfg.get<double>     ("battery_low_v",  0.0) == Approx(25.5));
     CHECK(cfg.get<double>     ("battery_full_v", 0.0) == Approx(30.0));
+    CHECK(cfg.get<int>        ("gps_no_signal_ms", 0) == 15000);
+    CHECK(cfg.get<int>        ("gps_recover_hysteresis_ms", 0) == 3000);
+    CHECK(cfg.get<int>        ("mow_gps_coast_ms", 0) == 20000);
+    CHECK(cfg.get<int>        ("ekf_gps_failover_ms", 0) == 20000);
+    CHECK(cfg.get<int>        ("stuck_detect_timeout_ms", 0) == 3000);
+    CHECK(cfg.get<double>     ("stuck_detect_min_speed_ms", 0.0) == Approx(0.03));
     CHECK(cfg.get<bool>       ("buzzer_enabled", false) == true);
     CHECK(cfg.get<std::string>("port_expander_addr", "") == "0x20");
 }
@@ -152,6 +159,30 @@ TEST_CASE("Config: dump returns non-empty string containing known keys", "[confi
     CHECK(json.find("driver_baud")  != std::string::npos);
     CHECK(json.find("stanley_k")    != std::string::npos);
     CHECK(json.find("buzzer_enabled") != std::string::npos);
+}
+
+TEST_CASE("Config: config.example.json includes active Alfred runtime defaults", "[config]") {
+    const auto examplePath = fs::path("/mnt/LappiDaten/Projekte/sunray-core/config.example.json");
+    std::ifstream f(examplePath);
+    REQUIRE(f.is_open());
+
+    const auto example = nlohmann::json::parse(f);
+
+    CHECK(example.at("driver_port").get<std::string>() == "/dev/ttyS0");
+    CHECK(example.at("i2c_bus").get<std::string>() == "/dev/i2c-1");
+    CHECK(example.at("charger_connected_voltage_v").get<double>() == Approx(7.0));
+    CHECK(example.at("map_path").get<std::string>() == "/etc/sunray-core/map.json");
+    CHECK(example.at("mission_path").get<std::string>() == "/etc/sunray-core/missions.json");
+    CHECK(example.at("dock_max_duration_ms").get<int>() == 180000);
+    CHECK(example.at("dock_retry_lateral_offset_m").get<double>() == Approx(0.10));
+    CHECK(example.at("planner_default_clearance_m").get<double>() == Approx(0.25));
+    CHECK(example.at("gps_no_signal_ms").get<int>() == 15000);
+    CHECK(example.at("gps_fix_timeout_ms").get<int>() == 120000);
+    CHECK(example.at("gps_recover_hysteresis_ms").get<int>() == 3000);
+    CHECK(example.at("mow_gps_coast_ms").get<int>() == 20000);
+    CHECK(example.at("ekf_gps_failover_ms").get<int>() == 20000);
+    CHECK(example.at("stuck_detect_timeout_ms").get<int>() == 3000);
+    CHECK(example.at("stuck_detect_min_speed_ms").get<double>() == Approx(0.03));
 }
 
 TEST_CASE("Config: save throws on unwritable path", "[config]") {

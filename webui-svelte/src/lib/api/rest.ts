@@ -155,6 +155,64 @@ export interface MissionDocument {
   schedule?: MissionScheduleDocument
 }
 
+export interface HistoryEventItem {
+  ts_ms: number
+  level: string
+  module: string
+  event_type: string
+  state_phase: string
+  event_reason: string
+  error_code?: string
+  message: string
+  battery_v?: number
+  gps_sol?: number
+  x?: number
+  y?: number
+}
+
+export interface HistorySessionItem {
+  id: string
+  started_at_ms: number
+  ended_at_ms?: number
+  duration_ms: number
+  distance_m: number
+  battery_start_v: number
+  battery_end_v: number
+  end_reason: string
+  mean_gps_accuracy_m?: number
+  max_gps_accuracy_m?: number
+  metadata?: Record<string, unknown>
+}
+
+export interface HistoryListResponse<TItem> {
+  ok: boolean
+  backend_ready: boolean
+  items: TItem[]
+  limit: number
+}
+
+export interface HistorySummaryResponse {
+  ok: boolean
+  backend_ready: boolean
+  events_total: number
+  event_reason_counts: Record<string, number>
+  event_type_counts: Record<string, number>
+  event_level_counts: Record<string, number>
+  sessions_total: number
+  sessions_completed: number
+  mowing_duration_ms_total: number
+  mowing_distance_m_total: number
+  last_event_ts_ms: number
+  last_session_started_at_ms: number
+  retention: {
+    max_events: number
+    max_sessions: number
+  }
+  export_enabled: boolean
+  database_path: string
+  database_exists: boolean
+}
+
 export function runMotorDiag(params: {
   motor: 'left' | 'right' | 'mow'
   pwm: number
@@ -233,6 +291,33 @@ export async function getMissions(): Promise<MissionDocument[]> {
   return response.json() as Promise<MissionDocument[]>
 }
 
+export async function getHistoryEvents(limit = 50): Promise<HistoryListResponse<HistoryEventItem>> {
+  const response = await fetch(`/api/history/events?limit=${encodeURIComponent(String(limit))}`)
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<HistoryListResponse<HistoryEventItem>>
+}
+
+export async function getHistorySessions(limit = 20): Promise<HistoryListResponse<HistorySessionItem>> {
+  const response = await fetch(`/api/history/sessions?limit=${encodeURIComponent(String(limit))}`)
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<HistoryListResponse<HistorySessionItem>>
+}
+
+export async function getStatisticsSummary(): Promise<HistorySummaryResponse> {
+  const response = await fetch('/api/statistics/summary')
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<HistorySummaryResponse>
+}
+
 export function createMissionDocument(payload: MissionDocument) {
   return postJson<ConfigUpdateResponse, MissionDocument>('/api/missions', payload)
 }
@@ -250,4 +335,30 @@ export async function deleteMissionDocument(missionId: string): Promise<ConfigUp
     throw new Error(text || `${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<ConfigUpdateResponse>
+}
+
+// ── OTA ────────────────────────────────────────────────────────────────────────
+
+export interface OtaCheckResponse {
+  status: 'up_to_date' | 'update_available' | 'error' | 'unknown'
+  hash?: string
+  detail?: string
+}
+
+export async function otaCheck(): Promise<OtaCheckResponse> {
+  const response = await fetch('/api/ota/check', { method: 'POST' })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<OtaCheckResponse>
+}
+
+export async function otaUpdate(): Promise<{ status: string }> {
+  const response = await fetch('/api/ota/update', { method: 'POST' })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<{ status: string }>
 }

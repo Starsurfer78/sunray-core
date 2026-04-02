@@ -299,6 +299,16 @@ TEST_CASE("Robot: run() catches sensor read exceptions and stops safely", "[run]
     REQUIRE(hw->hadMotorStop());
 }
 
+TEST_CASE("Robot: startup without MCU connection does not enter error immediately", "[run][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    hw->odometry.mcuConnected = false;
+    robot->run();
+
+    REQUIRE(robot->activeOpName() == "Idle");
+}
+
 TEST_CASE("Robot: run() exposes sensor snapshot", "[run]") {
     auto [robot, hw] = makeRobot();
     robot->init();
@@ -326,6 +336,10 @@ TEST_CASE("Robot: telemetry smoke test freezes current business semantics", "[ru
         const auto td = RobotTelemetryAccess::build(*robot);
         REQUIRE(robot->activeOpName() == "Idle");
         REQUIRE(td.op == "Idle");
+        REQUIRE(td.runtime_health == "ok");
+        REQUIRE(td.mcu_connected == false);
+        REQUIRE(td.mcu_comm_loss == false);
+        REQUIRE(td.recovery_active == false);
         REQUIRE(td.state_phase == "idle");
         REQUIRE(td.resume_target.empty());
         REQUIRE(td.event_reason == "none");
@@ -341,6 +355,8 @@ TEST_CASE("Robot: telemetry smoke test freezes current business semantics", "[ru
         const auto td = RobotTelemetryAccess::build(*robot);
         REQUIRE(robot->activeOpName() == "NavToStart");
         REQUIRE(td.op == "NavToStart");
+        REQUIRE(td.runtime_health == "ok");
+        REQUIRE(td.recovery_active == false);
         REQUIRE(td.state_phase == "navigating_to_start");
         REQUIRE(td.event_reason == "navigating_to_start");
         REQUIRE(td.error_code.empty());
@@ -361,6 +377,8 @@ TEST_CASE("Robot: telemetry smoke test freezes current business semantics", "[ru
         const auto td = RobotTelemetryAccess::build(*robot);
         REQUIRE(robot->activeOpName() == "Error");
         REQUIRE(td.resume_target.empty());
+        REQUIRE(td.runtime_health == "fault");
+        REQUIRE(td.recovery_active == false);
         REQUIRE(td.state_phase == "fault");
         REQUIRE(td.error_code == "ERR_LIFT");
     }
@@ -580,6 +598,25 @@ TEST_CASE("Robot: diagTurnInPlace returns target angle and left/right ticks", "[
     REQUIRE(result["target_angle_deg"].get<float>() == Catch::Approx(90.0f));
 }
 
+TEST_CASE("Robot: stop button cancels active diagnostics immediately", "[diag][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    RobotTelemetryAccess::armDiag(*robot, "left", 0.25f, 3000);
+    hw->motorCalls.clear();
+    hw->sensors.stopButton = true;
+
+    robot->run();
+
+    REQUIRE(hw->motorCalls.size() == 1);
+    REQUIRE(hw->motorCalls.front().left == 0);
+    REQUIRE(hw->motorCalls.front().right == 0);
+    REQUIRE(hw->motorCalls.front().mow == 0);
+
+    const auto telemetry = RobotTelemetryAccess::build(*robot);
+    REQUIRE(telemetry.diag_active == false);
+}
+
 // ── [battery] ─────────────────────────────────────────────────────────────────
 
 TEST_CASE("Robot: low battery triggers dock request", "[battery]") {
@@ -646,6 +683,103 @@ TEST_CASE("Robot: perimeter violation during nav-to-start requests docking", "[r
 
     REQUIRE(hw->hadMotorStop());
     REQUIRE(robot->activeOpName() == "Dock");
+}
+
+TEST_CASE("Robot: MCU comm loss during mowing transitions to error and stops motors", "[run][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_mcu_comm_loss_map.json")));
+
+    hw->odometry.mcuConnected = true;
+    robot->run();
+
+    robot->startMowing();
+    robot->run();
+    robot->run();
+    REQUIRE(robot->activeOpName() == "Mow");
+
+    hw->odometry.mcuConnected = false;
+    hw->motorCalls.clear();
+    robot->run();
+
+    REQUIRE(hw->hadMotorStop());
+    REQUIRE(robot->activeOpName() == "Error");
+
+    const auto telemetry = RobotTelemetryAccess::build(*robot);
+    REQUIRE(telemetry.error_code == "ERR_MCU_COMMS");
+    REQUIRE(telemetry.runtime_health == "fault");
+    REQUIRE(telemetry.mcu_connected == false);
+    REQUIRE(telemetry.mcu_comm_loss == true);
+}
+
+TEST_CASE("Robot: stuck detection during mowing transitions to EscapeReverse", "[run][safety]") {
+    auto hw_owned = std::make_unique<MockHardware>();
+    MockHardware* hw = hw_owned.get();
+    auto config = makeConfig();
+    config->set("stuck_detect_timeout_ms", 1);
+    config->set("stuck_detect_min_speed_ms", 0.03);
+    Robot robot(std::move(hw_owned), config, makeLogger());
+
+    REQUIRE(robot.init());
+    REQUIRE(robot.loadMap(writeSimpleMap("sunray_test_robot_stuck_mow_map.json")));
+
+    hw->odometry.mcuConnected = true;
+    robot.startMowing();
+    robot.run();
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Mow");
+
+    robot.run();
+    RobotTelemetryAccess::advanceTimeMs(robot, 5);
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Mow");
+    RobotTelemetryAccess::advanceTimeMs(robot, 5);
+    robot.run();
+
+    REQUIRE(robot.activeOpName() == "EscapeReverse");
+}
+
+TEST_CASE("Robot: repeated stuck recovery exhaustion escalates to Error", "[run][safety]") {
+    auto hw_owned = std::make_unique<MockHardware>();
+    MockHardware* hw = hw_owned.get();
+    auto config = makeConfig();
+    config->set("stuck_detect_timeout_ms", 1);
+    config->set("stuck_detect_min_speed_ms", 0.03);
+    config->set("stuck_recovery_max_attempts", 2);
+    Robot robot(std::move(hw_owned), config, makeLogger());
+
+    REQUIRE(robot.init());
+    REQUIRE(robot.loadMap(writeSimpleMap("sunray_test_robot_stuck_exhaustion_map.json")));
+
+    hw->odometry.mcuConnected = true;
+    robot.startMowing();
+    robot.run();
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Mow");
+
+    robot.run();
+    RobotTelemetryAccess::advanceTimeMs(robot, 5);
+    robot.run();
+    RobotTelemetryAccess::advanceTimeMs(robot, 5);
+    robot.run();
+    REQUIRE(robot.activeOpName() == "EscapeReverse");
+
+    RobotTelemetryAccess::advanceTimeMs(robot, 4000);
+    robot.run();
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Mow");
+
+    robot.run();
+    RobotTelemetryAccess::advanceTimeMs(robot, 5);
+    robot.run();
+    RobotTelemetryAccess::advanceTimeMs(robot, 5);
+    robot.run();
+    robot.run();
+
+    REQUIRE(robot.activeOpName() == "Error");
+    const auto telemetry = RobotTelemetryAccess::build(robot);
+    REQUIRE(telemetry.error_code == "ERR_STUCK");
+    REQUIRE(telemetry.event_reason == "stuck_recovery_exhausted");
 }
 
 TEST_CASE("Robot: dock watchdog escalates to error", "[run][safety]") {

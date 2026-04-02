@@ -5,7 +5,7 @@
   import { mapInfoOpen } from "../stores/mapInfo";
   import { mappingTestMode } from "../stores/mapUi";
 
-  export let currentView: "dashboard" | "diagnostics" | "map" | "mission";
+  export let currentView: "dashboard" | "diagnostics" | "history" | "map" | "mission";
 
   let nowMs = Date.now();
   const CONNECTION_FRESH_MS = 5000;

@@ -163,6 +163,7 @@ public:
     virtual void onLiftTriggered(OpContext& ctx);
     virtual void onMotorError(OpContext& ctx);
     virtual void onObstacle(OpContext& ctx);
+    virtual void onStuck(OpContext& ctx);
     virtual void onObstacleRotation(OpContext& ctx);
     virtual void onNoFurtherWaypoints(OpContext& ctx);
     virtual void onTargetReached(OpContext& ctx);
@@ -275,6 +276,7 @@ public:
     void onGpsNoSignal(OpContext& ctx)         override;
     void onGpsFixTimeout(OpContext& ctx)       override;
     void onObstacle(OpContext& ctx)            override;
+    void onStuck(OpContext& ctx)               override;
     void onLiftTriggered(OpContext& ctx)       override;
     void onMotorError(OpContext& ctx)          override;
     void onRainTriggered(OpContext& ctx)       override;
@@ -292,12 +294,16 @@ public:
 class DockOp : public Op {
 public:
     int  mapRoutingFailedCounter = 0;
+    int  nonProgressiveRetryCounter = 0;
+    float retryStartX = 0.0f;
+    float retryStartY = 0.0f;
 
     std::string name() const override { return "Dock"; }
     void begin(OpContext& ctx) override;
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
     void onObstacle(OpContext& ctx)          override;
+    void onStuck(OpContext& ctx)             override;
     void onLiftTriggered(OpContext& ctx)     override;
     void onMotorError(OpContext& ctx)        override;
     void onTargetReached(OpContext& ctx)     override;
@@ -346,6 +352,7 @@ public:
     void end(OpContext& ctx)   override;
     void run(OpContext& ctx)   override;
     void onObstacle(OpContext& ctx)      override;
+    void onStuck(OpContext& ctx)         override;
     void onLiftTriggered(OpContext& ctx) override;
     void onMotorError(OpContext& ctx)    override;
 };

@@ -36,6 +36,7 @@ void Op::onRainTriggered(OpContext&)         {}
 void Op::onLiftTriggered(OpContext&)         {}
 void Op::onMotorError(OpContext&)            {}
 void Op::onObstacle(OpContext&)              {}
+void Op::onStuck(OpContext&)                 {}
 void Op::onObstacleRotation(OpContext&)      {}
 void Op::onNoFurtherWaypoints(OpContext&)    {}
 void Op::onTargetReached(OpContext&)         {}

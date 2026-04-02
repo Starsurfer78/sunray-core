@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import Diagnostics from './lib/pages/Diagnostics.svelte'
   import Dashboard from './lib/pages/Dashboard.svelte'
+  import History from './lib/pages/History.svelte'
   import Map from './lib/pages/Map.svelte'
   import Mission from './lib/pages/Mission.svelte'
   import StatusBar from './lib/components/StatusBar.svelte'
@@ -12,7 +13,7 @@
   import { joystickOpen } from './lib/stores/joystick'
   import { mapInfoOpen } from './lib/stores/mapInfo'
 
-  type View = 'dashboard' | 'diagnostics' | 'map' | 'mission'
+  type View = 'dashboard' | 'diagnostics' | 'history' | 'map' | 'mission'
   type NavItem = { id: View | null; label: string; enabled: boolean }
 
   let currentView: View = 'dashboard'
@@ -23,7 +24,7 @@
     { id: 'dashboard', label: 'Dashboard', enabled: true },
     { id: 'map', label: 'Karten', enabled: true },
     { id: 'mission', label: 'Missionen', enabled: true },
-    { id: null, label: 'Verlauf', enabled: false },
+    { id: 'history', label: 'Verlauf', enabled: true },
     { id: null, label: 'Simulator', enabled: false },
     { id: null, label: 'Einstellungen', enabled: false },
     { id: 'diagnostics', label: 'Diagnose', enabled: true },
@@ -176,6 +177,8 @@
       <Map />
     {:else if currentView === 'mission'}
       <Mission />
+    {:else if currentView === 'history'}
+      <History />
     {/if}
   </section>
 </main>

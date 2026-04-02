@@ -10,6 +10,7 @@ namespace sunray::control {
 class DifferentialDriveController {
 public:
     void reset();
+    float lastCommandedLinear() const { return lastCommandedLinear_ms_; }
 
     DrivePwmCommand compute(const Config& config,
                             float linear_ms,
@@ -22,6 +23,7 @@ private:
     PidController rightPid_;
     float leftFiltered_ms_ = 0.0f;
     float rightFiltered_ms_ = 0.0f;
+    float lastCommandedLinear_ms_ = 0.0f;
     bool filterInitialized_ = false;
 };
 

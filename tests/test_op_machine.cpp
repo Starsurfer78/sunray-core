@@ -250,7 +250,8 @@ TEST_CASE("A5: startup without valid GPS transitions to GpsWait and recovers to 
     REQUIRE(robot.activeOpName() == "NavToStart");
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    for (int i = 0; i < 5 && robot.activeOpName() != "GpsWait"; ++i) {
+    for (int i = 0; i < 20 && robot.activeOpName() != "GpsWait"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
         robot.run();
     }
     REQUIRE(robot.activeOpName() == "GpsWait");
@@ -275,6 +276,7 @@ TEST_CASE("A5: prolonged GPS loss during Mow escalates to Dock", "[a5_gps]") {
     cfg->set("gps_no_signal_ms", 1);
     cfg->set("gps_fix_timeout_ms", 5);
     cfg->set("gps_recover_hysteresis_ms", 1);
+    cfg->set("mow_gps_coast_ms", 1);
     cfg->set("ekf_gps_failover_ms", 1);
 
     auto hwOwned = std::make_unique<MockHardware>();
@@ -304,11 +306,101 @@ TEST_CASE("A5: prolonged GPS loss during Mow escalates to Dock", "[a5_gps]") {
     (void)hw;
 }
 
+TEST_CASE("A5: short GPS loss during Mow coasts on degraded fusion before GpsWait", "[a5_gps]") {
+    auto cfg = makeConfig();
+    cfg->set("gps_no_signal_ms", 1);
+    cfg->set("gps_fix_timeout_ms", 1000);
+    cfg->set("gps_recover_hysteresis_ms", 1);
+    cfg->set("mow_gps_coast_ms", 30);
+    cfg->set("ekf_gps_failover_ms", 1);
+
+    auto hwOwned = std::make_unique<MockHardware>();
+    Robot robot(std::move(hwOwned), cfg, makeLogger());
+    REQUIRE(robot.init());
+
+    const auto mapPath = writeSimpleMap("sunray_test_a5_mow_coast_map.json");
+    REQUIRE(robot.loadMap(mapPath));
+
+    auto gps = std::make_unique<MockGpsDriver>();
+    MockGpsDriver* gpsRaw = gps.get();
+    gpsRaw->data.valid = true;
+    gpsRaw->data.solution = GpsSolution::Fixed;
+    robot.setGpsDriver(std::move(gps));
+
+    enterMowFromStartCommand(robot);
+
+    gpsRaw->data.valid = false;
+
+    for (int i = 0; i < 5; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "Mow");
+
+    for (int i = 0; i < 20 && robot.activeOpName() == "Mow"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "GpsWait");
+}
+
+TEST_CASE("A5: dock recovery waits for RTK Fix and does not resume on Float", "[a5_gps][dock]") {
+    auto cfg = makeConfig();
+    cfg->set("gps_no_signal_ms", 1);
+    cfg->set("gps_fix_timeout_ms", 1000);
+    cfg->set("gps_recover_hysteresis_ms", 1);
+    cfg->set("ekf_gps_failover_ms", 1);
+
+    auto hwOwned = std::make_unique<MockHardware>();
+    Robot robot(std::move(hwOwned), cfg, makeLogger());
+    REQUIRE(robot.init());
+
+    const auto mapPath = writeDockPathMap("sunray_test_a5_dock_fix_required_map.json");
+    REQUIRE(robot.loadMap(mapPath));
+
+    auto gps = std::make_unique<MockGpsDriver>();
+    MockGpsDriver* gpsRaw = gps.get();
+    gpsRaw->data.valid = true;
+    gpsRaw->data.solution = GpsSolution::Fixed;
+    gpsRaw->data.relPosE = 0.0f;
+    gpsRaw->data.relPosN = 0.0f;
+    robot.setGpsDriver(std::move(gps));
+
+    robot.startDocking();
+    robot.run();
+    REQUIRE(robot.activeOpName() == "Dock");
+
+    gpsRaw->data.valid = false;
+    for (int i = 0; i < 5 && robot.activeOpName() != "GpsWait"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "GpsWait");
+    REQUIRE(RobotTelemetryAccess::build(robot).resume_target == "Dock");
+
+    gpsRaw->data.valid = true;
+    gpsRaw->data.solution = GpsSolution::Float;
+    for (int i = 0; i < 8; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "GpsWait");
+    REQUIRE(RobotTelemetryAccess::build(robot).resume_target == "Dock");
+
+    gpsRaw->data.solution = GpsSolution::Fixed;
+    for (int i = 0; i < 8 && robot.activeOpName() == "GpsWait"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "Dock");
+}
+
 TEST_CASE("A5: GpsWait telemetry exposes resume target for mission recovery", "[a5_gps][telemetry]") {
     auto cfg = makeConfig();
     cfg->set("gps_no_signal_ms", 1);
     cfg->set("gps_fix_timeout_ms", 1000);
     cfg->set("gps_recover_hysteresis_ms", 1);
+    cfg->set("mow_gps_coast_ms", 1);
     cfg->set("ekf_gps_failover_ms", 1);
 
     auto hwOwned = std::make_unique<MockHardware>();
@@ -644,6 +736,63 @@ TEST_CASE("A8 Scenario 9d: EscapeReverse lift event escalates to Error", "[a8_si
     REQUIRE(opMgr.activeOp()->name() == "Error");
 }
 
+TEST_CASE("A8 Scenario 9e: Mow stuck event transitions to EscapeReverse", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+
+    opMgr.activeOp()->requestOp(ctx, opMgr.mow(), Op::PRIO_NORMAL, false);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Mow");
+
+    opMgr.activeOp()->onStuck(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+}
+
+TEST_CASE("A8 Scenario 9f: Dock stuck event transitions to EscapeReverse", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+
+    nav::Map map(cfg);
+    REQUIRE(map.load(writeDockPathMap("sunray_test_a8_dock_stuck_map.json")));
+    ctx.map = &map;
+    ctx.x = 1.0f;
+    ctx.y = 0.0f;
+
+    opMgr.changeOperationTypeByOperator(ctx, "Dock");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Dock");
+
+    opMgr.activeOp()->onStuck(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "EscapeReverse");
+}
+
+TEST_CASE("A8 Scenario 9g: Undock stuck event escalates to Error", "[a8_sim][safety]") {
+    auto cfg = makeConfig();
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+    ctx.now_ms = 0;
+
+    opMgr.changeOperationTypeByOperator(ctx, "Undock");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Undock");
+
+    opMgr.activeOp()->onStuck(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Error");
+}
+
 TEST_CASE("A8 Scenario 10: Dock watchdog timeout escalates to Error", "[a8_sim][safety]") {
     auto cfg = makeConfig();
     cfg->set("dock_max_duration_ms", 1);
@@ -718,6 +867,55 @@ TEST_CASE("E2x: Dock enters Error after configured retry budget is exhausted", "
     REQUIRE(opMgr.activeOp()->name() == "Error");
 }
 
+TEST_CASE("E2x: Dock escalates early after repeated non-progressive retries", "[e2x_dock]") {
+    auto cfg = makeConfig();
+    cfg->set("dock_retry_max_attempts", 5);
+
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+
+    nav::Map map(cfg);
+    REQUIRE(map.load(writeDockPathMap("sunray_test_e2x_dock_non_progress_map.json")));
+    ctx.map = &map;
+    ctx.x = 1.0f;
+    ctx.y = 0.0f;
+
+    opMgr.changeOperationTypeByOperator(ctx, "Dock");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Dock");
+
+    opMgr.dock().onNoFurtherWaypoints(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Dock");
+    REQUIRE(opMgr.dock().mapRoutingFailedCounter == 1);
+
+    opMgr.dock().onNoFurtherWaypoints(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Error");
+}
+
+TEST_CASE("E2x: Dock later retries may vary approach geometry laterally", "[e2x_dock]") {
+    auto cfg = makeConfig();
+    cfg->set("dock_retry_max_attempts", 5);
+    cfg->set("dock_retry_lateral_offset_m", 0.10);
+
+    nav::Map baseline(cfg);
+    REQUIRE(baseline.load(writeDockPathMap("sunray_test_e2x_dock_offset_baseline_map.json")));
+    REQUIRE(baseline.startDocking(1.0f, 0.0f));
+    REQUIRE(baseline.retryDocking(1.0f, 0.0f, 0.0f));
+    const auto baselineTarget = baseline.targetPoint;
+
+    nav::Map offset(cfg);
+    REQUIRE(offset.load(writeDockPathMap("sunray_test_e2x_dock_offset_variant_map.json")));
+    REQUIRE(offset.startDocking(1.0f, 0.0f));
+    REQUIRE(offset.retryDocking(1.0f, 0.0f, 0.10f));
+    const auto offsetTarget = offset.targetPoint;
+
+    REQUIRE(offsetTarget.distanceTo(baselineTarget) > 0.01f);
+    REQUIRE(offset.isDocking());
+}
+
 TEST_CASE("E2x: Charge retries weak contact before redocking", "[e2x_charge]") {
     auto cfg = makeConfig();
     cfg->set("dock_retry_approach_ms", 50);
@@ -743,6 +941,44 @@ TEST_CASE("E2x: Charge retries weak contact before redocking", "[e2x_charge]") {
     REQUIRE(opMgr.charge().retryTouchDock);
 
     ctx.now_ms = opMgr.charge().retryTime_ms + 1;
+    opMgr.tick(ctx);
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Dock");
+}
+
+TEST_CASE("E2x: Charge tolerates a short contact flap but redocks after grace expires", "[e2x_charge]") {
+    auto cfg = makeConfig();
+    cfg->set("dock_retry_approach_ms", 50);
+    cfg->set("dock_retry_contact_timeout_ms", 3000);
+
+    MockHardware hw;
+    NullLogger logger;
+    OpManager opMgr;
+    OpContext ctx{hw, *cfg, logger, opMgr};
+
+    nav::Map map(cfg);
+    REQUIRE(map.load(writeDockPathMap("sunray_test_e2x_charge_grace_map.json")));
+    ctx.map = &map;
+    ctx.battery.chargerConnected = true;
+
+    opMgr.changeOperationTypeByOperator(ctx, "Charge");
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Charge");
+
+    ctx.battery.chargerConnected = false;
+    ctx.now_ms = 1000;
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Charge");
+    REQUIRE(opMgr.charge().retryTouchDock);
+
+    ctx.battery.chargerConnected = true;
+    ctx.now_ms = 1025;
+    opMgr.tick(ctx);
+    REQUIRE(opMgr.activeOp()->name() == "Charge");
+    REQUIRE_FALSE(opMgr.charge().retryTouchDock);
+
+    ctx.battery.chargerConnected = false;
+    ctx.now_ms = 5000;
     opMgr.tick(ctx);
     opMgr.tick(ctx);
     REQUIRE(opMgr.activeOp()->name() == "Dock");

@@ -16,7 +16,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <memory>
+#include <thread>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -95,3 +97,26 @@ TEST_CASE("MqttClient: multiple stop() calls are safe", "[mqtt]") {
     client.stop();  // idempotent
     REQUIRE_FALSE(client.isRunning());
 }
+
+#ifdef SUNRAY_HAVE_MOSQUITTO
+TEST_CASE("MqttClient: enabled start-stop remains safe without a reachable broker", "[mqtt][degraded]") {
+    auto cfg = makeConfig(true, "127.0.0.1");
+    cfg->set("mqtt_port", 1);
+    cfg->set("mqtt_keepalive_s", 1);
+
+    for (int i = 0; i < 3; ++i) {
+        sunray::MqttClient client(cfg, makeLogger());
+        client.start();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        REQUIRE(client.isRunning());
+        client.stop();
+        REQUIRE_FALSE(client.isRunning());
+    }
+}
+#else
+TEST_CASE("MqttClient: enabled start remains a safe no-op without mosquitto", "[mqtt][degraded]") {
+    sunray::MqttClient client(makeConfig(true, "127.0.0.1"), makeLogger());
+    client.start();
+    REQUIRE_FALSE(client.isRunning());
+}
+#endif

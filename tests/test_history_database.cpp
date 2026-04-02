@@ -95,6 +95,9 @@ TEST_CASE("HistoryDatabase: list and summary APIs expose backend data", "[histor
     REQUIRE(summary["ok"] == true);
     REQUIRE(summary["backend_ready"] == true);
     REQUIRE(summary["events_total"] == 1);
+    REQUIRE(summary["event_reason_counts"]["mission_active"] == 1);
+    REQUIRE(summary["event_type_counts"]["state_transition"] == 1);
+    REQUIRE(summary["event_level_counts"]["info"] == 1);
     REQUIRE(summary["sessions_total"] == 1);
     REQUIRE(summary["sessions_completed"] == 1);
     REQUIRE(summary["retention"]["max_events"] == 10);
@@ -138,6 +141,7 @@ TEST_CASE("HistoryDatabase: retention limits trim events and sessions", "[histor
     REQUIRE(db.appendEvent(makeEvent(1000, "state_transition", "first"), logger));
     REQUIRE(db.appendEvent(makeEvent(2000, "state_transition", "second"), logger));
     REQUIRE(db.appendEvent(makeEvent(3000, "state_transition", "third"), logger));
+    REQUIRE(db.appendEvent(makeEvent(4000, "safety_event", "lift_triggered"), logger));
 
     REQUIRE(db.upsertSession(makeSession("session-a", 1000, 5000), logger));
     REQUIRE(db.upsertSession(makeSession("session-b", 6000, 12000), logger));
@@ -153,6 +157,10 @@ TEST_CASE("HistoryDatabase: retention limits trim events and sessions", "[histor
 
     const auto summary = db.buildSummary(logger);
     REQUIRE(summary["events_total"] == 2);
+    REQUIRE(summary["event_reason_counts"]["third"] == 1);
+    REQUIRE(summary["event_reason_counts"]["lift_triggered"] == 1);
+    REQUIRE(summary["event_type_counts"]["state_transition"] == 1);
+    REQUIRE(summary["event_type_counts"]["safety_event"] == 1);
     REQUIRE(summary["sessions_total"] == 1);
 #else
     REQUIRE(db.listEvents(50, logger)["items"].empty());

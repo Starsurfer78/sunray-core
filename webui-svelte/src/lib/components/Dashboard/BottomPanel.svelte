@@ -2,6 +2,7 @@
   import { afterUpdate } from 'svelte'
   import { logStore } from '../../stores/logs'
   import { telemetry } from '../../stores/telemetry'
+  import { commandFeedback } from '../../stores/commandFeedback'
 
   let open = false
   let activeTab: 'log' | 'gps' = 'log'
@@ -35,6 +36,12 @@
 </script>
 
 <div class="bp" class:open>
+  {#if $commandFeedback}
+    <div class={`bp-notice ${$commandFeedback.tone}`} role="status" aria-live="polite">
+      {$commandFeedback.message}
+    </div>
+  {/if}
+
   <!-- Tab-Bar / Toggle -->
   <div class="bp-bar">
     <div class="bp-tabs">
@@ -134,6 +141,18 @@
     flex-direction: column;
     flex-shrink: 0;
     border-top: 1px solid #1e3a5f;
+  }
+
+  .bp-notice {
+    padding: 0.55rem 0.8rem;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    border-bottom: 1px solid #1e3a5f;
+  }
+
+  .bp-notice.error {
+    background: rgba(69, 10, 10, 0.92);
+    color: #fecaca;
   }
 
   .bp-bar {

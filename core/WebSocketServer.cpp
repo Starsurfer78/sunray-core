@@ -177,6 +177,10 @@ void WebSocketServer::setMissionPath(const std::string& missionPath) {
     missionPath_ = missionPath;
 }
 
+void WebSocketServer::setOtaScriptPath(const std::string& path) {
+    otaScriptPath_ = path;
+}
+
 // ── HTTP route setup ──────────────────────────────────────────────────────────
 
 void WebSocketServer::setupHttpRoutes() {
@@ -912,6 +916,80 @@ void WebSocketServer::setupHttpRoutes() {
             return crow::response(200, R"({"ok":true})");
         }
     );
+
+    // ── POST /api/ota/check — check whether a newer git commit is available ────
+    CROW_ROUTE(app, "/api/ota/check").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+
+            const std::string scriptPath = otaScriptPath_;
+            if (scriptPath.empty() || !std::filesystem::exists(scriptPath)) {
+                return crow::response(503, R"({"error":"ota_script_not_found"})");
+            }
+
+            const std::string cmd = scriptPath + " --check-only 2>/dev/null";
+            FILE* pipe = popen(cmd.c_str(), "r");
+            if (!pipe) return crow::response(500, R"({"error":"popen_failed"})");
+
+            char buf[256];
+            std::string output;
+            while (fgets(buf, sizeof(buf), pipe)) output += buf;
+            pclose(pipe);
+
+            // Trim trailing newline
+            while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
+                output.pop_back();
+            }
+
+            nlohmann::json j;
+            if (output == "already_up_to_date") {
+                j["status"] = "up_to_date";
+            } else if (output.rfind("update_available:", 0) == 0) {
+                j["status"] = "update_available";
+                j["hash"]   = output.substr(std::string("update_available:").size());
+            } else if (output.rfind("error:", 0) == 0) {
+                j["status"] = "error";
+                j["detail"] = output.substr(6);
+            } else {
+                j["status"] = "unknown";
+                j["detail"] = output;
+            }
+
+            crow::response res(200, j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── POST /api/ota/update — pull, build, restart (async, runs in background) ─
+    CROW_ROUTE(app, "/api/ota/update").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+
+            const std::string scriptPath = otaScriptPath_;
+            if (scriptPath.empty() || !std::filesystem::exists(scriptPath)) {
+                return crow::response(503, R"({"error":"ota_script_not_found"})");
+            }
+
+            if (otaRunning_.exchange(true)) {
+                return crow::response(409, R"({"error":"update_already_running"})");
+            }
+
+            logger_->info(TAG, "OTA update triggered via WebUI");
+            const std::string logCmd = scriptPath + " >> /var/log/sunray-ota.log 2>&1";
+            std::thread([this, logCmd]() {
+                const int rc = std::system(logCmd.c_str());
+                if (rc != 0) {
+                    logger_->warn(TAG, "OTA update script exited with code " + std::to_string(rc));
+                }
+                otaRunning_.store(false);
+            }).detach();
+
+            crow::response res(200, R"({"status":"update_started"})");
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -1125,6 +1203,7 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"battery_v\":";   s += flt(d.battery_v, 2);
     s += ",\"charge_v\":";    s += flt(d.charge_v,  2);
     s += ",\"charge_a\":";    s += flt(d.charge_a,  2);
+    s += ",\"charger_connected\":"; s += bl(d.charger_connected);
     s += ",\"gps_sol\":";     s += std::to_string(d.gps_sol);
     s += ",\"gps_text\":\"";  s += esc(d.gps_text);  s += "\"";
     s += ",\"gps_acc\":";     s += flt(d.gps_acc, 3);
@@ -1144,6 +1223,15 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"diag_active\":"; s += bl(d.diag_active);
     s += ",\"diag_ticks\":";  s += std::to_string(d.diag_ticks);
     s += ",\"ekf_health\":\""; s += esc(d.ekf_health); s += "\"";
+    s += ",\"runtime_health\":\""; s += esc(d.runtime_health); s += "\"";
+    s += ",\"mcu_connected\":"; s += bl(d.mcu_connected);
+    s += ",\"mcu_comm_loss\":"; s += bl(d.mcu_comm_loss);
+    s += ",\"gps_signal_lost\":"; s += bl(d.gps_signal_lost);
+    s += ",\"gps_fix_timeout\":"; s += bl(d.gps_fix_timeout);
+    s += ",\"battery_low\":"; s += bl(d.battery_low);
+    s += ",\"battery_critical\":"; s += bl(d.battery_critical);
+    s += ",\"recovery_active\":"; s += bl(d.recovery_active);
+    s += ",\"watchdog_event_active\":"; s += bl(d.watchdog_event_active);
     s += ",\"ts_ms\":";       s += std::to_string(d.ts_ms);
     s += ",\"state_since_ms\":"; s += std::to_string(d.state_since_ms);
     s += ",\"state_phase\":\""; s += esc(d.state_phase); s += "\"";

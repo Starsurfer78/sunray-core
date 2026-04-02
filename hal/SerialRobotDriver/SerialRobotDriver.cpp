@@ -20,6 +20,7 @@ namespace {
 
 constexpr auto kStartupLedHold = std::chrono::milliseconds(300);
 constexpr auto kStartupBuzzerPulse = std::chrono::milliseconds(120);
+constexpr unsigned kChargerDebounceSamples = 2;
 
 bool chargerConnectedFromVoltage(float chargeVoltage, float threshold) {
     return chargeVoltage > threshold;
@@ -520,9 +521,9 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
         return;  // malformed frame — ignore
     }
 
-    battery_.chargerConnected = chargerConnectedFromVoltage(
+    updateChargerConnected(chargerConnectedFromVoltage(
         battery_.chargeVoltage,
-        config_->get<float>("charger_connected_voltage_v", 7.0f));
+        config_->get<float>("charger_connected_voltage_v", 7.0f)));
     mcuConnected_ = true;
     motorRxCount_++;
     if (serialDebug_) {
@@ -564,9 +565,9 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
         return;
     }
 
-    battery_.chargerConnected = chargerConnectedFromVoltage(
+    updateChargerConnected(chargerConnectedFromVoltage(
         battery_.chargeVoltage,
-        config_->get<float>("charger_connected_voltage_v", 7.0f));
+        config_->get<float>("charger_connected_voltage_v", 7.0f)));
     summaryRxCount_++;
     if (serialDebug_) {
         std::cerr << "[SRD] S parsed"
@@ -590,6 +591,27 @@ void SerialRobotDriver::parseVersionFrame(const std::string& frame) {
     if (f.size() > 2) mcuFirmwareVersion_ = f[2];
     std::cerr << "[SRD] MCU firmware: " << mcuFirmwareName_
               << " v" << mcuFirmwareVersion_ << '\n';
+}
+
+void SerialRobotDriver::updateChargerConnected(bool rawConnected) {
+    rawChargerConnected_ = rawConnected;
+
+    if (rawConnected) {
+        ++chargerConnectedStableCount_;
+        chargerDisconnectedStableCount_ = 0;
+        if (!battery_.chargerConnected &&
+            chargerConnectedStableCount_ >= kChargerDebounceSamples) {
+            battery_.chargerConnected = true;
+        }
+        return;
+    }
+
+    ++chargerDisconnectedStableCount_;
+    chargerConnectedStableCount_ = 0;
+    if (battery_.chargerConnected &&
+        chargerDisconnectedStableCount_ >= kChargerDebounceSamples) {
+        battery_.chargerConnected = false;
+    }
 }
 
 // ── Hardware helpers ──────────────────────────────────────────────────────────

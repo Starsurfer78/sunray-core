@@ -14,10 +14,14 @@ void GpsWaitFixOp::end(OpContext&) {}
 void GpsWaitFixOp::run(OpContext& ctx) {
     const unsigned long gpsFixTimeoutMs = static_cast<unsigned long>(
         ctx.config.get<int>("gps_fix_timeout_ms", 120000));
+    const bool dockCriticalResume =
+        nextOp != nullptr && nextOp->getGoalOp() != nullptr && nextOp->getGoalOp()->name() == "Dock";
+    const bool gpsRecovered = dockCriticalResume ? ctx.gpsHasFix : (ctx.gpsHasFloat || ctx.gpsHasFix);
 
-    // GPS Float is sufficient to continue.
-    if (ctx.gpsHasFloat || ctx.gpsHasFix) {
-        ctx.logger.info("GpsWait", "GPS acquired => continue");
+    if (gpsRecovered) {
+        ctx.logger.info("GpsWait",
+                        dockCriticalResume ? "GPS RTK Fix acquired for dock => continue"
+                                           : "GPS acquired => continue");
         if (ctx.resumeBlockedByMapChange) {
             ctx.logger.warn("GpsWait", "resume blocked by map change => IDLE");
             changeOp(ctx, ctx.opMgr.idle());
@@ -29,6 +33,10 @@ void GpsWaitFixOp::run(OpContext& ctx) {
             changeOp(ctx, ctx.opMgr.idle());
         }
         return;
+    }
+
+    if (dockCriticalResume && ctx.gpsHasFloat) {
+        ctx.logger.info("GpsWait", "GPS Float present but dock resume waits for RTK Fix");
     }
 
     // Timeout: GPS did not recover in time.

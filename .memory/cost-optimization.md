@@ -44,6 +44,13 @@ Praktische Regeln fuer API-/Agent-Kosten beim Arbeiten an `sunray-core`.
 - Verify
 - Document
 
+## KPI
+- Average files per task
+- Average token size per task
+- Task split frequency
+- Cache hit frequency
+- Repeated full reload count
+
 ## Known Unknowns
 
 - Genaues Kostenprofil pro Tool-Pattern

@@ -3,6 +3,7 @@
   import MissionWidget from "./MissionWidget.svelte";
   import DockSettingsCard from "./DockSettingsCard.svelte";
   import RobotControls from "../RobotControls.svelte";
+  import OtaUpdate from "../OtaUpdate.svelte";
   import { batteryPercent, gpsQuality, telemetry } from "../../stores/telemetry";
   import { connection } from "../../stores/connection";
   import { mapStore } from "../../stores/map";
@@ -128,6 +129,8 @@
   <MissionWidget zones={$mapStore.map.zones} />
 
   <DockSettingsCard />
+
+  <OtaUpdate />
 
 </div>
 

@@ -334,6 +334,25 @@ handle_autostart() {
   return 1
 }
 
+setup_ota() {
+  local sudoers_file="/etc/sudoers.d/sunray-ota"
+  local ota_script="${ROOT_DIR}/scripts/ota_update.sh"
+  local restart_cmd="/bin/systemctl restart ${SERVICE_NAME}.service"
+
+  # Make ota_update.sh executable
+  chmod +x "${ota_script}" 2>/dev/null || true
+
+  # Grant passwordless sudo only for the specific restart command
+  log "Configuring OTA sudoers rule for user '${BUILD_USER}'"
+  run_with_root bash -c "echo '${BUILD_USER} ALL=(ALL) NOPASSWD: ${restart_cmd}' > ${sudoers_file}"
+  run_with_root chmod 440 "${sudoers_file}"
+
+  # Write initial version file
+  "${ota_script}" --write-version || true
+
+  log "OTA updates enabled — use the WebUI Settings panel to update"
+}
+
 start_foreground() {
   local exec_path
   exec_path="${ROOT_DIR}/${BUILD_DIR}/sunray-core"
@@ -359,6 +378,8 @@ main() {
   ensure_service_permissions
   build_native
   build_webui
+
+  setup_ota
 
   if [[ "${START_AFTER_INSTALL}" == "no" ]]; then
     log "Install/build complete. Start skipped by request."

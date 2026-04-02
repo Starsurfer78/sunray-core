@@ -57,6 +57,7 @@ public:
         float        battery_v = 0.0f;   ///< battery voltage (V)
         float        charge_v  = 0.0f;   ///< charger output voltage (V)
         float        charge_a  = 0.0f;   ///< charging current (A)
+        bool         charger_connected = false; ///< debounced charger/dock contact
         int          gps_sol   = 0;      ///< NMEA quality (0=none, 4=RTK, 5=float)
         std::string  gps_text  = "---";  ///< human-readable GPS quality
         float        gps_acc   = 0.0f;   ///< horizontal GPS accuracy estimate (m)
@@ -75,6 +76,15 @@ public:
         float        imu_roll    = 0.0f; ///< roll [deg]
         float        imu_pitch   = 0.0f; ///< pitch [deg]
         std::string  ekf_health = "Odo"; ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
+        std::string  runtime_health = "ok"; ///< compact runtime health: ok | degraded | fault
+        bool         mcu_connected = false; ///< latest odometry/MCU connectivity state
+        bool         mcu_comm_loss = false; ///< latched Pi-side MCU communication-loss fault
+        bool         gps_signal_lost = false; ///< short-outage GPS degradation latch
+        bool         gps_fix_timeout = false; ///< prolonged GPS outage latch
+        bool         battery_low = false; ///< low-battery dock request guard active
+        bool         battery_critical = false; ///< critical-battery stop guard active
+        bool         recovery_active = false; ///< runtime is in a recoverable degraded/retry phase
+        bool         watchdog_event_active = false; ///< recent watchdog fault notice still active
         unsigned long ts_ms = 0;         ///< telemetry timestamp since robot start [ms]
         unsigned long state_since_ms = 0;///< active op begin timestamp since robot start [ms]
         std::string  state_phase = "idle"; ///< stable business phase for UI/diagnostics
@@ -192,6 +202,10 @@ public:
     /// Must be called before start().
     void setMissionPath(const std::string& missionPath);
 
+    /// Set the path of the OTA update script used by POST /api/ota/*.
+    /// When empty (default), the OTA endpoints return 503.
+    void setOtaScriptPath(const std::string& path);
+
     // ── Testable helper ───────────────────────────────────────────────────────
 
     /// Serialize to the frozen telemetry JSON format (no trailing newline).
@@ -247,6 +261,10 @@ private:
     HistoryGetCallback    historyEventsGetCb_;
     HistoryGetCallback    historySessionsGetCb_;
     StatisticsGetCallback statisticsSummaryGetCb_;
+
+    // OTA update script path + running flag (POST /api/ota/*)
+    std::string       otaScriptPath_;
+    std::atomic<bool> otaRunning_{false};
 
     // Map file path + reload callback (GET/POST /api/map)
     std::string      mapPath_;

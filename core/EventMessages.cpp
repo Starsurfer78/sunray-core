@@ -34,6 +34,12 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
     if (eventReason == "bumper_triggered") {
         return "Hindernis erkannt: Der Roboter weicht aus.";
     }
+    if (eventReason == "stuck_detected") {
+        return "Fortbewegung blockiert: Der Roboter startet ein Befreiungsmanöver.";
+    }
+    if (eventReason == "stuck_recovery_exhausted") {
+        return "Wiederholtes Festfahren: Der Roboter wurde in einen sicheren Fehlerzustand versetzt.";
+    }
     if (eventReason == "rain_detected") {
         return "Regen erkannt: Der Mähauftrag wird pausiert.";
     }
@@ -54,6 +60,9 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
     }
     if (eventReason == "op_watchdog_timeout") {
         return "Sicherheits-Timeout: Der aktuelle Fahrzustand dauerte zu lange.";
+    }
+    if (eventReason == "mcu_comm_lost") {
+        return "STM32-Kommunikation verloren: Der Roboter wurde lokal in einen sicheren Fehlerzustand versetzt.";
     }
     if (eventReason == "charger_connected") {
         return "Ladekontakt erkannt: Der Roboter lädt.";
@@ -93,6 +102,12 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
     }
     if (errorCode == "ERR_GPS_TIMEOUT") {
         return "Fehlerzustand aktiv: Es gab zu lange keinen gültigen GPS-Fix.";
+    }
+    if (errorCode == "ERR_MCU_COMMS") {
+        return "Fehlerzustand aktiv: Die Kommunikation zum STM32 ist ausgefallen.";
+    }
+    if (errorCode == "ERR_STUCK") {
+        return "Fehlerzustand aktiv: Der Roboter konnte sich nicht mehr zuverlässig selbst befreien.";
     }
     if (errorCode == "ERR_BATTERY_CRITICAL") {
         return "Fehlerzustand aktiv: Die Batteriespannung ist kritisch niedrig.";

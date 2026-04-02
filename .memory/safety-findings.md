@@ -1,42 +1,33 @@
 # Safety Findings
 
-## Zweck
+## Purpose
 
-Sammelstelle fuer safety-relevante Beobachtungen, Schwachstellen und Folgeaktionen.
+Short evidence-backed safety notes for `sunray-core`.
 
 ## Confirmed Safeguards
 
-- Motor-stop on key safety events is explicitly modeled
-- Dock watchdog has automated test coverage
-- Battery critical path can stop runtime and drop power-hold
-- Perimeter violation is handled before normal progression
-- Error state and obstacle recovery flows are scenario-tested
+- `FACT`: `Robot::checkBattery()` is a strong critical-battery stop path: motors zeroed, buzzer on, power hold dropped, loop stopped.
+- `FACT`: `Robot::monitorOpWatchdog()` enforces op timeouts; docking escalates timeout to `Error`.
+- `FACT`: `Robot::monitorGpsResilience()` latches no-signal and fix-timeout events and clears them only after hysteresis.
+- `FACT`: `tickSafetyStop()` zeros motors on bumper, lift, and motor-fault conditions and dispatches op-specific handlers.
+- `FACT`: `ErrorOp`, `WaitRainOp`, `DockOp::begin`, `UndockOp::begin`, and multiple transition handlers explicitly stop motors.
+- `FACT`: STM32 firmware has a local 2 s watchdog and a 3 s motor-command timeout.
 
-## Suspected Weaknesses
+## Confirmed Weaknesses
 
-- Hardware-level motor enable path not fully evidenced
-- External watchdog chain, if present, is undocumented here
-- Production service supervision is not yet described with proof
+- `FACT`: Pi-side communication loss detection sets `mcuConnected = false` but no direct `Robot` safety transition based solely on that flag was proven.
+- `FACT`: Dock-state truth in runtime depends on charge-voltage-derived `chargerConnected`, not on a separately proven dock-contact sensor.
+- `FACT`: GPS degraded mode can continue movement at reduced speed before no-signal or fix-timeout thresholds trigger.
 
-## Open Validation Points
+## Critical Unknowns
 
-- Confirm physical e-stop / relay topology
-- Confirm charger contact edge cases on hardware
-- Confirm GPS degradation behavior near dock and under canopy
-- Confirm serial stale-data handling under cable or MCU faults
+- `UNKNOWN`: physical hard-cut path for emergency stop
+- `UNKNOWN`: dedicated hardware motor-enable or safety relay path
+- `UNKNOWN`: external Linux supervisor or watchdog for the Pi process
 
-## Incidents / Near Misses
+## Follow-Up Audit Targets
 
-- Historical repo state contained drift between runtime defaults and some tests
-- Documentation state previously mixed active and legacy material
-
-## Follow-Up Actions
-
-- Capture real Alfred hardware evidence
-- Add deployment/service inventory from production target
-- Define MQTT safety contract and HA entity map
-
-## Update Rules
-
-- Jedes Finding mit Quelle oder Beobachtung verknuepfen
-- suspected weakness nach Verifikation entweder hoch- oder herunterstufen
+- verify whether comms loss should trigger immediate `Error` or hard stop in Pi runtime
+- verify real Alfred dock-contact behavior on hardware
+- verify whether e-stop cuts power independently of firmware and UART
+- verify timeout interaction between Pi-side stop requests and STM32 `motorTimeout`

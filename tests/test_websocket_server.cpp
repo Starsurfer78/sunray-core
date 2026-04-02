@@ -47,10 +47,20 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — mandatory fields present", "[
     REQUIRE(j["gps_sol"]   == 4);
     REQUIRE(j["gps_text"]  == "RTK");
     REQUIRE(std::abs(j["gps_acc"].get<double>() - 0.021) < 1e-6);
+    REQUIRE(j["charger_connected"] == false);
     REQUIRE(j["bumper_l"]  == false);
     REQUIRE(j["bumper_r"]  == true);
     REQUIRE(j["motor_err"] == false);
     REQUIRE(j["uptime_s"]  == 123);
+    REQUIRE(j["runtime_health"] == "ok");
+    REQUIRE(j["mcu_connected"] == false);
+    REQUIRE(j["mcu_comm_loss"] == false);
+    REQUIRE(j["gps_signal_lost"] == false);
+    REQUIRE(j["gps_fix_timeout"] == false);
+    REQUIRE(j["battery_low"] == false);
+    REQUIRE(j["battery_critical"] == false);
+    REQUIRE(j["recovery_active"] == false);
+    REQUIRE(j["watchdog_event_active"] == false);
     REQUIRE(j["state_phase"] == "idle");
     REQUIRE(j["resume_target"] == "");
     REQUIRE(j["event_reason"] == "none");
@@ -67,6 +77,15 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — numeric fields are numbers", 
     REQUIRE(j["heading"].is_number());
     REQUIRE(j["battery_v"].is_number());
     REQUIRE(j["charge_v"].is_number());
+    REQUIRE(j["charger_connected"].is_boolean());
+    REQUIRE(j["mcu_connected"].is_boolean());
+    REQUIRE(j["mcu_comm_loss"].is_boolean());
+    REQUIRE(j["gps_signal_lost"].is_boolean());
+    REQUIRE(j["gps_fix_timeout"].is_boolean());
+    REQUIRE(j["battery_low"].is_boolean());
+    REQUIRE(j["battery_critical"].is_boolean());
+    REQUIRE(j["recovery_active"].is_boolean());
+    REQUIRE(j["watchdog_event_active"].is_boolean());
     REQUIRE(j["gps_acc"].is_number());
     REQUIRE(j["gps_lat"].is_number());
     REQUIRE(j["gps_lon"].is_number());
@@ -81,11 +100,13 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — mandatory debug keys present"
 
     const std::vector<std::string> required = {
         "type", "op", "x", "y", "heading",
-        "battery_v", "charge_v",
+        "battery_v", "charge_v", "charger_connected",
         "gps_sol", "gps_text", "gps_acc", "gps_lat", "gps_lon",
         "bumper_l", "bumper_r", "motor_err", "uptime_s",
         "mcu_v", "pi_v", "imu_h", "imu_r", "imu_p",
-        "diag_active", "diag_ticks", "ekf_health",
+        "diag_active", "diag_ticks", "ekf_health", "runtime_health",
+        "mcu_connected", "mcu_comm_loss", "gps_signal_lost", "gps_fix_timeout",
+        "battery_low", "battery_critical", "recovery_active", "watchdog_event_active",
         "ts_ms", "state_since_ms", "state_phase", "resume_target", "event_reason", "error_code",
         "ui_message", "ui_severity", "history_backend_ready", "session_id", "session_started_at_ms"
     };
@@ -128,6 +149,11 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — debug fields pass through", "
     d.history_backend_ready = true;
     d.session_id = "session-123";
     d.session_started_at_ms = 1700000000000LL;
+    d.runtime_health = "degraded";
+    d.mcu_connected = true;
+    d.gps_signal_lost = true;
+    d.recovery_active = true;
+    d.watchdog_event_active = false;
 
     auto j = nlohmann::json::parse(WebSocketServer::buildTelemetryJson(d));
     REQUIRE(j["ts_ms"] == 12345);
@@ -141,6 +167,10 @@ TEST_CASE("WebSocketServer: buildTelemetryJson — debug fields pass through", "
     REQUIRE(j["history_backend_ready"] == true);
     REQUIRE(j["session_id"] == "session-123");
     REQUIRE(j["session_started_at_ms"] == 1700000000000LL);
+    REQUIRE(j["runtime_health"] == "degraded");
+    REQUIRE(j["mcu_connected"] == true);
+    REQUIRE(j["gps_signal_lost"] == true);
+    REQUIRE(j["recovery_active"] == true);
 }
 
 // ── API surface ───────────────────────────────────────────────────────────────

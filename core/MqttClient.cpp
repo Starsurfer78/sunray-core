@@ -54,9 +54,49 @@ namespace sunray
         // Back-pointer for callbacks (set in start() before loop_start)
         std::atomic<bool> *running = nullptr;
         Logger *log = nullptr;
+        std::atomic<bool> connected{false};
+        std::atomic<bool> cmdSubscribed{false};
+        std::atomic<uint64_t> nextSubscribeRetryMs{0};
 
 #ifdef SUNRAY_HAVE_MOSQUITTO
         struct mosquitto *mosq = nullptr;
+
+        static uint64_t nowMs()
+        {
+            using namespace std::chrono;
+            return static_cast<uint64_t>(
+                duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+        }
+
+        bool ensureCommandSubscription(const char *reason)
+        {
+            if (!mosq)
+                return false;
+
+            const std::string cmdTopic = prefix + "/cmd";
+            const int subRc = mosquitto_subscribe(mosq, nullptr, cmdTopic.c_str(), qos);
+            if (subRc != MOSQ_ERR_SUCCESS)
+            {
+                cmdSubscribed.store(false);
+                nextSubscribeRetryMs.store(nowMs() + 5000);
+                if (log)
+                {
+                    log->warn("MqttClient",
+                              "Subscribe failed for " + cmdTopic + " (" + reason + "): "
+                                  + mosquitto_strerror(subRc));
+                }
+                return false;
+            }
+
+            cmdSubscribed.store(true);
+            nextSubscribeRetryMs.store(0);
+            if (log)
+            {
+                log->info("MqttClient",
+                          "Command subscription active on " + cmdTopic + " (" + reason + ")");
+            }
+            return true;
+        }
 
         // ── Static mosquitto callbacks ─────────────────────────────────────────
 
@@ -65,21 +105,20 @@ namespace sunray
             auto *impl = static_cast<Impl *>(ud);
             if (rc == MOSQ_ERR_SUCCESS)
             {
+                impl->connected.store(true);
+                impl->cmdSubscribed.store(false);
+                impl->nextSubscribeRetryMs.store(0);
                 impl->log->info("MqttClient",
                                 "Connected to " + impl->host + ":" + std::to_string(impl->port) + " prefix=" + impl->prefix);
-                const std::string cmdTopic = impl->prefix + "/cmd";
-                const int subRc = mosquitto_subscribe(impl->mosq, nullptr, cmdTopic.c_str(), impl->qos);
-                if (subRc != MOSQ_ERR_SUCCESS)
-                {
-                    impl->log->warn("MqttClient",
-                                    "Subscribe failed for " + cmdTopic + ": " + mosquitto_strerror(subRc));
-                }
+                impl->ensureCommandSubscription("connect");
 
                 // Publish Home Assistant discovery if enabled
                 impl->publishDiscovery();
             }
             else
             {
+                impl->connected.store(false);
+                impl->cmdSubscribed.store(false);
                 impl->log->warn("MqttClient",
                                 "Connect failed rc=" + std::to_string(rc) + " (" + mosquitto_strerror(rc) + ") — will retry");
             }
@@ -88,6 +127,9 @@ namespace sunray
         static void onDisconnectCb(struct mosquitto * /*mosq*/, void *ud, int rc)
         {
             auto *impl = static_cast<Impl *>(ud);
+            impl->connected.store(false);
+            impl->cmdSubscribed.store(false);
+            impl->nextSubscribeRetryMs.store(0);
             if (rc != 0 && impl->running && impl->running->load())
             {
                 impl->log->warn("MqttClient",
@@ -125,6 +167,11 @@ namespace sunray
                                              payload.c_str(), qos, retain);
             if (rc != MOSQ_ERR_SUCCESS && log)
             {
+                if (rc == MOSQ_ERR_NO_CONN)
+                {
+                    connected.store(false);
+                    cmdSubscribed.store(false);
+                }
                 log->warn("MqttClient",
                           "Publish failed for " + what + " on " + topic + ": "
                           + mosquitto_strerror(rc));
@@ -240,6 +287,9 @@ namespace sunray
         impl_->prefix = config_->get<std::string>("mqtt_topic_prefix", "sunray");
         impl_->haDiscovery = config_->get<bool>("mqtt_homeassistant_discovery", false);
         impl_->haPrefix = config_->get<std::string>("mqtt_homeassistant_prefix", "homeassistant");
+        impl_->connected.store(false);
+        impl_->cmdSubscribed.store(false);
+        impl_->nextSubscribeRetryMs.store(0);
         impl_->running = &running_;
         impl_->log = logger_.get();
 
@@ -290,6 +340,13 @@ namespace sunray
         impl_->pushThread = std::thread([this]
                                         {
         while (running_.load()) {
+            if (impl_->connected.load() && !impl_->cmdSubscribed.load()) {
+                const uint64_t now = Impl::nowMs();
+                const uint64_t retryAt = impl_->nextSubscribeRetryMs.load();
+                if (retryAt == 0 || now >= retryAt) {
+                    impl_->ensureCommandSubscription("retry");
+                }
+            }
             WebSocketServer::TelemetryData td;
             bool hasTel = false;
             {

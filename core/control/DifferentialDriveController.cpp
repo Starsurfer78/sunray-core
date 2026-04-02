@@ -10,6 +10,7 @@ void DifferentialDriveController::reset() {
     rightPid_.reset();
     leftFiltered_ms_ = 0.0f;
     rightFiltered_ms_ = 0.0f;
+    lastCommandedLinear_ms_ = 0.0f;
     filterInitialized_ = false;
 }
 
@@ -19,6 +20,7 @@ DrivePwmCommand DifferentialDriveController::compute(const Config& config,
                                                      const OdometryData& odometry,
                                                      unsigned long dt_ms) {
     const auto base = OpenLoopDriveController::compute(config, linear_ms, angular_radps);
+    lastCommandedLinear_ms_ = linear_ms;
 
     if (std::fabs(linear_ms) < 1e-4f && std::fabs(angular_radps) < 1e-4f) {
         reset();

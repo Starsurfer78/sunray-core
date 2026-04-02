@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_PATH="${CONFIG_PATH:-/etc/sunray/config.json}"
+CONFIG_PATH="${CONFIG_PATH:-/etc/sunray-core/config.json}"
 DEFAULT_DRIVER_PORT="/dev/ttyS0"
 DEFAULT_I2C_BUS="/dev/i2c-1"
 DRIVER_PORT="${DRIVER_PORT:-$DEFAULT_DRIVER_PORT}"

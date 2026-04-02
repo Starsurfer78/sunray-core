@@ -1,6 +1,7 @@
 export interface Telemetry {
   type: string
   op: string
+  runtime_health: string
   x: number
   y: number
   heading: number
@@ -30,6 +31,7 @@ export interface Telemetry {
   resume_target: string
   event_reason: string
   error_code: string
+  history_backend_ready: boolean
   mission_id: string
   mission_zone_index: number
   mission_zone_count: number
@@ -49,6 +51,7 @@ export type WsMessage = TelemetryEnvelope | LogEnvelope
 export const defaultTelemetry: Telemetry = {
   type: '',
   op: 'Idle',
+  runtime_health: 'ok',
   x: 0,
   y: 0,
   heading: 0,
@@ -78,6 +81,7 @@ export const defaultTelemetry: Telemetry = {
   resume_target: '',
   event_reason: 'none',
   error_code: '',
+  history_backend_ready: false,
   mission_id: '',
   mission_zone_index: 0,
   mission_zone_count: 0,
