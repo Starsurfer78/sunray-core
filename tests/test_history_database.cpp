@@ -26,6 +26,7 @@ fs::path uniqueTestPath(const char* stem, const char* ext) {
 sunray::EventRecord makeEvent(long long ts, const std::string& type, const std::string& reason) {
     sunray::EventRecord event;
     event.ts_ms = ts;
+    event.wall_ts_ms = 1700000000000LL + ts;
     event.level = "info";
     event.module = "test";
     event.eventType = type;
@@ -83,6 +84,7 @@ TEST_CASE("HistoryDatabase: list and summary APIs expose backend data", "[histor
     REQUIRE(events["backend_ready"] == true);
     REQUIRE(events["items"].size() == 1);
     REQUIRE(events["items"][0]["event_type"] == "state_transition");
+    REQUIRE(events["items"][0]["wall_ts_ms"] == 1700000001000LL);
 
     const auto sessions = db.listSessions(20, logger);
     REQUIRE(sessions["ok"] == true);
@@ -98,6 +100,7 @@ TEST_CASE("HistoryDatabase: list and summary APIs expose backend data", "[histor
     REQUIRE(summary["event_reason_counts"]["mission_active"] == 1);
     REQUIRE(summary["event_type_counts"]["state_transition"] == 1);
     REQUIRE(summary["event_level_counts"]["info"] == 1);
+    REQUIRE(summary["last_event_wall_ts_ms"] == 1700000001000LL);
     REQUIRE(summary["sessions_total"] == 1);
     REQUIRE(summary["sessions_completed"] == 1);
     REQUIRE(summary["retention"]["max_events"] == 10);

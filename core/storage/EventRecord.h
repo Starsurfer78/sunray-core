@@ -7,6 +7,7 @@ namespace sunray {
 
 struct EventRecord {
     unsigned long          ts_ms       = 0;
+    long long              wall_ts_ms  = 0;
     std::string            level       = "info";
     std::string            module;
     std::string            eventType;

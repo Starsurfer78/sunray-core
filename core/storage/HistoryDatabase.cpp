@@ -13,7 +13,7 @@ namespace sunray {
 
 namespace {
 
-constexpr int kSchemaVersion = 2;
+constexpr int kSchemaVersion = 3;
 constexpr unsigned kMaxQueryLimit = 500;
 
 unsigned clampLimit(unsigned limit) {
@@ -51,9 +51,9 @@ bool HistoryDatabase::appendEvent(const EventRecord& event, Logger& logger) {
 
     constexpr const char* sql =
         "INSERT INTO events("
-        "ts_ms, level, module, event_type, state_phase, event_reason, error_code, message,"
+        "ts_ms, wall_ts_ms, level, module, event_type, state_phase, event_reason, error_code, message,"
         "battery_v, gps_sol, x, y"
-        ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
     sqlite3_stmt* stmt = nullptr;
     const int prepRc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
@@ -65,25 +65,26 @@ bool HistoryDatabase::appendEvent(const EventRecord& event, Logger& logger) {
     }
 
     sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(event.ts_ms));
-    sqlite3_bind_text(stmt, 2, event.level.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, event.module.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, event.eventType.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, event.statePhase.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, event.eventReason.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, event.errorCode.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, event.message.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(event.wall_ts_ms));
+    sqlite3_bind_text(stmt, 3, event.level.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, event.module.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, event.eventType.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, event.statePhase.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, event.eventReason.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, event.errorCode.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 9, event.message.c_str(), -1, SQLITE_TRANSIENT);
 
-    if (event.batteryV.has_value()) sqlite3_bind_double(stmt, 9, *event.batteryV);
-    else sqlite3_bind_null(stmt, 9);
-
-    if (event.gpsSol.has_value()) sqlite3_bind_int(stmt, 10, *event.gpsSol);
+    if (event.batteryV.has_value()) sqlite3_bind_double(stmt, 10, *event.batteryV);
     else sqlite3_bind_null(stmt, 10);
 
-    if (event.x.has_value()) sqlite3_bind_double(stmt, 11, *event.x);
+    if (event.gpsSol.has_value()) sqlite3_bind_int(stmt, 11, *event.gpsSol);
     else sqlite3_bind_null(stmt, 11);
 
-    if (event.y.has_value()) sqlite3_bind_double(stmt, 12, *event.y);
+    if (event.x.has_value()) sqlite3_bind_double(stmt, 12, *event.x);
     else sqlite3_bind_null(stmt, 12);
+
+    if (event.y.has_value()) sqlite3_bind_double(stmt, 13, *event.y);
+    else sqlite3_bind_null(stmt, 13);
 
     const int stepRc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -198,7 +199,7 @@ nlohmann::json HistoryDatabase::listEvents(unsigned limit, Logger& logger) const
     auto* db = static_cast<sqlite3*>(dbHandle);
 
     constexpr const char* sql =
-        "SELECT ts_ms, level, module, event_type, state_phase, event_reason, error_code, message,"
+        "SELECT ts_ms, wall_ts_ms, level, module, event_type, state_phase, event_reason, error_code, message,"
         " battery_v, gps_sol, x, y"
         " FROM events"
         " ORDER BY ts_ms DESC"
@@ -218,18 +219,19 @@ nlohmann::json HistoryDatabase::listEvents(unsigned limit, Logger& logger) const
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         nlohmann::json row = {
             {"ts_ms", static_cast<long long>(sqlite3_column_int64(stmt, 0))},
-            {"level", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1) ?: reinterpret_cast<const unsigned char*>(""))},
-            {"module", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2) ?: reinterpret_cast<const unsigned char*>(""))},
-            {"event_type", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3) ?: reinterpret_cast<const unsigned char*>(""))},
-            {"state_phase", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4) ?: reinterpret_cast<const unsigned char*>(""))},
-            {"event_reason", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5) ?: reinterpret_cast<const unsigned char*>(""))},
-            {"error_code", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6) ?: reinterpret_cast<const unsigned char*>(""))},
-            {"message", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"wall_ts_ms", static_cast<long long>(sqlite3_column_int64(stmt, 1))},
+            {"level", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"module", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"event_type", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"state_phase", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"event_reason", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"error_code", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7) ?: reinterpret_cast<const unsigned char*>(""))},
+            {"message", reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8) ?: reinterpret_cast<const unsigned char*>(""))},
         };
-        if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) row["battery_v"] = sqlite3_column_double(stmt, 8);
-        if (sqlite3_column_type(stmt, 9) != SQLITE_NULL) row["gps_sol"] = sqlite3_column_int(stmt, 9);
-        if (sqlite3_column_type(stmt, 10) != SQLITE_NULL) row["x"] = sqlite3_column_double(stmt, 10);
-        if (sqlite3_column_type(stmt, 11) != SQLITE_NULL) row["y"] = sqlite3_column_double(stmt, 11);
+        if (sqlite3_column_type(stmt, 9) != SQLITE_NULL) row["battery_v"] = sqlite3_column_double(stmt, 9);
+        if (sqlite3_column_type(stmt, 10) != SQLITE_NULL) row["gps_sol"] = sqlite3_column_int(stmt, 10);
+        if (sqlite3_column_type(stmt, 11) != SQLITE_NULL) row["x"] = sqlite3_column_double(stmt, 11);
+        if (sqlite3_column_type(stmt, 12) != SQLITE_NULL) row["y"] = sqlite3_column_double(stmt, 12);
         items.push_back(std::move(row));
     }
 
@@ -326,6 +328,7 @@ nlohmann::json HistoryDatabase::buildSummary(Logger& logger) const {
         {"mowing_duration_ms_total", 0},
         {"mowing_distance_m_total", 0.0},
         {"last_event_ts_ms", 0},
+        {"last_event_wall_ts_ms", 0},
         {"last_session_started_at_ms", 0},
         {"retention", {
             {"max_events", maxEvents_},
@@ -373,6 +376,7 @@ nlohmann::json HistoryDatabase::buildSummary(Logger& logger) const {
     queryScalar("SELECT COALESCE(SUM(duration_ms), 0) FROM sessions;", "mowing_duration_ms_total");
     queryScalar("SELECT COALESCE(SUM(distance_m), 0) FROM sessions;", "mowing_distance_m_total", false);
     queryScalar("SELECT COALESCE(MAX(ts_ms), 0) FROM events;", "last_event_ts_ms");
+    queryScalar("SELECT COALESCE(MAX(wall_ts_ms), 0) FROM events;", "last_event_wall_ts_ms");
     queryScalar("SELECT COALESCE(MAX(started_at_ms), 0) FROM sessions;", "last_session_started_at_ms");
 
     auto queryGroupedCounts = [&](const char* sql, const char* key) {
@@ -550,6 +554,7 @@ bool HistoryDatabase::bootstrapSchema(void* dbHandle, Logger& logger) {
         << "CREATE TABLE IF NOT EXISTS events ("
         << "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         << "  ts_ms INTEGER NOT NULL,"
+        << "  wall_ts_ms INTEGER NOT NULL DEFAULT 0,"
         << "  level TEXT NOT NULL DEFAULT '',"
         << "  module TEXT NOT NULL DEFAULT '',"
         << "  event_type TEXT NOT NULL,"

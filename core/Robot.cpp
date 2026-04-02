@@ -955,6 +955,7 @@ EventRecord Robot::makeEventRecord(const std::string& level,
                                    const std::string& errorCode) const {
     EventRecord event;
     event.ts_ms = now_ms_;
+    event.wall_ts_ms = wallClockNowMs();
     event.level = level;
     event.module = TAG;
     event.eventType = eventType;

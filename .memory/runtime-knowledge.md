@@ -78,7 +78,9 @@ Short, evidence-based runtime notes for `sunray-core`.
 ## Runtime Statistics
 
 - `FACT`: Runtime events are persisted individually through the history backend.
+- `FACT`: Runtime events now persist both relative uptime (`ts_ms`) and wall-clock time (`wall_ts_ms`); the WebUI event stream should use wall-clock time for operator-facing chronology.
 - `FACT`: History summary now also exposes grouped counters as `event_reason_counts`, `event_type_counts`, and `event_level_counts`.
+- `FACT`: History summary now also exposes `last_event_wall_ts_ms`, so the `Verlauf` landing cards can show real date/time instead of formatting uptime as if it were epoch time.
 - `FACT`: This grouped summary is suitable for field statistics such as repeated `lift_triggered`, `battery_critical`, `gps_signal_lost`, `mcu_comm_lost`, or `stuck_recovery_exhausted` patterns without re-reading the full event list.
 
 ## Watchdog Chain

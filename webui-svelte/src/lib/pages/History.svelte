@@ -158,7 +158,7 @@
         <article class="stat-card">
           <span class="label">Events gesamt</span>
           <strong>{summary?.events_total ?? 0}</strong>
-          <span class="muted">Letztes Event bei Uptime {formatUptime(summary?.last_event_ts_ms)}</span>
+          <span class="muted">Letztes Event {formatDate(summary?.last_event_wall_ts_ms)}</span>
         </article>
 
         <article class="stat-card">
@@ -278,7 +278,7 @@
               {#each events as event}
                 <article class={`event-card ${toneForLevel(event.level)}`}>
                   <div class="event-top">
-                    <span class="event-time">Uptime {formatUptime(event.ts_ms)}</span>
+                    <span class="event-time">{formatDate(event.wall_ts_ms)}</span>
                     <span class="event-level">{humanize(event.level)}</span>
                   </div>
                   <strong>{event.message || humanize(event.event_reason)}</strong>
@@ -327,7 +327,7 @@
 
     <div class="state-card">
       <span class="label">Letzter Verlaufseintrag</span>
-      <strong>{formatUptime(summary?.last_event_ts_ms)}</strong>
+      <strong>{formatDate(summary?.last_event_wall_ts_ms)}</strong>
       <span>Letzter Session-Start {formatDate(summary?.last_session_started_at_ms)}</span>
     </div>
   </svelte:fragment>

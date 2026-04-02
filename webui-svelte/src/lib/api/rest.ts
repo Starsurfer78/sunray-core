@@ -157,6 +157,7 @@ export interface MissionDocument {
 
 export interface HistoryEventItem {
   ts_ms: number
+  wall_ts_ms: number
   level: string
   module: string
   event_type: string
@@ -203,6 +204,7 @@ export interface HistorySummaryResponse {
   mowing_duration_ms_total: number
   mowing_distance_m_total: number
   last_event_ts_ms: number
+  last_event_wall_ts_ms: number
   last_session_started_at_ms: number
   retention: {
     max_events: number

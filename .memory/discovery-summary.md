@@ -18,6 +18,7 @@
 - `FACT`: A read-only deployment verifier now exists at `scripts/check_deploy_state.sh` for artefacts, runtime files, and rollback-anchor visibility.
 - `FACT`: `config.example.json` now covers the active Alfred runtime baseline for key hardware, docking, planner, and path defaults.
 - `FACT`: WebUI now includes a `Verlauf` page backed by `/api/history/events`, `/api/history/sessions`, `/api/statistics/summary`, and `/api/history/export`.
+- `FACT`: History events now carry wall-clock timestamps in addition to runtime uptime, so the `Verlauf` event stream can show real date/time instead of formatting uptime as a pseudo-epoch.
 - `FACT`: Pi-side OTA/update assistant is now functional through the WebUI for `sunray-core` userspace update/check/restart.
 - `UNKNOWN`: OTA/update rollback beyond the documented manual paths.
 - `UNKNOWN`: STM32 firmware flash through the WebUI and rollback remain unproven; only the SWD probe path is currently field-proven.
@@ -53,6 +54,7 @@
 - `FACT`: Alfred runtime dock-retry geometry now includes `dock_retry_lateral_offset_m=0.10`.
 - `FACT`: Automated regression coverage now includes repeated charger-contact flap damping, Charge grace-expiry handling, and degraded MQTT enabled lifecycle behavior.
 - `FACT`: History summary now exposes grouped incident counters by reason, type, and level for field diagnostics and optimization statistics.
+- `FACT`: History summary now also exposes `last_event_wall_ts_ms` for operator-facing real-time chronology on the `Verlauf` page.
 
 ## Bugs
 
