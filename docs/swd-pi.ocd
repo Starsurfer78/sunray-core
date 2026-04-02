@@ -17,7 +17,7 @@ adapter driver bcm2835gpio
 #   GPIO23 -> SRST
 adapter gpio swdio 24 -pull-up
 adapter gpio swclk 25 -push-pull
-adapter gpio srst 23 -push-pull -init-inactive
+adapter gpio srst 23 -init-inactive
 
 transport select swd
 

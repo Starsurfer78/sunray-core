@@ -16,6 +16,7 @@
   let stmProbeBusy = false;
   let stmProbeResult: StmProbeResponse | null = null;
   let stmProbeError = "";
+  let showStmProbeDetail = false;
 
   $: recoveryNotice = getRecoveryNotice($telemetry);
 
@@ -23,10 +24,13 @@
     stmProbeBusy = true;
     stmProbeError = "";
     stmProbeResult = null;
+    showStmProbeDetail = false;
     try {
       stmProbeResult = await stmProbe();
+      showStmProbeDetail = true;
     } catch (error) {
       stmProbeError = error instanceof Error ? error.message : "STM-Probe fehlgeschlagen";
+      showStmProbeDetail = true;
     } finally {
       stmProbeBusy = false;
     }
@@ -123,14 +127,24 @@
         {#if stmProbeResult}
           <div class="stm-result" class:ok={stmProbeResult.ok} class:error={!stmProbeResult.ok}>
             <strong>{stmProbeHeading}</strong>
-            <pre>{stmProbeResult.detail}</pre>
+            <div class="stm-result-actions">
+              <span>Ausgabe bereit</span>
+              <button type="button" class="detail-btn" on:click={() => (showStmProbeDetail = true)}>
+                Details öffnen
+              </button>
+            </div>
           </div>
         {/if}
 
         {#if stmProbeError}
           <div class="stm-result error">
             <strong>Keine flashfähige Verbindung</strong>
-            <pre>{stmProbeError}</pre>
+            <div class="stm-result-actions">
+              <span>Fehlerausgabe bereit</span>
+              <button type="button" class="detail-btn" on:click={() => (showStmProbeDetail = true)}>
+                Details öffnen
+              </button>
+            </div>
           </div>
         {/if}
       </div>
@@ -178,6 +192,50 @@
     {/if}
   </div>
 </section>
+
+{#if showStmProbeDetail && (stmProbeResult || stmProbeError)}
+  <div
+    class="probe-modal-backdrop"
+    role="button"
+    tabindex="0"
+    aria-label="STM-Probe-Details schließen"
+    on:click={() => (showStmProbeDetail = false)}
+    on:keydown={(event) => {
+      if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+        showStmProbeDetail = false;
+      }
+    }}
+  >
+    <div
+      class="probe-modal"
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-label="STM Probe Details"
+      on:click|stopPropagation
+      on:keydown|stopPropagation
+    >
+      <div class="probe-modal-head">
+        <div>
+          <span class="eyebrow">STM32 Firmware</span>
+          <h3>{stmProbeResult ? stmProbeHeading : "Keine flashfähige Verbindung"}</h3>
+        </div>
+        <button type="button" class="detail-btn close-btn" on:click={() => (showStmProbeDetail = false)}>
+          Schließen
+        </button>
+      </div>
+      <div class="probe-terminal">
+        <div class="probe-terminal-bar">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+          <span class="probe-terminal-title">stm-probe.log</span>
+        </div>
+        <pre class="probe-log">{stmProbeResult?.detail || stmProbeError}</pre>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .settings-shell {
@@ -334,6 +392,29 @@
     font-size: 0.76rem;
   }
 
+  .stm-result-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: #cbd5e1;
+    font-size: 0.8rem;
+  }
+
+  .detail-btn {
+    padding: 0.45rem 0.75rem;
+    border-radius: 0.55rem;
+    border: 1px solid #335c8b;
+    background: #10213b;
+    color: #dbeafe;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .detail-btn:hover {
+    border-color: #60a5fa;
+  }
+
   .stm-result {
     display: grid;
     gap: 0.4rem;
@@ -356,14 +437,98 @@
     font-size: 0.9rem;
   }
 
-  .stm-result pre {
+  .probe-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(2, 6, 23, 0.72);
+  }
+
+  .probe-modal {
+    width: min(860px, 100%);
+    max-height: min(82vh, 760px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.8rem;
+    padding: 1rem;
+    border-radius: 0.95rem;
+    border: 1px solid #1e3a5f;
+    background: #08111f;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .probe-modal-head {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .close-btn {
+    white-space: nowrap;
+  }
+
+  .probe-log {
     margin: 0;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.95rem 1rem 1rem;
+    background: #020617;
     white-space: pre-wrap;
     word-break: break-word;
-    color: #a9bacd;
-    font-size: 0.74rem;
-    line-height: 1.45;
+    color: #c7f9cc;
+    font-size: 0.78rem;
+    line-height: 1.5;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .probe-terminal {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    border-radius: 0.8rem;
+    border: 1px solid #14243f;
+    overflow: hidden;
+    background: #020617;
+  }
+
+  .probe-terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 0.85rem;
+    background: #0b1220;
+    border-bottom: 1px solid #14243f;
+  }
+
+  .dot {
+    width: 0.68rem;
+    height: 0.68rem;
+    border-radius: 999px;
+    display: inline-block;
+  }
+
+  .dot.red {
+    background: #ef4444;
+  }
+
+  .dot.yellow {
+    background: #f59e0b;
+  }
+
+  .dot.green {
+    background: #22c55e;
+  }
+
+  .probe-terminal-title {
+    margin-left: 0.35rem;
+    color: #94a3b8;
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
   }
 
   .label {
@@ -442,6 +607,16 @@
     .info-grid,
     .diag-summary {
       grid-template-columns: 1fr;
+    }
+
+    .probe-modal {
+      max-height: 88vh;
+      padding: 0.9rem;
+    }
+
+    .probe-modal-head {
+      flex-direction: column;
+      align-items: stretch;
     }
   }
 </style>
