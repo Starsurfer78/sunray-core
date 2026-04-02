@@ -49,7 +49,7 @@ sudo mv ~/bin/arduino-cli /usr/local/bin/
 
 ### 3. STM32-Board-Support hinzufügen
 ```bash
-arduino-cli config add board_manager.additional_urls https://github.com/stm32duino/BoardManagerFiles/raw/main/STM32/package_stm_index.json
+arduino-cli config add board_manager.additional_urls https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
 arduino-cli core install STMicroelectronics:stm32
 ```
 
@@ -71,8 +71,8 @@ cd ~/sunray-core
 mkdir -p ~/sunray_install/alfred/firmware
 cp /pfad/zu/alfred/firmware/rm18.ino ~/sunray_install/alfred/firmware/rm18.ino
 
-# FQBN für STM32F103 setzen (einmalig in ~/.bashrc eintragen)
-export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
+# FQBN für Alfreds STM32F103VET setzen (einmalig in ~/.bashrc eintragen)
+export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX"
 
 # Kompilieren + Flashen
 sudo bash scripts/flash_alfred.sh build-flash
@@ -108,7 +108,7 @@ sudo bash scripts/flash_alfred.sh flash
 
 ### Option D: Nur Kompilieren (kein Flash)
 ```bash
-export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
+export FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX"
 bash scripts/flash_alfred.sh build
 # → ~/sunray_install/firmware/rm18.ino.bin
 ```
@@ -128,7 +128,7 @@ Das Script kompiliert `rm18.ino` (Alfred-STM32-Firmware) via `arduino-cli` und f
 resultierende `rm18.ino.bin` via SWD. Wichtige Umgebungsvariablen:
 
 ```bash
-FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"  # Pflicht für build
+FQBN="STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX"  # Pflicht für build
 ALFRED_SKETCH=/path/to/rm18.ino   # default: ~/sunray_install/alfred/firmware/rm18.ino
 BIN_PATH=/path/to/rm18.ino.bin    # default: ~/sunray_install/firmware/rm18.ino.bin
 ```

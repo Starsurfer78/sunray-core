@@ -293,7 +293,7 @@ Evidence:
 
 1. Provide `rm18.ino` under `~/sunray_install/alfred/firmware/rm18.ino` or override via env.
 2. Install `arduino-cli` and STM32 board support.
-3. Set `FQBN=STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE`.
+3. Set `FQBN=STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX`.
 4. Compile to `~/sunray_install/firmware/rm18.ino.bin`.
 5. Probe SWD via OpenOCD.
 6. Flash to STM32 at `0x08000000`.

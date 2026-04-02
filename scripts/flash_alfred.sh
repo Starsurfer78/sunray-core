@@ -9,7 +9,7 @@
 #   sudo bash scripts/flash_alfred.sh build-flash  # Compile + Flash (default)
 #
 # Required env for build:
-#   FQBN              Board FQBN, e.g. STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE
+#   FQBN              Board FQBN, e.g. STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX
 #   ALFRED_SKETCH     Path to rm18.ino (default: ~/sunray_install/alfred/firmware/rm18.ino)
 
 set -euo pipefail
@@ -72,7 +72,7 @@ compile_rm18() {
   fi
   if [ -z "$FQBN" ]; then
     echo "ERROR: FQBN not set. Example:"
-    echo "  export FQBN='STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE'"
+    echo "  export FQBN='STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX'"
     exit 1
   fi
   if [ ! -f "$ALFRED_SKETCH" ]; then
@@ -88,8 +88,9 @@ compile_rm18() {
 
   local tmp_root=""
   cleanup_tmp_root() {
-    if [ -n "$tmp_root" ] && [ -d "$tmp_root" ]; then
-      "${run_as[@]}" rm -rf "$tmp_root"
+    local tmp="${tmp_root:-}"
+    if [ -n "$tmp" ] && [ -d "$tmp" ]; then
+      rm -rf "$tmp"
     fi
   }
   trap cleanup_tmp_root RETURN
@@ -157,7 +158,7 @@ usage() {
   echo "  build-flash  Compile + Flash (default, requires sudo)"
   echo ""
   echo "Required env for build:"
-  echo "  FQBN             Board FQBN, e.g. STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VE"
+  echo "  FQBN             Board FQBN, e.g. STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX"
   echo ""
   echo "Optional env:"
   echo "  ALFRED_SKETCH    Path to rm18.ino    (default: ~/sunray_install/alfred/firmware/rm18.ino)"
