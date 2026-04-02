@@ -18,7 +18,7 @@ SERVICE_NAME="sunray-core"
 VERSION_FILE="/etc/sunray-core/version.json"
 BACKUP_BIN="/etc/sunray-core/sunray-core.bak"
 BUILD_DIR="${REPO_DIR}/build_linux"
-LOG_FILE="/var/log/sunray-ota.log"
+LOG_FILE="/var/lib/sunray-core/ota.log"
 
 log() {
     echo "[ota] $*" >&2
@@ -39,6 +39,9 @@ write_version() {
         "${hash}" "${hash:0:8}" "${branch}" "${ts}" > "${VERSION_FILE}"
     log "Version written: ${hash:0:8} (${branch})"
 }
+
+mkdir -p "$(dirname "${LOG_FILE}")" 2>/dev/null || true
+touch "${LOG_FILE}" 2>/dev/null || true
 
 if [[ "${1:-}" == "--write-version" ]]; then
     write_version

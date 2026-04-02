@@ -976,9 +976,8 @@ void WebSocketServer::setupHttpRoutes() {
             }
 
             logger_->info(TAG, "OTA update triggered via WebUI");
-            const std::string logCmd = scriptPath + " >> /var/log/sunray-ota.log 2>&1";
-            std::thread([this, logCmd]() {
-                const int rc = std::system(logCmd.c_str());
+            std::thread([this, scriptPath]() {
+                const int rc = std::system(scriptPath.c_str());
                 if (rc != 0) {
                     logger_->warn(TAG, "OTA update script exited with code " + std::to_string(rc));
                 }
