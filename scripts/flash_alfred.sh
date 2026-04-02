@@ -97,7 +97,9 @@ compile_rm18() {
 
   local firmware_dir
   firmware_dir="$(dirname "$BIN_PATH")"
-  "${run_as[@]}" mkdir -p "$firmware_dir" "$BUILD_DIR"
+  "${run_as[@]}" mkdir -p "$firmware_dir"
+  "${run_as[@]}" rm -rf "$BUILD_DIR"
+  "${run_as[@]}" mkdir -p "$BUILD_DIR"
 
   # arduino-cli requires the sketch in a folder matching the .ino name
   tmp_root="$("${run_as[@]}" mktemp -d)"
@@ -108,6 +110,7 @@ compile_rm18() {
   echo "Sketch: $ALFRED_SKETCH"
   echo "FQBN:   $FQBN"
   "${run_as[@]}" "$ARDUINO_CLI_BIN" compile \
+    --clean \
     --fqbn "$FQBN" \
     --output-dir "$BUILD_DIR" \
     "$tmp_root/rm18"
