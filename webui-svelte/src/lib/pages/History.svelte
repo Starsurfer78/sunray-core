@@ -28,6 +28,18 @@
     })
   }
 
+  function formatUptime(tsMs?: number) {
+    if (!tsMs) return '—'
+    const totalSeconds = Math.max(0, Math.round(tsMs / 1000))
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+
+    if (hours > 0) return `${hours} h ${minutes} min ${seconds}s`
+    if (minutes > 0) return `${minutes} min ${seconds}s`
+    return `${seconds}s`
+  }
+
   function formatDuration(durationMs?: number) {
     if (!durationMs) return '0 min'
     const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
@@ -146,7 +158,7 @@
         <article class="stat-card">
           <span class="label">Events gesamt</span>
           <strong>{summary?.events_total ?? 0}</strong>
-          <span class="muted">Letztes Event {formatDate(summary?.last_event_ts_ms)}</span>
+          <span class="muted">Letztes Event bei Uptime {formatUptime(summary?.last_event_ts_ms)}</span>
         </article>
 
         <article class="stat-card">
@@ -266,7 +278,7 @@
               {#each events as event}
                 <article class={`event-card ${toneForLevel(event.level)}`}>
                   <div class="event-top">
-                    <span class="event-time">{formatDate(event.ts_ms)}</span>
+                    <span class="event-time">Uptime {formatUptime(event.ts_ms)}</span>
                     <span class="event-level">{humanize(event.level)}</span>
                   </div>
                   <strong>{event.message || humanize(event.event_reason)}</strong>
@@ -315,7 +327,7 @@
 
     <div class="state-card">
       <span class="label">Letzter Verlaufseintrag</span>
-      <strong>{formatDate(summary?.last_event_ts_ms)}</strong>
+      <strong>{formatUptime(summary?.last_event_ts_ms)}</strong>
       <span>Letzter Session-Start {formatDate(summary?.last_session_started_at_ms)}</span>
     </div>
   </svelte:fragment>
