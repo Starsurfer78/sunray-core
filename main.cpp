@@ -76,6 +76,32 @@ static std::string resolveWebRoot() {
     return "webui-svelte/dist";
 }
 
+static std::string resolveOtaScriptPath() {
+    namespace fs = std::filesystem;
+
+    std::vector<fs::path> candidates;
+    candidates.emplace_back(fs::current_path() / "scripts" / "ota_update.sh");
+
+    const fs::path procExe = "/proc/self/exe";
+    std::error_code ec;
+    if (fs::exists(procExe, ec)) {
+        const fs::path exePath = fs::read_symlink(procExe, ec);
+        if (!ec && !exePath.empty()) {
+            const fs::path exeDir = exePath.parent_path();
+            candidates.emplace_back(exeDir / "scripts" / "ota_update.sh");
+            candidates.emplace_back(exeDir.parent_path() / "scripts" / "ota_update.sh");
+        }
+    }
+
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate) && fs::is_regular_file(candidate)) {
+            return fs::weakly_canonical(candidate).string();
+        }
+    }
+
+    return {};
+}
+
 static std::vector<std::string> loadMissionZoneIds(const std::string& missionPath,
                                                    const std::string& missionId) {
     if (missionId.empty() || !std::filesystem::exists(missionPath)) return {};
@@ -194,13 +220,9 @@ int main(int argc, char* argv[]) {
     wsServer->setMapPath(mapPath);
     wsServer->setMissionPath(missionPath);
 
-    // OTA update script: resolved relative to the running binary or config dir.
-    {
-        namespace fs = std::filesystem;
-        const fs::path otaScript = fs::path(configDir).parent_path() / "scripts" / "ota_update.sh";
-        if (fs::exists(otaScript)) {
-            wsServer->setOtaScriptPath(otaScript.string());
-        }
+    // OTA update script: resolved relative to cwd and running binary location.
+    if (const std::string otaScript = resolveOtaScriptPath(); !otaScript.empty()) {
+        wsServer->setOtaScriptPath(otaScript);
     }
     wsServer->onMapGet([&robot]() -> nlohmann::json {
         return robot.getMapJson();

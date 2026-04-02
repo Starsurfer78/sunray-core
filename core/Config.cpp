@@ -201,7 +201,7 @@ namespace sunray
             {"mqtt_homeassistant_prefix", "homeassistant"},
             {"api_token", ""},
             {"history_db_enabled", true},
-            {"history_db_path", "/var/lib/sunray/history.db"},
+            {"history_db_path", "/var/lib/sunray-core/history.db"},
             {"history_db_max_events", 20000},
             {"history_db_max_sessions", 2000},
             {"history_db_export_enabled", true},

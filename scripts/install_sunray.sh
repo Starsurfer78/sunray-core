@@ -245,14 +245,20 @@ ensure_service_permissions() {
     return
   fi
 
-  local config_dir map_dir
+  local config_dir map_dir history_dirs
   config_dir="$(dirname "${CONFIG_PATH}")"
   map_dir="$(dirname "${MAP_PATH}")"
+  history_dirs=("/var/lib/sunray-core" "/var/lib/sunray")
 
   run_with_root chown -R "${BUILD_USER}:${BUILD_GROUP}" "${config_dir}"
   if [[ "${map_dir}" != "${config_dir}" ]]; then
     run_with_root chown -R "${BUILD_USER}:${BUILD_GROUP}" "${map_dir}"
   fi
+
+  for history_dir in "${history_dirs[@]}"; do
+    run_with_root mkdir -p "${history_dir}"
+    run_with_root chown -R "${BUILD_USER}:${BUILD_GROUP}" "${history_dir}"
+  done
 }
 
 systemd_quote() {
