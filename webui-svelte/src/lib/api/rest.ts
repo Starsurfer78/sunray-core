@@ -365,7 +365,7 @@ export async function otaUpdate(): Promise<{ status: string }> {
 
 export interface StmProbeResponse {
   ok: boolean
-  status: 'probe_ok' | 'probe_failed'
+  status: 'probe_ok' | 'probe_failed' | 'probe_tool_missing'
   detail: string
 }
 

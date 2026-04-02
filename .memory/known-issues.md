@@ -49,6 +49,7 @@ Aktuelle Bugs, Workarounds und Engpaesse in einem laufenden Register.
 - Wiederholte erfolglose Stuck-Recovery wird jetzt über `stuck_recovery_max_attempts` deterministisch zu `ERR_STUCK` / `stuck_recovery_exhausted` eskaliert
 - History-Statistik liefert jetzt gruppierte Zaehler fuer Event-Reason, Event-Type und Event-Level als Basis fuer Feldoptimierung und Vorfallstatistik
 - Service-Stop bei `systemctl restart` haengt nicht mehr an fragiler asynchroner `std::signal`-Behandlung; `SIGINT`/`SIGTERM` werden jetzt ueber einen dedizierten `sigwait()`-Thread in einen sauberen `Robot::stop()`-Pfad ueberfuehrt
+- STM-SWD-Probe meldet fehlendes `openocd` jetzt explizit als Tooling-Problem statt pauschal als fehlende flashfaehige Verbindung; Installer zieht `openocd` fuer Alfred-Hardwareinstallationen nun automatisch mit
 
 ## Performance Bottlenecks
 

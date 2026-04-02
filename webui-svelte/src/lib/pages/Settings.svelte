@@ -31,6 +31,13 @@
       stmProbeBusy = false;
     }
   }
+
+  $: stmProbeHeading =
+    stmProbeResult?.status === "probe_tool_missing"
+      ? "OpenOCD fehlt auf Alfred"
+      : stmProbeResult?.ok
+        ? "Flashfähige Verbindung erkannt"
+        : "Keine flashfähige Verbindung";
 </script>
 
 <section class="settings-shell">
@@ -114,8 +121,8 @@
         </div>
 
         {#if stmProbeResult}
-          <div class="stm-result ok">
-            <strong>Flashfähige Verbindung erkannt</strong>
+          <div class="stm-result" class:ok={stmProbeResult.ok} class:error={!stmProbeResult.ok}>
+            <strong>{stmProbeHeading}</strong>
             <pre>{stmProbeResult.detail}</pre>
           </div>
         {/if}

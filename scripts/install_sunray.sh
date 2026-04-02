@@ -135,6 +135,7 @@ ensure_dependencies() {
     git \
     curl \
     ca-certificates \
+    openocd \
     libmosquitto-dev \
     sqlite3 \
     libsqlite3-dev

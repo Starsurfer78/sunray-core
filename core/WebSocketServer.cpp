@@ -1019,12 +1019,18 @@ void WebSocketServer::setupHttpRoutes() {
 
             nlohmann::json j;
             j["ok"] = (rc == 0);
-            j["status"] = (rc == 0) ? "probe_ok" : "probe_failed";
+            if (rc == 0) {
+                j["status"] = "probe_ok";
+            } else if (output.find("openocd: command not found") != std::string::npos) {
+                j["status"] = "probe_tool_missing";
+            } else {
+                j["status"] = "probe_failed";
+            }
             j["detail"] = output.empty()
                 ? ((rc == 0) ? "SWD probe completed" : "STM probe failed")
                 : output;
 
-            crow::response res(rc == 0 ? 200 : 500, j.dump());
+            crow::response res(200, j.dump());
             res.set_header("Content-Type", "application/json");
             return res;
         }
