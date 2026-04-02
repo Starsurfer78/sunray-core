@@ -172,6 +172,12 @@ void OpManager::changeOperationTypeByOperator(OpContext& ctx, const std::string&
     } else if (opType == "WaitRain" || opType == "waitrain") {
         activeOp_->requestOp(ctx, *waitRain_, Op::PRIO_HIGH, false);
         waitRain_->initiatedByOperator = true;
+    } else if (opType == "EscapeReverse" || opType == "escapereverse") {
+        activeOp_->requestOp(ctx, *escape_, Op::PRIO_HIGH, false);
+        escape_->initiatedByOperator = true;
+    } else if (opType == "EscapeForward" || opType == "escapeforward") {
+        activeOp_->requestOp(ctx, *escapeForward_, Op::PRIO_HIGH, false);
+        escapeForward_->initiatedByOperator = true;
     } else if (opType == "Error" || opType == "error") {
         activeOp_->requestOp(ctx, *error_, Op::PRIO_CRITICAL, false);
         error_->initiatedByOperator = true;

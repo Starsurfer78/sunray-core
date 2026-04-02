@@ -60,6 +60,9 @@ bool Robot::init() {
     lastImu_ = {};
     imuCalibrationExpected_ = false;
     imuCalibrationActive_ = false;
+    hw_->setLed(LedId::LED_1, LedState::OFF);
+    hw_->setLed(LedId::LED_2, LedState::OFF);
+    hw_->setLed(LedId::LED_3, LedState::OFF);
 
     logger_->info(TAG, "Robot id: " + hw_->getRobotId());
     if (!historyDb_.init(*config_, *logger_)) {
@@ -109,7 +112,11 @@ void Robot::run() {
         OpContext ctx = assembleOpContext();
         tickSafetyGuards(ctx);
         tickStateMachine(ctx);
-        if (tickDiag()) return;
+        if (tickDiag()) {
+            updateStatusLeds();
+            tickTelemetry();
+            return;
+        }
         tickButtonControl();
         tickUserFeedback();
         tickManualDrive();
@@ -1164,7 +1171,7 @@ void Robot::monitorOpWatchdog(OpContext& ctx) {
     if (!op) return;
 
     const unsigned long timeoutMs = op->watchdogTimeoutMs(ctx);
-    if (timeoutMs == 0 || op->startTime_ms == 0 || ctx.now_ms < op->startTime_ms) return;
+    if (timeoutMs == 0 || ctx.now_ms < op->startTime_ms) return;
 
     if (ctx.now_ms - op->startTime_ms > timeoutMs) {
         const std::string message =

@@ -210,9 +210,9 @@ void StateEstimator::update(const OdometryData& odo, unsigned long dt_ms) {
         return;
     }
 
-    const float ticksPerRev  = config_ ? config_->get<float>("ticks_per_revolution", 120.0f) : 120.0f;
-    const float wheelDiam    = config_ ? config_->get<float>("wheel_diameter_m",     0.197f)  : 0.197f;
-    const float wheelBase    = config_ ? config_->get<float>("wheel_base_m",         0.285f)  : 0.285f;
+    const float ticksPerRev  = config_ ? config_->get<float>("ticks_per_revolution", 320.0f) : 320.0f;
+    const float wheelDiam    = config_ ? config_->get<float>("wheel_diameter_m",     0.205f) : 0.205f;
+    const float wheelBase    = config_ ? config_->get<float>("wheel_base_m",         0.390f) : 0.390f;
 
     const float ticksPerMeter = ticksPerRev / (PI * wheelDiam);
 

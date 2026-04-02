@@ -93,8 +93,8 @@ TEST_CASE("StateEstimator: zero odometry keeps position (0,0) and heading 0", "[
 }
 
 TEST_CASE("StateEstimator: forward drive increases x by ~0.4 m", "[state_est]") {
-    // Keep the step below the 0.5 m sanity guard. 78 ticks are about 0.4 m
-    // with the no-config defaults used in this test.
+    // Keep the step below the 0.5 m sanity guard. With the unified built-in
+    // defaults (320 ticks/rev, 205 mm wheel), 78 ticks are about 0.157 m.
     StateEstimator est;
 
     OdometryData prime;
@@ -107,14 +107,14 @@ TEST_CASE("StateEstimator: forward drive increases x by ~0.4 m", "[state_est]") 
     fwd.rightTicks   = 78;
     est.update(fwd, 20);
 
-    REQUIRE(est.x()       == Approx(0.4f).margin(0.05f));
+    REQUIRE(est.x()       == Approx(0.157f).margin(0.02f));
     REQUIRE(est.y()       == Approx(0.0f).margin(0.01f));
     REQUIRE(est.heading() == Approx(0.0f).margin(0.01f));
 }
 
 TEST_CASE("StateEstimator: in-place rotation ~90 degrees turns heading to pi/2", "[state_est]") {
-    // For 90° CCW: rightTicks - leftTicks = (pi/2) * wheelBase * ticksPerMeter
-    //   = (pi/2) * 0.285 * 193.94 ≈ 86.8 → 87 ticks difference (leftTicks = 0)
+    // With the unified built-in defaults (320 ticks/rev, 205 mm wheel,
+    // 390 mm wheel base), 87 ticks difference corresponds to about 0.45 rad.
     StateEstimator est;
 
     OdometryData prime;
@@ -127,7 +127,7 @@ TEST_CASE("StateEstimator: in-place rotation ~90 degrees turns heading to pi/2",
     rot.rightTicks   = 87;
     est.update(rot, 20);
 
-    REQUIRE(est.heading() == Approx(static_cast<float>(M_PI) * 0.5f).margin(0.03f));
+    REQUIRE(est.heading() == Approx(0.449f).margin(0.03f));
 }
 
 TEST_CASE("StateEstimator: sanity guard discards frame with >0.5 m delta", "[state_est]") {
@@ -932,13 +932,13 @@ TEST_CASE("EKF: predict step accumulates position uncertainty over time", "[ekf]
 
     OdometryData fwd;
     fwd.mcuConnected = true;
-    fwd.leftTicks    = 39;   // ~0.2 m forward per step
+    fwd.leftTicks    = 39;   // ~0.0785 m forward per step with built-in defaults
     fwd.rightTicks   = 39;
 
     for (int i = 0; i < 20; ++i) est.update(fwd, 20);
 
-    // Position must have grown (20 × ~0.2 m)
-    REQUIRE(est.x() == Approx(4.0f).margin(0.5f));
+    // Position must have grown (20 × ~0.0785 m)
+    REQUIRE(est.x() == Approx(1.57f).margin(0.15f));
     // Uncertainty must be larger than initial (Q accumulates each step)
     REQUIRE(est.posUncertainty() > unc0);
     // Fusion mode: no GPS or IMU → "Odo"
@@ -946,7 +946,7 @@ TEST_CASE("EKF: predict step accumulates position uncertainty over time", "[ekf]
 }
 
 TEST_CASE("EKF: GPS update pulls position toward measurement", "[ekf]") {
-    // Start at origin, drive ~0.2 m east, then inject GPS saying (2, 0).
+    // Start at origin, drive ~0.0785 m east, then inject GPS saying (2, 0).
     // The EKF must move x toward 2 but not jump there immediately.
     StateEstimator est;
 
@@ -958,9 +958,9 @@ TEST_CASE("EKF: GPS update pulls position toward measurement", "[ekf]") {
     fwd.mcuConnected = true;
     fwd.leftTicks    = 39;
     fwd.rightTicks   = 39;
-    est.update(fwd, 20);  // odometry says x ≈ 0.2
+    est.update(fwd, 20);  // odometry says x ≈ 0.0785
 
-    REQUIRE(est.x() == Approx(0.2f).margin(0.05f));
+    REQUIRE(est.x() == Approx(0.0785f).margin(0.02f));
 
     const float x_before = est.x();
     est.updateGps(2.0f, 0.0f, /*isFix=*/true, /*isFloat=*/false);

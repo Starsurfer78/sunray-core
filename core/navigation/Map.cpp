@@ -504,7 +504,24 @@ bool Map::startDocking(float robotX, float robotY) {
     // Route from current position to first dock point, avoiding obstacles (C.7).
     const Point approachTarget = dockApproachTarget();
     const bool havePath = findPath({robotX, robotY}, approachTarget);
-    if (!havePath || freePoints_.empty()) return false;
+    if (!havePath || freePoints_.empty()) {
+        if (!isInsideAllowedArea(robotX, robotY)) {
+            dockPointsIdx = 0;
+            shouldDock_   = true;
+            shouldMow_    = false;
+            wayMode       = WayType::DOCK;
+            freeRoute_    = FreeRouteContext{};
+            localRoute_   = RoutePlan{};
+            freePoints_.clear();
+            freePointsIdx = 0;
+            setLastTargetPoint(robotX, robotY);
+            trackReverse = dockRoute_.points[dockPointsIdx].reverse;
+            trackSlow    = true;
+            targetPoint  = dockRoute_.points[dockPointsIdx].p;
+            return true;
+        }
+        return false;
+    }
 
     dockPointsIdx = 0;
     shouldDock_   = true;

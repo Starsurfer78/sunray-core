@@ -22,7 +22,7 @@ public:
     static constexpr float DEFAULT_CELL_M      = 0.25f;
     static constexpr int   DEFAULT_COLS        = 40;
     static constexpr int   DEFAULT_ROWS        = 40;
-    static constexpr float DEFAULT_ROBOT_RAD_M = 0.30f;
+    static constexpr float DEFAULT_ROBOT_RAD_M = 0.0f;
 
     void buildFromMap(const Map& map,
                       float originX, float originY,
