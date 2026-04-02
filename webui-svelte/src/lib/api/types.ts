@@ -19,6 +19,10 @@ export interface Telemetry {
   stop_button: boolean
   lift: boolean
   motor_err: boolean
+  mow_fault_pin: boolean
+  mow_overload: boolean
+  mow_permanent_fault: boolean
+  mow_ov_check: boolean
   uptime_s: number
   diag_active: boolean
   diag_ticks: number
@@ -70,6 +74,10 @@ export const defaultTelemetry: Telemetry = {
   stop_button: false,
   lift: false,
   motor_err: false,
+  mow_fault_pin: false,
+  mow_overload: false,
+  mow_permanent_fault: false,
+  mow_ov_check: false,
   uptime_s: 0,
   diag_active: false,
   diag_ticks: 0,

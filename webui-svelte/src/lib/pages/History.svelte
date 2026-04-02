@@ -69,11 +69,20 @@
 
   function humanize(value: string) {
     if (!value) return '—'
+    if (value === 'motor_fault' || value === 'ERR_MOTOR_FAULT') return 'Mähmotorfehler'
     return value
       .replace(/^ERR_/, '')
       .replace(/_/g, ' ')
       .toLowerCase()
       .replace(/^\w/, (char) => char.toUpperCase())
+  }
+
+  function displayEventMessage(event: HistoryEventItem) {
+    const raw = event.message || ''
+    if (!raw) return humanize(event.event_reason)
+    return raw
+      .replace('Motorfehler erkannt: Bitte Antrieb und Verkabelung prüfen.', 'Mähmotorfehler erkannt: Bitte Mähantrieb und Verkabelung prüfen.')
+      .replace('Fehlerzustand aktiv: Ein Motorfehler liegt an.', 'Fehlerzustand aktiv: Ein Mähmotorfehler liegt an.')
   }
 
   function topCounts(source: Record<string, number> | undefined, limit = 8) {
@@ -281,7 +290,7 @@
                     <span class="event-time">{formatDate(event.wall_ts_ms)}</span>
                     <span class="event-level">{humanize(event.level)}</span>
                   </div>
-                  <strong>{event.message || humanize(event.event_reason)}</strong>
+                  <strong>{displayEventMessage(event)}</strong>
                   <div class="event-meta">
                     <span>{humanize(event.event_type)}</span>
                     <span>{humanize(event.event_reason)}</span>

@@ -83,7 +83,7 @@
 
 // #define DEBUG 1
 
-#define VER "RM18,1.1.21" // Bump Software version to 1.1.21 for release (mow-fault input is now gated to active mower operation; previous 1.1.20 changes kept: lift sensor wiring compensation, separate left/right bumper channels, overload recovery escalation, safer watchdog timeout, faster mow motor overload response, LP-filtered battery voltage in summary, combined hardware/software fault reporting, hardware over-voltage check)
+#define VER "RM18,1.1.22" // Bump Software version to 1.1.22 for release (AT+S now exposes detailed mow-fault root causes: raw fault pin, overload recovery, permanent fault latch, and OV-check; previous 1.1.21 changes kept: inactive mower no longer trips the fault input)
 
 #define pinSwdCLK PA14
 #define pinSwdSDA PA13
@@ -817,6 +817,14 @@ void cmdSummary()
   s += int(bumperLeft); // TASK-BUMPER-01: field 13 — left bumper channel (PA4/bumperX)
   s += ",";
   s += int(bumperRight); // TASK-BUMPER-01: field 14 — right bumper channel (PA5/bumperY)
+  s += ",";
+  s += int(motorMowFault); // field 15 — raw mow-fault pin after active-mower gating
+  s += ",";
+  s += int(motorOverload); // field 16 — overload recovery currently active
+  s += ",";
+  s += int(motorPermanentFault); // field 17 — repeated overload latched until power cycle
+  s += ",";
+  s += int(ovCheck); // field 18 — explicit repeated copy for Pi-side root-cause diagnostics
   cmdAnswer(s);
 }
 

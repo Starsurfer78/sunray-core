@@ -7,6 +7,10 @@
     { label: 'Stop-Button', value: 'stop_button' },
     { label: 'Lift', value: 'lift' },
     { label: 'Mähmotorfehler', value: 'motor_err' },
+    { label: 'Fault-Pin', value: 'mow_fault_pin' },
+    { label: 'Überlast aktiv', value: 'mow_overload' },
+    { label: 'Permanent Fault', value: 'mow_permanent_fault' },
+    { label: 'OV-Check', value: 'mow_ov_check' },
     { label: 'Diag aktiv', value: 'diag_active' },
   ] as const
 </script>

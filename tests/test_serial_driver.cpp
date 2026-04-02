@@ -96,7 +96,10 @@ std::string makeSummaryResponse(float batV, float chargeV, float chargeA,
                                  bool lift, bool bumper, bool rain, bool fault,
                                  float mowA, float leftA, float rightA,
                                  float batTemp, bool ovCheck,
-                                 bool bumperL, bool bumperR)
+                                 bool bumperL, bool bumperR,
+                                 bool mowFaultPin = false,
+                                 bool mowOverload = false,
+                                 bool mowPermanentFault = false)
 {
     std::string body = "S," + std::to_string(batV)
                       + "," + std::to_string(chargeV)
@@ -111,7 +114,11 @@ std::string makeSummaryResponse(float batV, float chargeV, float chargeA,
                       + "," + std::to_string(batTemp)
                       + "," + std::to_string(ovCheck ? 1 : 0)
                       + "," + std::to_string(bumperL ? 1 : 0)
-                      + "," + std::to_string(bumperR ? 1 : 0);
+                      + "," + std::to_string(bumperR ? 1 : 0)
+                      + "," + std::to_string(mowFaultPin ? 1 : 0)
+                      + "," + std::to_string(mowOverload ? 1 : 0)
+                      + "," + std::to_string(mowPermanentFault ? 1 : 0)
+                      + "," + std::to_string(ovCheck ? 1 : 0);
     char crcBuf[12];
     std::snprintf(crcBuf, sizeof(crcBuf), ",0x%02X", calcCrc(body));
     return body + crcBuf;
@@ -331,6 +338,23 @@ TEST_CASE("Summary frame: precise bumper fields 13+14", "[driver][summary]") {
     const auto f = csvSplit(frame);
     CHECK(std::stoi(f[13]) == 0);  // bumperLeft
     CHECK(std::stoi(f[14]) == 1);  // bumperRight
+}
+
+TEST_CASE("Summary frame: detailed mow-fault cause fields 15-18", "[driver][summary][motorfault]") {
+    auto frame = makeSummaryResponse(
+        24.0f, 0.0f, 0.0f, false, false, false, true,
+        0.0f, 0.0f, 0.0f, 25.0f, true,
+        false, false,
+        /*mowFaultPin=*/true,
+        /*mowOverload=*/true,
+        /*mowPermanentFault=*/true);
+    REQUIRE(verifyCrc(frame));
+    const auto f = csvSplit(frame);
+    REQUIRE(f.size() > 18);
+    CHECK(std::stoi(f[15]) == 1);
+    CHECK(std::stoi(f[16]) == 1);
+    CHECK(std::stoi(f[17]) == 1);
+    CHECK(std::stoi(f[18]) == 1);
 }
 
 TEST_CASE("Charge detect: dock requires realistic charger voltage threshold", "[driver][summary][charge]") {

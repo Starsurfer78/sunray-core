@@ -1477,6 +1477,10 @@ std::string WebSocketServer::buildTelemetryJson(const TelemetryData& d) {
     s += ",\"stop_button\":"; s += bl(d.stop_button);
     s += ",\"lift\":";        s += bl(d.lift);
     s += ",\"motor_err\":";    s += bl(d.motor_err);
+    s += ",\"mow_fault_pin\":"; s += bl(d.mow_fault_pin);
+    s += ",\"mow_overload\":"; s += bl(d.mow_overload);
+    s += ",\"mow_permanent_fault\":"; s += bl(d.mow_permanent_fault);
+    s += ",\"mow_ov_check\":"; s += bl(d.mow_ov_check);
     s += ",\"uptime_s\":";    s += std::to_string(d.uptime_s);
     s += ",\"mcu_v\":\"";     s += esc(d.mcu_version); s += "\"";
     s += ",\"pi_v\":\"";      s += SUNRAY_VERSION; s += "\"";

@@ -546,7 +546,7 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
 }
 
 void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
-    // S,f1..f14  (2 Hz)
+    // S,f1..f14 legacy + optional f15..f18 detailed mow-fault causes (2 Hz)
     const auto f = csvSplit(frame);
     try {
         if (f.size() > 1)  battery_.voltage       = fieldFloat(f[1]);
@@ -561,10 +561,18 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
         motorFaultSummary_ = (f.size() > 7) ? (fieldInt(f[7]) != 0) : false;
         // f[8]=mowCurr, f[9]=leftCurr, f[10]=rightCurr — not in SensorData/BatteryData
         if (f.size() > 11) battery_.batteryTemp   = fieldFloat(f[11]);
-        if (f.size() > 12 && fieldInt(f[12]) != 0)
-            motorFaultSummary_ = true;  // IMP-01: hardware overvoltage signal
+        sensors_.mowOvCheck = (f.size() > 12) ? (fieldInt(f[12]) != 0) : false;
+        if (sensors_.mowOvCheck) motorFaultSummary_ = true;  // IMP-01: hardware overvoltage signal
         if (f.size() > 13) sensors_.bumperLeft  = (fieldInt(f[13]) != 0);
         if (f.size() > 14) sensors_.bumperRight = (fieldInt(f[14]) != 0);
+        sensors_.mowFaultPin = (f.size() > 15) ? (fieldInt(f[15]) != 0) : false;
+        sensors_.mowOverload = (f.size() > 16) ? (fieldInt(f[16]) != 0) : false;
+        sensors_.mowPermanentFault = (f.size() > 17) ? (fieldInt(f[17]) != 0) : false;
+        if (f.size() > 18) sensors_.mowOvCheck = (fieldInt(f[18]) != 0);
+        if (sensors_.mowFaultPin || sensors_.mowOverload
+            || sensors_.mowPermanentFault || sensors_.mowOvCheck) {
+            motorFaultSummary_ = true;
+        }
     } catch (...) {
         return;
     }
@@ -584,6 +592,10 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
                   << " rain=" << (sensors_.rain ? 1 : 0)
                   << " lift=" << (sensors_.lift ? 1 : 0)
                   << " fault=" << (sensors_.motorFault ? 1 : 0)
+                  << " mowPin=" << (sensors_.mowFaultPin ? 1 : 0)
+                  << " overload=" << (sensors_.mowOverload ? 1 : 0)
+                  << " perm=" << (sensors_.mowPermanentFault ? 1 : 0)
+                  << " ov=" << (sensors_.mowOvCheck ? 1 : 0)
                   << " bumpL=" << (sensors_.bumperLeft ? 1 : 0)
                   << " bumpR=" << (sensors_.bumperRight ? 1 : 0)
                   << '\n';

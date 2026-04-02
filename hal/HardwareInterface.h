@@ -40,6 +40,10 @@ struct SensorData {
     bool rain         = false;
     bool stopButton   = false;
     bool motorFault   = false;
+    bool mowFaultPin  = false;  ///< STM summary detail: raw mow driver fault input
+    bool mowOverload  = false;  ///< STM summary detail: software overload recovery active
+    bool mowPermanentFault = false; ///< STM summary detail: repeated overload latched until power cycle
+    bool mowOvCheck   = false;  ///< STM summary detail: hardware over-voltage input active
     bool nearObstacle = false;  ///< optional — always false on Alfred
 };
 

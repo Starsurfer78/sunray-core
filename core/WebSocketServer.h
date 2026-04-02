@@ -68,6 +68,10 @@ public:
         bool         stop_button = false;
         bool         lift      = false;  ///< lift sensor (C.10)
         bool         motor_err = false;
+        bool         mow_fault_pin = false;
+        bool         mow_overload = false;
+        bool         mow_permanent_fault = false;
+        bool         mow_ov_check = false;
         unsigned long uptime_s = 0;      ///< seconds since robot start
         bool         diag_active = false; ///< true while a diag motor test is running
         long         diag_ticks  = 0;     ///< accumulated encoder ticks in current diag test

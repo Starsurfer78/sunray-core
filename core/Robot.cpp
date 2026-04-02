@@ -1182,6 +1182,10 @@ WebSocketServer::TelemetryData Robot::buildTelemetry() const {
     d.stop_button = sensors_.stopButton;
     d.lift      = sensors_.lift;
     d.motor_err = sensors_.motorFault;
+    d.mow_fault_pin = sensors_.mowFaultPin;
+    d.mow_overload = sensors_.mowOverload;
+    d.mow_permanent_fault = sensors_.mowPermanentFault;
+    d.mow_ov_check = sensors_.mowOvCheck;
     d.uptime_s  = now_ms_ / 1000UL;
     d.mcu_version = hw_->getMcuFirmwareVersion();
 
