@@ -309,6 +309,27 @@ TEST_CASE("Robot: startup without MCU connection does not enter error immediatel
     REQUIRE(robot->activeOpName() == "Idle");
 }
 
+TEST_CASE("Robot: missing MCU connection blinks system LED red", "[run][safety]") {
+    auto [robot, hw] = makeRobot();
+    REQUIRE(robot->init());
+
+    hw->odometry.mcuConnected = false;
+    hw->ledCalls.clear();
+    robot->run();
+
+    REQUIRE(hw->ledCalls.size() >= 2);
+    REQUIRE(hw->ledCalls[0].id == LedId::LED_2);
+    REQUIRE(hw->ledCalls[0].state == LedState::RED);
+
+    RobotTelemetryAccess::advanceTimeMs(*robot, 600);
+    hw->ledCalls.clear();
+    robot->run();
+
+    REQUIRE(hw->ledCalls.size() >= 2);
+    REQUIRE(hw->ledCalls[0].id == LedId::LED_2);
+    REQUIRE(hw->ledCalls[0].state == LedState::OFF);
+}
+
 TEST_CASE("Robot: run() exposes sensor snapshot", "[run]") {
     auto [robot, hw] = makeRobot();
     robot->init();
@@ -882,4 +903,29 @@ TEST_CASE("Robot: stop() causes loop() to exit", "[loop]") {
     REQUIRE(robot.isRunning() == false);
     REQUIRE(hw->keepPowerOnFlag == false);   // shutdown sequence was called
     REQUIRE(hw->hadMotorStop());             // motors were zeroed on exit
+}
+
+TEST_CASE("Robot: loop shutdown leaves system LED red during power-off grace", "[loop]") {
+    auto hw_owned = std::make_unique<MockHardware>();
+    MockHardware* hw = hw_owned.get();
+    Robot robot(std::move(hw_owned), makeConfig(), makeLogger());
+    robot.init();
+
+    std::thread loopThread([&robot]() {
+        robot.loop();
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    robot.stop();
+    loopThread.join();
+
+    bool sawSystemRed = false;
+    for (const auto& call : hw->ledCalls) {
+        if (call.id == LedId::LED_2 && call.state == LedState::RED) {
+            sawSystemRed = true;
+            break;
+        }
+    }
+
+    REQUIRE(sawSystemRed);
 }

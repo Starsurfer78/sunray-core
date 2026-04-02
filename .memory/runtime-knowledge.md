@@ -99,6 +99,8 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: while a diagnostic motor action is active, a pressed stop button now aborts the diagnostic immediately, zeros motor PWM, and returns control to the normal button-handling path in the same control-loop cycle.
 - `FACT`: battery critical handling can stop motors and request power-off through `keepPowerOn(false)`.
 - `FACT`: motor fault may come from STM32 overload logic and over-voltage reporting.
+- `FACT`: The top system-status LED now blinks red when no MCU communication is available in the current control cycle, instead of remaining green.
+- `FACT`: On runtime loop shutdown, the system-status LED is forced to solid red while the Alfred power-off grace path is armed.
 
 ## Known Unknowns
 

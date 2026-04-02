@@ -97,6 +97,9 @@ void Robot::loop() {
     }
 
     logger_->info(TAG, "Loop exited — shutting down hardware");
+    hw_->setLed(LedId::LED_1, LedState::OFF);
+    hw_->setLed(LedId::LED_2, LedState::RED);
+    hw_->setLed(LedId::LED_3, LedState::OFF);
     hw_->setMotorPwm(0, 0, 0);
     hw_->keepPowerOn(false);
 }
@@ -1093,7 +1096,10 @@ void Robot::armMissionResumeGuard() {
 
 void Robot::updateStatusLeds() {
     const std::string opName = activeOpName();
-    if (opName == "Error") {
+    if (!odometry_.mcuConnected) {
+        const bool blinkOn = ((now_ms_ / 500UL) % 2UL) == 0UL;
+        hw_->setLed(LedId::LED_2, blinkOn ? LedState::RED : LedState::OFF);
+    } else if (opName == "Error") {
         hw_->setLed(LedId::LED_2, LedState::RED);
     } else {
         hw_->setLed(LedId::LED_2, LedState::GREEN);

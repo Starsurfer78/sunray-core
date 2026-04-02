@@ -34,6 +34,7 @@
 ## Safety
 
 - `FACT`: Stop paths include operator emergency stop, bumper/lift/motor-fault safety transitions, battery critical shutdown, GPS degrade handling, op watchdogs, and now Pi-side MCU-comms-loss faulting.
+- `FACT`: The top system-status LED now blinks red whenever the Pi currently has no valid MCU communication, and it is forced solid red during runtime shutdown instead of staying green.
 - `FACT`: Active diagnostics now abort immediately on stop-button press.
 - `FACT`: External WebSocket/MQTT commands are serialized onto the `Robot` control-loop thread.
 - `FACT`: MCU comm loss after at least one confirmed connection now yields local motor stop plus `ERR_MCU_COMMS`.

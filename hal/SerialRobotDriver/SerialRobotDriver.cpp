@@ -314,9 +314,9 @@ void SerialRobotDriver::keepPowerOn(bool flag) {
         if (!shutdownPending_) {
             shutdownPending_ = true;
             shutdownAt_      = nowMs() + 5000;  // 5 s grace period
-            // All LEDs off immediately to signal imminent shutdown
+            // Keep a clear red system status while the shutdown grace period runs.
             writeLed(LedId::LED_1, LedState::OFF);
-            writeLed(LedId::LED_2, LedState::OFF);
+            writeLed(LedId::LED_2, LedState::RED);
             writeLed(LedId::LED_3, LedState::OFF);
         }
     }
