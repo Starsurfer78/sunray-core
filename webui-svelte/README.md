@@ -4,20 +4,18 @@ Neustart der Alfred-WebUI auf Basis von `Svelte + Vite + TypeScript`.
 
 Dies ist die aktive Frontend-Basis des Projekts.
 
-Die fruehere Vue-WebUI wurde als Referenz nach
-`ALTE_DATEIEN/webui-vue-reference/` verschoben.
-
 ## Ziel
 
-Das neue Frontend soll klein, robust und websocket-faehig sein. Der MVP deckt
-zuerst nur diese Bereiche ab:
+Das Frontend soll robust, feldtauglich und websocket-faehig sein. Aktuell
+deckt es unter anderem diese Bereiche ab:
 
 - Verbindung und Live-Telemetrie
 - Dashboard
-- Basis-Steuerung
+- Missionssteuerung
 - Diagnose
-- Motor-Kalibrierung
-- einfache Karte mit Gitter
+- Karteneditor
+- Verlauf und Statistik
+- operatornahe Fehler- und Statushinweise
 
 ## Entwicklung
 
@@ -43,8 +41,20 @@ Der Build landet in:
 
 ## Deploy
 
-Das Frontend sollte als fertige statische `dist/`-App deployed werden. Nicht
-auf dem Pi entwickeln, wenn es sich vermeiden laesst.
+Das Frontend wird als fertige statische `dist/`-App vom `sunray-core`-Backend
+ausgeliefert.
+
+Fuer Alfred ist der normale Weg:
+
+```bash
+cd ~/sunray-core/webui-svelte
+npm install
+npm run build
+```
+
+Alternativ baut `bash scripts/install_sunray.sh` die WebUI automatisch mit.
+
+Nicht auf dem Pi entwickeln, wenn es sich vermeiden laesst.
 
 ## Architektur
 
@@ -52,3 +62,11 @@ auf dem Pi entwickeln, wenn es sich vermeiden laesst.
 - `src/lib/stores/` fuer globalen Zustand
 - `src/lib/components/` fuer wiederverwendbare UI-Bloecke
 - `src/lib/pages/` fuer Seiten
+
+Aktuelle Hauptseiten:
+
+- `Dashboard.svelte`
+- `Map.svelte`
+- `Mission.svelte`
+- `Diagnostics.svelte`
+- `History.svelte`

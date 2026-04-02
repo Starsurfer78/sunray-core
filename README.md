@@ -24,16 +24,18 @@ Dieses Projekt baut auf dem Ardumower-Sunray-Projekt auf:
 - Architektur- und Navigationsumbau ist im Code abgeschlossen und in [docs/NAVIGATION_UPGRADE.md](docs/NAVIGATION_UPGRADE.md) dokumentiert.
 - Aktive Frontend-Basis ist `webui-svelte/`.
 - Der groesste offene Block ist jetzt reale Linux-/Pi-/Hardware-Validierung.
-- Offene Aufgaben stehen nur noch in [TODO.md](TODO.md).
+- Aktive Priorisierung und Ausfuehrung laufen ueber [TASK.md](TASK.md), [BUG_REPORT.md](BUG_REPORT.md), [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) und [PRIORITY_MATRIX.md](PRIORITY_MATRIX.md).
 
 ## Einstieg Im Repo
 
 Wenn du das Projekt neu aufmachst, starte hier:
 
-- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
+- [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)
 - [PROJECT_MAP.md](PROJECT_MAP.md)
-- [TODO.md](TODO.md)
-- [WORKING_RULES.md](WORKING_RULES.md)
+- [TASK.md](TASK.md)
+- [BUG_REPORT.md](BUG_REPORT.md)
+- [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md)
+- [PRIORITY_MATRIX.md](PRIORITY_MATRIX.md)
 
 Wichtige Fachdokumente:
 
@@ -42,6 +44,7 @@ Wichtige Fachdokumente:
 - [docs/TELEMETRY_CONTRACT.md](docs/TELEMETRY_CONTRACT.md)
 - [docs/ROBOT_RUN_BASELINE.md](docs/ROBOT_RUN_BASELINE.md)
 - [docs/ALFRED_TEST_RUN_GUIDE.md](docs/ALFRED_TEST_RUN_GUIDE.md)
+- [docs/ALFRED_PRODUCTION_SWITCHOVER.md](docs/ALFRED_PRODUCTION_SWITCHOVER.md)
 - [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md)
 - [docs/ROBOT_BUTTON_BUZZER_ERROR.md](docs/ROBOT_BUTTON_BUZZER_ERROR.md)
 
@@ -65,7 +68,6 @@ sunray-core/
 ├── tests/                 Catch2-Test-Suite
 ├── webui-svelte/          aktive Svelte-WebUI
 ├── docs/                  aktuelle Fachdokumentation
-├── ALTE_DATEIEN/          archivierte Alt-Dokumente und Vue-Referenz
 ├── config.example.json    Beispielkonfiguration
 ├── main.cpp               Einstiegspunkt
 └── CMakeLists.txt         Top-Level-Build
@@ -135,10 +137,10 @@ Installiert Linux-Abhaengigkeiten, baut Core und WebUI, legt bei Bedarf Laufzeit
 Beispiele:
 
 ```bash
-./scripts/install_sunray.sh
-./scripts/install_sunray.sh --sim
-./scripts/install_sunray.sh --autostart yes
-./scripts/install_sunray.sh --no-start
+bash scripts/install_sunray.sh
+bash scripts/install_sunray.sh --sim
+bash scripts/install_sunray.sh --autostart yes
+bash scripts/install_sunray.sh --no-start
 ```
 
 ### `scripts/check_deploy_state.sh`
@@ -150,6 +152,10 @@ Beispiel:
 ```bash
 bash scripts/check_deploy_state.sh
 ```
+
+Fuer den finalen Alfred-Umstieg ohne staendiges Zurueckwechseln:
+
+- [docs/ALFRED_PRODUCTION_SWITCHOVER.md](docs/ALFRED_PRODUCTION_SWITCHOVER.md)
 
 ### `scripts/flash_alfred.sh`
 

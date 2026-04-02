@@ -21,7 +21,7 @@ git log --oneline -1
 Erwartet wird aktuell:
 
 ```text
-5e6e268 Improve map capture UX and dashboard preflight
+master auf aktuellem freigegebenen Teststand
 ```
 
 ## 3. Laufenden Originaldienst pruefen
@@ -68,20 +68,11 @@ Wenn Node.js / npm auf dem Pi noch fehlen, diese ebenfalls zuerst installieren.
 
 ```bash
 cd ~/sunray-core
-cmake -S . -B build_pi
-cmake --build build_pi -j2
+bash scripts/install_sunray.sh --no-start --autostart no
 ```
 
-Die WebUI wird **nicht** automatisch durch den manuellen Binary-Start gebaut.
-Darum zusaetzlich:
-
-```bash
-cd ~/sunray-core/webui-svelte
-npm install
-npm run build
-```
-
-Damit liegt die statische WebUI danach unter `~/sunray-core/webui-svelte/dist`.
+Damit werden Backend und WebUI auf den aktuellen Stand gebracht, ohne sofort
+auf `systemd`-Autostart umzuschalten.
 
 Wichtig:
 
@@ -167,7 +158,7 @@ Core als auch die WebUI und installiert die benoetigten Pakete:
 
 ```bash
 cd ~/sunray-core
-./scripts/install_sunray.sh --no-start
+bash scripts/install_sunray.sh --no-start
 ```
 
 Fuer den ersten echten Robotertest bleibt der manuelle Vordergrundstart aber der
@@ -213,6 +204,7 @@ systemctl status sunray --no-pager
 - Noch **keinen** Autostart auf `sunray-core` umstellen
 - Zuerst nur manuell im Vordergrund testen
 - Rollback immer ueber den Originaldienst
+- Fuer den finalen dauerhaften Wechsel danach [ALFRED_PRODUCTION_SWITCHOVER.md](ALFRED_PRODUCTION_SWITCHOVER.md) verwenden
 
 
 
