@@ -1,5 +1,6 @@
 <script lang="ts">
   import OtaUpdate from "../components/OtaUpdate.svelte";
+  import { stmProbe, type StmProbeResponse } from "../api/rest";
   import SensorPanel from "../components/Diagnostics/SensorPanel.svelte";
   import ImuPanel from "../components/Diagnostics/ImuPanel.svelte";
   import MotorTestPanel from "../components/Diagnostics/MotorTestPanel.svelte";
@@ -12,8 +13,24 @@
   type Section = "general" | "diagnostics";
 
   let activeSection: Section = "general";
+  let stmProbeBusy = false;
+  let stmProbeResult: StmProbeResponse | null = null;
+  let stmProbeError = "";
 
   $: recoveryNotice = getRecoveryNotice($telemetry);
+
+  async function runStmProbe() {
+    stmProbeBusy = true;
+    stmProbeError = "";
+    stmProbeResult = null;
+    try {
+      stmProbeResult = await stmProbe();
+    } catch (error) {
+      stmProbeError = error instanceof Error ? error.message : "STM-Probe fehlgeschlagen";
+    } finally {
+      stmProbeBusy = false;
+    }
+  }
 </script>
 
 <section class="settings-shell">
@@ -80,6 +97,35 @@
 
       <div class="panel-card">
         <OtaUpdate />
+      </div>
+
+      <div class="panel-card stm-panel">
+        <div class="panel-head">
+          <span class="eyebrow">STM32 Firmware</span>
+          <h3>SWD-Verbindung prüfen</h3>
+          <p>Testet nur, ob Alfred aktuell eine flashfähige SWD-Verbindung zum STM32 aufbauen kann.</p>
+        </div>
+
+        <div class="stm-actions">
+          <button type="button" class="probe-btn" disabled={stmProbeBusy} on:click={runStmProbe}>
+            {stmProbeBusy ? "Prüfe SWD ..." : "SWD-Verbindung prüfen"}
+          </button>
+          <span class="stm-note">Kein Flash, nur `flash_alfred.sh probe`.</span>
+        </div>
+
+        {#if stmProbeResult}
+          <div class="stm-result ok">
+            <strong>Flashfähige Verbindung erkannt</strong>
+            <pre>{stmProbeResult.detail}</pre>
+          </div>
+        {/if}
+
+        {#if stmProbeError}
+          <div class="stm-result error">
+            <strong>Keine flashfähige Verbindung</strong>
+            <pre>{stmProbeError}</pre>
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="section-head">
@@ -236,8 +282,81 @@
   }
 
   .panel-card {
-    padding: 0;
     overflow: hidden;
+  }
+
+  .stm-panel {
+    gap: 0.8rem;
+  }
+
+  .panel-head {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  h3 {
+    margin: 0;
+    color: #e2e8f0;
+    font-size: 1.05rem;
+  }
+
+  .stm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .probe-btn {
+    padding: 0.55rem 0.85rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #10213b;
+    color: #dbeafe;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .probe-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .stm-note {
+    color: #7a8da8;
+    font-size: 0.76rem;
+  }
+
+  .stm-result {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.9rem 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid #1e3a5f;
+    background: #0a1020;
+  }
+
+  .stm-result.ok {
+    border-color: #166534;
+  }
+
+  .stm-result.error {
+    border-color: #7f1d1d;
+  }
+
+  .stm-result strong {
+    color: #e2e8f0;
+    font-size: 0.9rem;
+  }
+
+  .stm-result pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #a9bacd;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
   .label {

@@ -181,6 +181,10 @@ void WebSocketServer::setOtaScriptPath(const std::string& path) {
     otaScriptPath_ = path;
 }
 
+void WebSocketServer::setStmFlashScriptPath(const std::string& path) {
+    stmFlashScriptPath_ = path;
+}
+
 // ── HTTP route setup ──────────────────────────────────────────────────────────
 
 void WebSocketServer::setupHttpRoutes() {
@@ -985,6 +989,42 @@ void WebSocketServer::setupHttpRoutes() {
             }).detach();
 
             crow::response res(200, R"({"status":"update_started"})");
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── POST /api/stm/probe — verify STM32 SWD flash path availability ──────
+    CROW_ROUTE(app, "/api/stm/probe").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+
+            const std::string scriptPath = stmFlashScriptPath_;
+            if (scriptPath.empty() || !std::filesystem::exists(scriptPath)) {
+                return crow::response(503, R"({"error":"stm_flash_script_not_found"})");
+            }
+
+            const std::string cmd = "sudo /bin/bash \"" + scriptPath + "\" probe 2>&1";
+            FILE* pipe = popen(cmd.c_str(), "r");
+            if (!pipe) return crow::response(500, R"({"error":"popen_failed"})");
+
+            char buf[256];
+            std::string output;
+            while (fgets(buf, sizeof(buf), pipe)) output += buf;
+            const int rc = pclose(pipe);
+
+            while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
+                output.pop_back();
+            }
+
+            nlohmann::json j;
+            j["ok"] = (rc == 0);
+            j["status"] = (rc == 0) ? "probe_ok" : "probe_failed";
+            j["detail"] = output.empty()
+                ? ((rc == 0) ? "SWD probe completed" : "STM probe failed")
+                : output;
+
+            crow::response res(rc == 0 ? 200 : 500, j.dump());
             res.set_header("Content-Type", "application/json");
             return res;
         }

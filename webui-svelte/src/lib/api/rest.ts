@@ -362,3 +362,20 @@ export async function otaUpdate(): Promise<{ status: string }> {
   }
   return response.json() as Promise<{ status: string }>
 }
+
+export interface StmProbeResponse {
+  ok: boolean
+  status: 'probe_ok' | 'probe_failed'
+  detail: string
+}
+
+export async function stmProbe(): Promise<StmProbeResponse> {
+  const response = await fetch('/api/stm/probe', { method: 'POST' })
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+
+  return JSON.parse(text) as StmProbeResponse
+}

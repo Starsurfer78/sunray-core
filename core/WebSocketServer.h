@@ -206,6 +206,10 @@ public:
     /// When empty (default), the OTA endpoints return 503.
     void setOtaScriptPath(const std::string& path);
 
+    /// Set the path of the STM flash helper script used by POST /api/stm/*.
+    /// When empty (default), the STM probe endpoint returns 503.
+    void setStmFlashScriptPath(const std::string& path);
+
     // ── Testable helper ───────────────────────────────────────────────────────
 
     /// Serialize to the frozen telemetry JSON format (no trailing newline).
@@ -265,6 +269,7 @@ private:
     // OTA update script path + running flag (POST /api/ota/*)
     std::string       otaScriptPath_;
     std::atomic<bool> otaRunning_{false};
+    std::string       stmFlashScriptPath_;
 
     // Map file path + reload callback (GET/POST /api/map)
     std::string      mapPath_;

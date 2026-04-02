@@ -102,6 +102,32 @@ static std::string resolveOtaScriptPath() {
     return {};
 }
 
+static std::string resolveFlashScriptPath() {
+    namespace fs = std::filesystem;
+
+    std::vector<fs::path> candidates;
+    candidates.emplace_back(fs::current_path() / "scripts" / "flash_alfred.sh");
+
+    const fs::path procExe = "/proc/self/exe";
+    std::error_code ec;
+    if (fs::exists(procExe, ec)) {
+        const fs::path exePath = fs::read_symlink(procExe, ec);
+        if (!ec && !exePath.empty()) {
+            const fs::path exeDir = exePath.parent_path();
+            candidates.emplace_back(exeDir / "scripts" / "flash_alfred.sh");
+            candidates.emplace_back(exeDir.parent_path() / "scripts" / "flash_alfred.sh");
+        }
+    }
+
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate) && fs::is_regular_file(candidate)) {
+            return fs::weakly_canonical(candidate).string();
+        }
+    }
+
+    return {};
+}
+
 static std::vector<std::string> loadMissionZoneIds(const std::string& missionPath,
                                                    const std::string& missionId) {
     if (missionId.empty() || !std::filesystem::exists(missionPath)) return {};
@@ -223,6 +249,9 @@ int main(int argc, char* argv[]) {
     // OTA update script: resolved relative to cwd and running binary location.
     if (const std::string otaScript = resolveOtaScriptPath(); !otaScript.empty()) {
         wsServer->setOtaScriptPath(otaScript);
+    }
+    if (const std::string flashScript = resolveFlashScriptPath(); !flashScript.empty()) {
+        wsServer->setStmFlashScriptPath(flashScript);
     }
     wsServer->onMapGet([&robot]() -> nlohmann::json {
         return robot.getMapJson();
