@@ -27,6 +27,7 @@
       : $telemetry.gps_sol === 5
         ? "RTK Float"
         : $telemetry.gps_text || "invalid";
+  $: gpsSignal = $telemetry.gps_text || "—";
   $: connectionState = !$connection.connected
     ? "offline"
     : connectionFresh
@@ -35,8 +36,12 @@
         ? `alt (${connectionAgeSeconds}s)`
         : "verbunden";
   $: missionIndex = $telemetry.mission_zone_count > 0
-    ? `${Math.max(1, $telemetry.mission_zone_index + 1)}/${$telemetry.mission_zone_count}`
+    ? `${Math.max(1, $telemetry.mission_zone_index || 1)}/${$telemetry.mission_zone_count}`
     : "—";
+  $: dockContact = $telemetry.charger_connected ? "ja" : "nein";
+  $: resumeTarget = $telemetry.resume_target || "—";
+  $: systemHealth = $telemetry.runtime_health || "ok";
+  $: statePhase = $telemetry.state_phase || "—";
 
   function clamp(value: number, min: number, max: number) {
     return Math.max(min, Math.min(max, value));
@@ -94,8 +99,9 @@
         <span class="global-info-label">GPS / RTK</span>
         <strong>{gpsStatus}</strong>
         <span>Acc: {$telemetry.gps_acc > 0 ? `${$telemetry.gps_acc.toFixed(2)} m` : "—"}</span>
-        <span>Sat: — / —</span>
-        <span>Age: {connectionAgeSeconds !== null ? `${connectionAgeSeconds}s` : "—"}</span>
+        <span>Qualität: {gpsSignal} / sol {$telemetry.gps_sol || "—"}</span>
+        <span>EKF: {$telemetry.ekf_health || "—"}</span>
+        <span>Link: {connectionAgeSeconds !== null ? `${connectionAgeSeconds}s` : "—"}</span>
       </div>
 
       <div class="global-info-card">
@@ -103,8 +109,8 @@
         <strong>{connectionState}</strong>
         <span>Pos x: {$telemetry.x.toFixed(2)} m</span>
         <span>Pos y: {$telemetry.y.toFixed(2)} m</span>
-        <span>Tgt x: —</span>
-        <span>Tgt y: —</span>
+        <span>Phase: {statePhase}</span>
+        <span>Resume: {resumeTarget}</span>
         <span>Idx: {missionIndex}</span>
       </div>
 
@@ -114,12 +120,14 @@
         <span>Voltage: {$telemetry.battery_v.toFixed(2)} V</span>
         <span>Current: {$telemetry.charge_a.toFixed(2)} A</span>
         <span>Dock: {$telemetry.charge_v.toFixed(2)} V</span>
+        <span>Kontakt: {dockContact}</span>
       </div>
 
       <div class="global-info-card">
         <span class="global-info-label">System</span>
         <strong>{$telemetry.pi_v || "—"}</strong>
         <span>MCU: {$telemetry.mcu_v || "—"}</span>
+        <span>Health: {systemHealth}</span>
         <span>Ansicht: {currentView}</span>
         {#if currentView === "map"}
           <span>Mode: {$mappingTestMode ? "Testmodus aktiv" : "Normal"}</span>
