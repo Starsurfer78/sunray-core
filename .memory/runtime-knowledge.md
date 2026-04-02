@@ -127,4 +127,7 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: The uploaded-binary flash path is intentionally gated to `Idle` or `Charge` based on live telemetry, rather than allowing arbitrary flash attempts mid-mission.
 - `FACT`: A controlled STM WebUI flash now raises a dedicated maintenance window inside `Robot`, so temporary UART loss during OpenOCD reset/program/verify no longer immediately latches `ERR_MCU_COMMS`.
 - `FACT`: After a successful WebUI STM flash, `WebSocketServer` schedules an automatic `sudo /bin/systemctl restart sunray-core.service`, because Alfred field logs showed that the cleanest way back from post-flash UART garbage and brief MCU reboot gaps is a fast service restart.
-- `UNKNOWN`: STM32 firmware OTA, dedicated dock-contact hardware, and hard electrical emergency-stop proof remain blocked by missing evidence.
+- `FACT`: Alfred's WebUI STM flash loop is now field-proven end-to-end, including upload, probe, flash, post-flash recovery, and version re-observation over UART.
+- `FACT`: `RM18 v1.1.22` extends `AT+S` with detailed mow-fault cause bits after the legacy fields, keeping backward compatibility while exposing `mow_fault_pin`, `mow_overload`, `mow_permanent_fault`, and `mow_ov_check` to the Pi/UI.
+- `FACT`: `RM18 v1.1.23` gates `OV-Check` to active mower operation, matching the same safety semantics already applied to the raw mow-fault input and eliminating Alfred's false-positive `Mähmotorfehler` in `Idle`/`Charge`.
+- `UNKNOWN`: Automated rollback / rescue after a bad STM flash remains unproven, as do dedicated dock-contact hardware and hard electrical emergency-stop proof.

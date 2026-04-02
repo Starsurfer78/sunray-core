@@ -61,7 +61,7 @@ Execution then happens only from this matrix, one `P1` item at a time.
 | `FF-008` | Home Assistant Operational Workflow Pack | 52 | `F2` | Low | Medium | Queued |
 | `FF-011` | Operator Calibration Workspace | 51 | `F2` | Medium | Medium | Queued |
 | `FF-009` | Safe Update Assistant for Alfred | 49 | `F3` | Medium | High | Done |
-| `FF-014` | STM32 Firmware OTA for Alfred | 44 | `F3` | High | Medium | Queued |
+| `FF-014` | STM32 Firmware OTA for Alfred | 44 | `F3` | High | Medium | Done |
 | `FF-012` | Degraded-Mode Maintenance API | 45 | `F3` | High | Medium | Queued |
 
 ## Notes

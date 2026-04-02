@@ -21,9 +21,10 @@
 - `FACT`: WebUI now includes a `Verlauf` page backed by `/api/history/events`, `/api/history/sessions`, `/api/statistics/summary`, and `/api/history/export`.
 - `FACT`: History events now carry wall-clock timestamps in addition to runtime uptime, so the `Verlauf` event stream can show real date/time instead of formatting uptime as a pseudo-epoch.
 - `FACT`: Pi-side OTA/update assistant is now functional through the WebUI for `sunray-core` userspace update/check/restart.
-- `FACT`: STM32 WebUI staging now supports prebuilt `.bin` upload, metadata display, and controlled flash of the uploaded binary; full on-device compile flow is still intentionally deferred.
+- `FACT`: STM32 WebUI staging now supports prebuilt `.bin` upload, metadata display, controlled flash of the uploaded binary, temporary comm-loss tolerance during flashing, and automatic `sunray-core.service` restart after a successful flash.
+- `FACT`: Alfred field validation now proves the complete WebUI STM flashing loop, not just the SWD probe: uploaded binaries can be flashed successfully, the runtime restarts cleanly afterward, and the resulting MCU version is observed again over UART.
 - `UNKNOWN`: OTA/update rollback beyond the documented manual paths.
-- `UNKNOWN`: STM32 firmware flash through the WebUI and rollback remain unproven; only the SWD probe path is currently field-proven.
+- `UNKNOWN`: Automated rollback / rescue path after a bad STM flash remains unproven.
 
 ## Hardware
 
@@ -61,6 +62,8 @@
 - `FACT`: Alfred field testing after flashing `RM18 v1.1.20` showed `Motorfehler` blinking in Diagnose while the runtime stayed stable in `Charge`; root cause was mixed Pi-side parsing semantics between fast `AT+M` frames and slower `AT+S` summary frames, not an immediately recurring hard motor fault.
 - `FACT`: After the Pi-side parser fix, Alfred then showed `Motorfehler` permanently active while still stable in `Charge`. This exposed a second issue in `rm18.ino`: `pinMotorMowFault` can stay low while the mower brake is engaged, so the firmware must gate that hardware fault input on an actually active mower state.
 - `FACT`: The resulting STM hotfix was versioned as `RM18 v1.1.21`, and the UI/operator wording was narrowed to `Mähmotorfehler` to match the actual Alfred signal source.
+- `FACT`: Detailed fault-cause telemetry in `RM18 v1.1.22` proved that Alfred's remaining `Mähmotorfehler` false-positive came solely from `OV-Check`, with `Fault-Pin`, `Überlast`, and `Permanent Fault` all inactive.
+- `FACT`: `RM18 v1.1.23` now gates `OV-Check` to active mower operation as well; Alfred field validation showed the false-positive `Mähmotorfehler` disappears in `Idle`/`Charge` afterward.
 
 ## Bugs
 

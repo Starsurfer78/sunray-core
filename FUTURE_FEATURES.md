@@ -338,12 +338,26 @@ Feature does not mean:
 - Blockers:
   - No proven automated rollback for failed STM flash
   - no verified production-safe recovery path after interrupted firmware update
-  - the actual flash operation is not yet field-proven through the WebUI
-  - upload, file-retention, and operator-confirmation flow still need to be defined
 - Recommended phase:
   - F3
 - Confidence level:
   - Medium
+- Current status:
+  - Functionally landed for Alfred field use:
+    - WebUI can probe SWD connectivity over Pi GPIO
+    - upload a prebuilt `rm18.ino.bin`
+    - flash the uploaded STM binary through the proven OpenOCD path
+    - tolerate temporary MCU comm loss during flash
+    - restart `sunray-core.service` automatically after a successful flash
+    - expose detailed mow-fault root causes (`Fault-Pin`, `Überlast`, `Permanent Fault`, `OV-Check`) in the diagnostics view
+  - Alfred field validation now also confirmed follow-up firmware hotfixes through that path:
+    - `RM18 v1.1.21` gated the mow-fault input to active mower operation
+    - `RM18 v1.1.22` exposed detailed mow-fault causes in `AT+S`
+    - `RM18 v1.1.23` gated `OV-Check` to active mower operation, clearing the false-positive `Mähmotorfehler` in `Idle`/`Charge`
+  - Remaining gap is no longer core WebUI flashing itself, but hardening and lifecycle comfort around it:
+    - automated rollback
+    - richer flash progress/reporting
+    - optional later on-device STM compile flow
 
 ### FF-010
 
