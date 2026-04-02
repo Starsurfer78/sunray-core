@@ -270,6 +270,7 @@ private:
     std::string       otaScriptPath_;
     std::atomic<bool> otaRunning_{false};
     std::string       stmFlashScriptPath_;
+    std::atomic<bool> stmFlashRunning_{false};
 
     // Map file path + reload callback (GET/POST /api/map)
     std::string      mapPath_;

@@ -381,3 +381,58 @@ export async function stmProbe(): Promise<StmProbeResponse> {
 
   return JSON.parse(text) as StmProbeResponse
 }
+
+export interface StmUploadedFirmwareInfo {
+  ok: boolean
+  exists: boolean
+  original_name?: string
+  size_bytes?: number
+  uploaded_at_ms?: number
+  stored_path?: string
+}
+
+export interface StmFlashResponse {
+  ok: boolean
+  status: 'flash_ok' | 'flash_failed' | 'flash_busy'
+  detail: string
+}
+
+export async function getStmUploadedFirmware(): Promise<StmUploadedFirmwareInfo> {
+  const response = await fetch('/api/stm/uploaded')
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+
+  return JSON.parse(text) as StmUploadedFirmwareInfo
+}
+
+export async function uploadStmFirmware(file: File): Promise<StmUploadedFirmwareInfo> {
+  const response = await fetch('/api/stm/upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-File-Name': file.name,
+    },
+    body: file,
+  })
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+
+  return JSON.parse(text) as StmUploadedFirmwareInfo
+}
+
+export async function flashUploadedStm(): Promise<StmFlashResponse> {
+  const response = await fetch('/api/stm/flash', { method: 'POST' })
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+
+  return JSON.parse(text) as StmFlashResponse
+}

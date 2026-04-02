@@ -1,6 +1,15 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import OtaUpdate from "../components/OtaUpdate.svelte";
-  import { stmProbe, type StmProbeResponse } from "../api/rest";
+  import {
+    flashUploadedStm,
+    getStmUploadedFirmware,
+    stmProbe,
+    uploadStmFirmware,
+    type StmFlashResponse,
+    type StmProbeResponse,
+    type StmUploadedFirmwareInfo,
+  } from "../api/rest";
   import SensorPanel from "../components/Diagnostics/SensorPanel.svelte";
   import ImuPanel from "../components/Diagnostics/ImuPanel.svelte";
   import MotorTestPanel from "../components/Diagnostics/MotorTestPanel.svelte";
@@ -16,23 +25,86 @@
   let stmProbeBusy = false;
   let stmProbeResult: StmProbeResponse | null = null;
   let stmProbeError = "";
-  let showStmProbeDetail = false;
+  let stmUploadBusy = false;
+  let stmUploadInfo: StmUploadedFirmwareInfo | null = null;
+  let stmUploadError = "";
+  let stmFlashBusy = false;
+  let stmFlashResult: StmFlashResponse | null = null;
+  let stmFlashError = "";
+  let selectedStmFile: File | null = null;
+  let showStmDetail = false;
+  let stmDetailTitle = "";
+  let stmDetailBody = "";
 
   $: recoveryNotice = getRecoveryNotice($telemetry);
+
+  function openStmDetail(title: string, body: string) {
+    stmDetailTitle = title;
+    stmDetailBody = body;
+    showStmDetail = true;
+  }
+
+  async function loadStmUploadInfo() {
+    stmUploadError = "";
+    try {
+      stmUploadInfo = await getStmUploadedFirmware();
+    } catch (error) {
+      stmUploadError = error instanceof Error ? error.message : "STM-Uploadstatus konnte nicht geladen werden";
+    }
+  }
+
+  onMount(() => {
+    void loadStmUploadInfo();
+  });
 
   async function runStmProbe() {
     stmProbeBusy = true;
     stmProbeError = "";
     stmProbeResult = null;
-    showStmProbeDetail = false;
     try {
       stmProbeResult = await stmProbe();
-      showStmProbeDetail = true;
+      openStmDetail(stmProbeHeading, stmProbeResult.detail);
     } catch (error) {
       stmProbeError = error instanceof Error ? error.message : "STM-Probe fehlgeschlagen";
-      showStmProbeDetail = true;
+      openStmDetail("Keine flashfähige Verbindung", stmProbeError);
     } finally {
       stmProbeBusy = false;
+    }
+  }
+
+  async function handleStmUpload() {
+    if (!selectedStmFile) return;
+
+    stmUploadBusy = true;
+    stmUploadError = "";
+    try {
+      stmUploadInfo = await uploadStmFirmware(selectedStmFile);
+      selectedStmFile = null;
+    } catch (error) {
+      stmUploadError = error instanceof Error ? error.message : "STM-Firmware konnte nicht hochgeladen werden";
+    } finally {
+      stmUploadBusy = false;
+    }
+  }
+
+  async function handleStmFlash() {
+    if (!stmUploadInfo?.exists || stmFlashBusy) return;
+    if (!window.confirm("STM32 wirklich mit der hochgeladenen Firmware flashen?")) return;
+
+    stmFlashBusy = true;
+    stmFlashError = "";
+    stmFlashResult = null;
+    try {
+      stmFlashResult = await flashUploadedStm();
+      openStmDetail(
+        stmFlashResult.ok ? "STM-Flash erfolgreich" : "STM-Flash fehlgeschlagen",
+        stmFlashResult.detail,
+      );
+    } catch (error) {
+      stmFlashError = error instanceof Error ? error.message : "STM-Flash fehlgeschlagen";
+      openStmDetail("STM-Flash fehlgeschlagen", stmFlashError);
+    } finally {
+      stmFlashBusy = false;
     }
   }
 
@@ -42,6 +114,13 @@
       : stmProbeResult?.ok
         ? "Flashfähige Verbindung erkannt"
         : "Keine flashfähige Verbindung";
+  $: stmFlashAllowed = $telemetry.op === "Idle" || $telemetry.op === "Charge";
+  $: stmFlashBlockedReason =
+    !stmUploadInfo?.exists
+      ? "Zuerst eine .bin hochladen."
+      : !stmFlashAllowed
+        ? "Flash nur aus Idle oder Charge."
+        : "";
 </script>
 
 <section class="settings-shell">
@@ -129,7 +208,11 @@
             <strong>{stmProbeHeading}</strong>
             <div class="stm-result-actions">
               <span>Ausgabe bereit</span>
-              <button type="button" class="detail-btn" on:click={() => (showStmProbeDetail = true)}>
+              <button
+                type="button"
+                class="detail-btn"
+                on:click={() => openStmDetail(stmProbeHeading, stmProbeResult?.detail || "")}
+              >
                 Details öffnen
               </button>
             </div>
@@ -141,12 +224,100 @@
             <strong>Keine flashfähige Verbindung</strong>
             <div class="stm-result-actions">
               <span>Fehlerausgabe bereit</span>
-              <button type="button" class="detail-btn" on:click={() => (showStmProbeDetail = true)}>
+              <button
+                type="button"
+                class="detail-btn"
+                on:click={() => openStmDetail("Keine flashfähige Verbindung", stmProbeError)}
+              >
                 Details öffnen
               </button>
             </div>
           </div>
         {/if}
+
+        <div class="stm-upload-box">
+          <div class="stm-upload-copy">
+            <strong>Firmware hochladen</strong>
+            <span>.bin vom PC auf Alfred ablegen, ohne sofort zu flashen.</span>
+          </div>
+          <div class="stm-actions">
+            <input
+              type="file"
+              accept=".bin,application/octet-stream"
+              on:change={(event) => {
+                const input = event.currentTarget as HTMLInputElement;
+                selectedStmFile = input.files?.[0] ?? null;
+              }}
+            />
+            <button
+              type="button"
+              class="probe-btn"
+              disabled={!selectedStmFile || stmUploadBusy}
+              on:click={handleStmUpload}
+            >
+              {stmUploadBusy ? "Lade hoch ..." : "Upload .bin"}
+            </button>
+          </div>
+          {#if selectedStmFile}
+            <span class="stm-note">
+              Gewählt: {selectedStmFile.name} ({Math.round(selectedStmFile.size / 1024)} KB)
+            </span>
+          {/if}
+          {#if stmUploadError}
+            <div class="stm-result error">
+              <strong>Upload fehlgeschlagen</strong>
+              <span>{stmUploadError}</span>
+            </div>
+          {/if}
+        </div>
+
+        <div class="stm-upload-box">
+          <div class="stm-upload-copy">
+            <strong>Hochgeladene Firmware</strong>
+            <span>Fixer Speicherort fuer den naechsten kontrollierten Flash.</span>
+          </div>
+          {#if stmUploadInfo?.exists}
+            <div class="stm-result ok">
+              <strong>{stmUploadInfo.original_name || "rm18-upload.bin"}</strong>
+              <span>
+                {Math.round((stmUploadInfo.size_bytes ?? 0) / 1024)} KB ·
+                {stmUploadInfo.uploaded_at_ms ? new Date(stmUploadInfo.uploaded_at_ms).toLocaleString("de-DE") : "—"}
+              </span>
+              <span>{stmUploadInfo.stored_path || "—"}</span>
+            </div>
+          {:else}
+            <div class="stm-result">
+              <strong>Keine Firmware hochgeladen</strong>
+              <span>Der Upload legt die Datei unter `/var/lib/sunray-core/stm-upload/` ab.</span>
+            </div>
+          {/if}
+        </div>
+
+        <div class="stm-upload-box">
+          <div class="stm-upload-copy">
+            <strong>Hochgeladene Firmware flashen</strong>
+            <span>Nur nach erfolgreichem Upload und nur aus `Idle` oder `Charge`.</span>
+          </div>
+          <div class="stm-actions">
+            <button
+              type="button"
+              class="probe-btn"
+              disabled={!!stmFlashBlockedReason || stmFlashBusy}
+              on:click={handleStmFlash}
+            >
+              {stmFlashBusy ? "Flashe STM ..." : "Hochgeladene Firmware flashen"}
+            </button>
+            <span class="stm-note">
+              {stmFlashBlockedReason || "Flash-Ausgabe erscheint im gleichen Terminalfenster wie beim Probe."}
+            </span>
+          </div>
+          {#if stmFlashError}
+            <div class="stm-result error">
+              <strong>STM-Flash fehlgeschlagen</strong>
+              <span>{stmFlashError}</span>
+            </div>
+          {/if}
+        </div>
       </div>
     {:else}
       <div class="section-head">
@@ -193,16 +364,16 @@
   </div>
 </section>
 
-{#if showStmProbeDetail && (stmProbeResult || stmProbeError)}
+{#if showStmDetail && stmDetailBody}
   <div
     class="probe-modal-backdrop"
     role="button"
     tabindex="0"
     aria-label="STM-Probe-Details schließen"
-    on:click={() => (showStmProbeDetail = false)}
+    on:click={() => (showStmDetail = false)}
     on:keydown={(event) => {
       if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
-        showStmProbeDetail = false;
+        showStmDetail = false;
       }
     }}
   >
@@ -218,9 +389,9 @@
       <div class="probe-modal-head">
         <div>
           <span class="eyebrow">STM32 Firmware</span>
-          <h3>{stmProbeResult ? stmProbeHeading : "Keine flashfähige Verbindung"}</h3>
+          <h3>{stmDetailTitle}</h3>
         </div>
-        <button type="button" class="detail-btn close-btn" on:click={() => (showStmProbeDetail = false)}>
+        <button type="button" class="detail-btn close-btn" on:click={() => (showStmDetail = false)}>
           Schließen
         </button>
       </div>
@@ -229,9 +400,9 @@
           <span class="dot red"></span>
           <span class="dot yellow"></span>
           <span class="dot green"></span>
-          <span class="probe-terminal-title">stm-probe.log</span>
+          <span class="probe-terminal-title">stm-action.log</span>
         </div>
-        <pre class="probe-log">{stmProbeResult?.detail || stmProbeError}</pre>
+        <pre class="probe-log">{stmDetailBody}</pre>
       </div>
     </div>
   </div>
@@ -352,6 +523,25 @@
 
   .stm-panel {
     gap: 0.8rem;
+  }
+
+  .stm-upload-box {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.9rem 1rem;
+    border-radius: 0.8rem;
+    border: 1px solid #1e3a5f;
+    background: #0a1020;
+  }
+
+  .stm-upload-copy {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .stm-upload-copy strong {
+    color: #e2e8f0;
+    font-size: 0.92rem;
   }
 
   .panel-head {

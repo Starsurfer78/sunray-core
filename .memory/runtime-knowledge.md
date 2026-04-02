@@ -120,4 +120,6 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: Alfred's STM32 SWD probe now targets Raspberry Pi 4 via OpenOCD `bcm2835gpio`; the older `sysfsgpio` backend was removed because it failed before the real probe on current Pi OS releases.
 - `FACT`: Field validation on Alfred now proves the SWD probe end-to-end: OpenOCD detects `SWD DPIDR 0x1ba01477`, identifies `stm32f1x.cpu` as Cortex-M3, completes target examination, and halts the MCU successfully.
 - `FACT`: `scripts/flash_alfred.sh probe` now ends with `reset run`, so a successful SWD probe should no longer leave the STM32 halted and invisible to the Pi-side UART runtime.
+- `FACT`: WebUI settings now support uploading a prebuilt STM `.bin` to `/var/lib/sunray-core/stm-upload/rm18-upload.bin`, reading back its metadata, and flashing exactly that uploaded binary through a dedicated sudo-approved wrapper.
+- `FACT`: The uploaded-binary flash path is intentionally gated to `Idle` or `Charge` based on live telemetry, rather than allowing arbitrary flash attempts mid-mission.
 - `UNKNOWN`: STM32 firmware OTA, dedicated dock-contact hardware, and hard electrical emergency-stop proof remain blocked by missing evidence.

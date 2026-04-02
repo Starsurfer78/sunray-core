@@ -72,6 +72,67 @@ static constexpr const char* kDefaultMapJson =
 
 static constexpr const char* kDefaultMissionsJson = R"([])";
 
+static std::filesystem::path stmUploadDir() {
+    return "/var/lib/sunray-core/stm-upload";
+}
+
+static std::filesystem::path stmUploadedBinPath() {
+    return stmUploadDir() / "rm18-upload.bin";
+}
+
+static std::filesystem::path stmUploadedMetaPath() {
+    return stmUploadDir() / "rm18-upload.json";
+}
+
+static long long unixNowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+static std::string sanitizeUploadName(const std::string& rawName) {
+    if (rawName.empty()) return "rm18-upload.bin";
+
+    std::string cleaned;
+    cleaned.reserve(rawName.size());
+    for (char ch : rawName) {
+        const bool safe =
+            (ch >= 'a' && ch <= 'z')
+            || (ch >= 'A' && ch <= 'Z')
+            || (ch >= '0' && ch <= '9')
+            || ch == '.'
+            || ch == '_'
+            || ch == '-';
+        cleaned.push_back(safe ? ch : '_');
+    }
+    return cleaned;
+}
+
+static nlohmann::json readStmUploadMeta() {
+    const auto metaPath = stmUploadedMetaPath();
+    if (!std::filesystem::exists(metaPath)) return nlohmann::json::object();
+    try {
+        return nlohmann::json::parse(readFile(metaPath));
+    } catch (...) {
+        return nlohmann::json::object();
+    }
+}
+
+static nlohmann::json buildStmUploadInfoJson() {
+    const auto binPath = stmUploadedBinPath();
+    nlohmann::json j = {
+        {"ok", true},
+        {"exists", std::filesystem::exists(binPath)},
+    };
+    if (!std::filesystem::exists(binPath)) return j;
+
+    const auto meta = readStmUploadMeta();
+    j["size_bytes"] = static_cast<long long>(std::filesystem::file_size(binPath));
+    j["stored_path"] = binPath.string();
+    j["original_name"] = meta.value("original_name", std::string("rm18-upload.bin"));
+    j["uploaded_at_ms"] = meta.value("uploaded_at_ms", 0LL);
+    return j;
+}
+
 /// Serve a file from webRoot, guarding against path traversal.
 /// Returns 200+body on success, 404 on missing, 403 on traversal attempt.
 static crow::response serveStatic(const std::filesystem::path& webRoot,
@@ -1028,6 +1089,119 @@ void WebSocketServer::setupHttpRoutes() {
             }
             j["detail"] = output.empty()
                 ? ((rc == 0) ? "SWD probe completed" : "STM probe failed")
+                : output;
+
+            crow::response res(200, j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── GET /api/stm/uploaded — metadata for the currently uploaded STM .bin ─
+    CROW_ROUTE(app, "/api/stm/uploaded").methods(crow::HTTPMethod::GET)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+
+            crow::response res(200, buildStmUploadInfoJson().dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
+    // ── POST /api/stm/upload — store uploaded STM firmware binary on Alfred ──
+    CROW_ROUTE(app, "/api/stm/upload").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (req.body.empty()) return crow::response(400, R"({"error":"stm_upload_empty"})");
+
+            const auto uploadDir = stmUploadDir();
+            const auto binPath = stmUploadedBinPath();
+            const auto metaPath = stmUploadedMetaPath();
+
+            try {
+                std::filesystem::create_directories(uploadDir);
+                {
+                    std::ofstream out(binPath, std::ios::binary | std::ios::trunc);
+                    if (!out) return crow::response(500, R"({"error":"stm_upload_open_failed"})");
+                    out.write(req.body.data(), static_cast<std::streamsize>(req.body.size()));
+                    if (!out.good()) return crow::response(500, R"({"error":"stm_upload_write_failed"})");
+                }
+
+                nlohmann::json meta = {
+                    {"original_name", sanitizeUploadName(req.get_header_value("X-File-Name"))},
+                    {"uploaded_at_ms", unixNowMs()},
+                };
+                std::ofstream metaOut(metaPath, std::ios::binary | std::ios::trunc);
+                metaOut << meta.dump(2);
+
+                crow::response res(200, buildStmUploadInfoJson().dump());
+                res.set_header("Content-Type", "application/json");
+                return res;
+            } catch (const std::exception& e) {
+                logger_->error(TAG, std::string("POST /api/stm/upload failed: ") + e.what());
+                return crow::response(500, R"({"error":"stm_upload_failed"})");
+            }
+        }
+    );
+
+    // ── POST /api/stm/flash — flash the last uploaded STM firmware binary ────
+    CROW_ROUTE(app, "/api/stm/flash").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+
+            const std::string scriptPath = stmFlashScriptPath_;
+            if (scriptPath.empty() || !std::filesystem::exists(scriptPath)) {
+                return crow::response(503, R"({"error":"stm_flash_script_not_found"})");
+            }
+
+            const auto uploadInfo = buildStmUploadInfoJson();
+            if (!uploadInfo.value("exists", false)) {
+                return crow::response(409, R"({"error":"stm_upload_missing"})");
+            }
+
+            TelemetryData latest;
+            {
+                std::lock_guard<std::mutex> lk(telemetryMutex_);
+                latest = latestTelemetry_;
+            }
+            if (!(latest.op == "Idle" || latest.op == "Charge")) {
+                return crow::response(409, R"({"error":"stm_flash_requires_idle_or_charge"})");
+            }
+
+            if (stmFlashRunning_.exchange(true)) {
+                return crow::response(409, R"({"error":"stm_flash_already_running"})");
+            }
+
+            const std::filesystem::path wrapperPath =
+                std::filesystem::path(scriptPath).parent_path() / "flash_uploaded_stm.sh";
+            if (!std::filesystem::exists(wrapperPath)) {
+                stmFlashRunning_.store(false);
+                return crow::response(503, R"({"error":"stm_flash_wrapper_not_found"})");
+            }
+
+            logger_->info(TAG, "STM upload flash triggered via WebUI");
+            const std::string cmd = "sudo /bin/bash \"" + wrapperPath.string() + "\" 2>&1";
+            FILE* pipe = popen(cmd.c_str(), "r");
+            if (!pipe) {
+                stmFlashRunning_.store(false);
+                return crow::response(500, R"({"error":"popen_failed"})");
+            }
+
+            char buf[256];
+            std::string output;
+            while (fgets(buf, sizeof(buf), pipe)) output += buf;
+            const int rc = pclose(pipe);
+            stmFlashRunning_.store(false);
+
+            while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
+                output.pop_back();
+            }
+
+            nlohmann::json j;
+            j["ok"] = (rc == 0);
+            j["status"] = (rc == 0) ? "flash_ok" : "flash_failed";
+            j["detail"] = output.empty()
+                ? ((rc == 0) ? "STM flash completed" : "STM flash failed")
                 : output;
 
             crow::response res(200, j.dump());

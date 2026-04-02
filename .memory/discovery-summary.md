@@ -21,6 +21,7 @@
 - `FACT`: WebUI now includes a `Verlauf` page backed by `/api/history/events`, `/api/history/sessions`, `/api/statistics/summary`, and `/api/history/export`.
 - `FACT`: History events now carry wall-clock timestamps in addition to runtime uptime, so the `Verlauf` event stream can show real date/time instead of formatting uptime as a pseudo-epoch.
 - `FACT`: Pi-side OTA/update assistant is now functional through the WebUI for `sunray-core` userspace update/check/restart.
+- `FACT`: STM32 WebUI staging now supports prebuilt `.bin` upload, metadata display, and controlled flash of the uploaded binary; full on-device compile flow is still intentionally deferred.
 - `UNKNOWN`: OTA/update rollback beyond the documented manual paths.
 - `UNKNOWN`: STM32 firmware flash through the WebUI and rollback remain unproven; only the SWD probe path is currently field-proven.
 

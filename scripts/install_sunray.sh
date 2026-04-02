@@ -249,7 +249,7 @@ ensure_service_permissions() {
   local config_dir map_dir history_dirs
   config_dir="$(dirname "${CONFIG_PATH}")"
   map_dir="$(dirname "${MAP_PATH}")"
-  history_dirs=("/var/lib/sunray-core" "/var/lib/sunray")
+  history_dirs=("/var/lib/sunray-core" "/var/lib/sunray" "/var/lib/sunray-core/stm-upload")
 
   run_with_root chown -R "${BUILD_USER}:${BUILD_GROUP}" "${config_dir}"
   if [[ "${map_dir}" != "${config_dir}" ]]; then
@@ -345,18 +345,22 @@ setup_ota() {
   local sudoers_file="/etc/sudoers.d/sunray-ota"
   local ota_script="${ROOT_DIR}/scripts/ota_update.sh"
   local flash_script="${ROOT_DIR}/scripts/flash_alfred.sh"
+  local flash_uploaded_script="${ROOT_DIR}/scripts/flash_uploaded_stm.sh"
   local restart_cmd="/bin/systemctl restart ${SERVICE_NAME}.service"
   local stm_probe_cmd="/bin/bash ${flash_script} probe"
+  local stm_flash_uploaded_cmd="/bin/bash ${flash_uploaded_script}"
 
   # Make ota_update.sh executable
   chmod +x "${ota_script}" 2>/dev/null || true
   chmod +x "${flash_script}" 2>/dev/null || true
+  chmod +x "${flash_uploaded_script}" 2>/dev/null || true
 
-  # Grant passwordless sudo only for the specific restart and STM probe commands
+  # Grant passwordless sudo only for the specific restart, STM probe, and uploaded-flash commands
   log "Configuring OTA sudoers rule for user '${BUILD_USER}'"
-  run_with_root bash -c "printf '%s\n%s\n' \
+  run_with_root bash -c "printf '%s\n%s\n%s\n' \
     '${BUILD_USER} ALL=(ALL) NOPASSWD: ${restart_cmd}' \
-    '${BUILD_USER} ALL=(ALL) NOPASSWD: ${stm_probe_cmd}' > ${sudoers_file}"
+    '${BUILD_USER} ALL=(ALL) NOPASSWD: ${stm_probe_cmd}' \
+    '${BUILD_USER} ALL=(ALL) NOPASSWD: ${stm_flash_uploaded_cmd}' > ${sudoers_file}"
   run_with_root chmod 440 "${sudoers_file}"
 
   # Write initial version file
