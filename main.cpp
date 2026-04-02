@@ -25,15 +25,42 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <pthread.h>
 #include <sstream>
+#include <thread>
 #include <vector>
 
-// ── Global robot pointer for signal handler ────────────────────────────────────
-// Only stop() (atomic flag write) is called from the handler — safe.
-static sunray::Robot* g_robot = nullptr;
+static std::thread startSignalWaitThread(sunray::Robot& robot,
+                                         const std::shared_ptr<sunray::Logger>& logger) {
+    sigset_t signalSet;
+    sigemptyset(&signalSet);
+    sigaddset(&signalSet, SIGINT);
+    sigaddset(&signalSet, SIGTERM);
 
-static void signalHandler(int) {
-    if (g_robot) g_robot->stop();
+    const int maskRc = pthread_sigmask(SIG_BLOCK, &signalSet, nullptr);
+    if (maskRc != 0) {
+        throw std::runtime_error("pthread_sigmask failed");
+    }
+
+    return std::thread([signalSet, &robot, logger]() mutable {
+        int sig = 0;
+        while (true) {
+            const int rc = sigwait(&signalSet, &sig);
+            if (rc != 0) {
+                if (logger) logger->warn("main", "sigwait failed");
+                return;
+            }
+            if (sig == SIGINT || sig == SIGTERM) {
+                if (logger) {
+                    logger->info("main", std::string("Signal received: ")
+                                             + (sig == SIGTERM ? "SIGTERM" : "SIGINT")
+                                             + " — stopping robot loop");
+                }
+                robot.stop();
+                return;
+            }
+        }
+    });
 }
 
 static std::string defaultConfigPath() {
@@ -209,10 +236,7 @@ int main(int argc, char* argv[]) {
 
     // ── 4. Robot ───────────────────────────────────────────────────────────────
     sunray::Robot robot(std::move(hw), config, logger);
-    g_robot = &robot;
-
-    std::signal(SIGINT,  signalHandler);
-    std::signal(SIGTERM, signalHandler);
+    std::thread signalThread = startSignalWaitThread(robot, logger);
 
     // ── 5. Initialise ──────────────────────────────────────────────────────────
     if (!robot.init()) {
@@ -418,6 +442,10 @@ int main(int argc, char* argv[]) {
 
     // ── 8. Run (blocks until stop()) ──────────────────────────────────────────
     robot.loop();
+
+    if (signalThread.joinable()) {
+        signalThread.detach();
+    }
 
     mqttClient->stop();
     wsServer->stop();

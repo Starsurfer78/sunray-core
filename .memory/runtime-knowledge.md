@@ -87,6 +87,7 @@ Short, evidence-based runtime notes for `sunray-core`.
 - `FACT`: Pi-side `SerialRobotDriver` treats missing UART responses as MCU disconnect.
 - `FACT`: After at least one confirmed MCU-connected cycle, Pi-side `Robot` now treats a later `mcuConnected=false` edge as a local safety fault and requests the existing `Error` op with `ERR_MCU_COMMS`.
 - `FACT`: Pi-side `Robot` enforces op-specific watchdog timeouts.
+- `FACT`: `main.cpp` now blocks `SIGINT` and `SIGTERM` process-wide and handles them through a dedicated `sigwait()` thread that calls `Robot::stop()`; this avoids relying on fragile asynchronous `std::signal` handling inside the multithreaded runtime.
 - `FACT`: generated `sunray-core.service` uses `Restart=on-failure`, not a `systemd` watchdog.
 - `UNKNOWN`: external supervisor or process restarter beyond generated `systemd` behavior.
 
