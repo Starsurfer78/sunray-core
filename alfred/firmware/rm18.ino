@@ -83,7 +83,7 @@
 
 // #define DEBUG 1
 
-#define VER "RM18,1.1.22" // Bump Software version to 1.1.22 for release (AT+S now exposes detailed mow-fault root causes: raw fault pin, overload recovery, permanent fault latch, and OV-check; previous 1.1.21 changes kept: inactive mower no longer trips the fault input)
+#define VER "RM18,1.1.23" // Bump Software version to 1.1.23 for release (OV-check is now treated as safety-relevant only while the mower is actually commanded; previous 1.1.22 detailed fault-cause telemetry remains)
 
 #define pinSwdCLK PA14
 #define pinSwdSDA PA13
@@ -206,6 +206,7 @@ bool motorPermanentFault = false; // IMP-07: set after repeated overloads, requi
 int motorOverloadCount = 0;
 unsigned long motorOverloadWindowStart = 0;
 bool motorMowFault = false;
+bool ovCheckRaw = false;
 int bumperX = 0;
 int bumperY = 0;
 int liftLeft = 0;
@@ -495,7 +496,8 @@ void readSensors()
   batVoltageLP = w * batVoltageLP + (1.0 - w) * batVoltage;
 
   batteryTemp = ((float)analogRead(pinBatteryT)) / 10.0 - 50.0; // BUG-02 fix: corrected pin (was pinChargeV)
-  ovCheck = digitalRead(pinOVCheck);
+  ovCheckRaw = digitalRead(pinOVCheck);
+  ovCheck = ovCheckRaw && mowerCommandActive();
   motorMowFault = (digitalRead(pinMotorMowFault) == LOW) && mowerCommandActive();
 
   // rain (lift low-pass filtering)
@@ -812,7 +814,7 @@ void cmdSummary()
   s += ",";
   s += batteryTemp;
   s += ",";
-  s += int(ovCheck); // IMP-01: hardware over-voltage signal from motor driver IC
+  s += int(ovCheck); // IMP-01: active only while mower is actually commanded
   s += ",";
   s += int(bumperLeft); // TASK-BUMPER-01: field 13 — left bumper channel (PA4/bumperX)
   s += ",";
