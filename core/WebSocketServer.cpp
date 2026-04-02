@@ -1132,7 +1132,11 @@ void WebSocketServer::setupHttpRoutes() {
                     {"uploaded_at_ms", unixNowMs()},
                 };
                 std::ofstream metaOut(metaPath, std::ios::binary | std::ios::trunc);
+                if (!metaOut) return crow::response(500, R"({"error":"stm_upload_meta_open_failed"})");
                 metaOut << meta.dump(2);
+                metaOut.flush();
+                metaOut.close();
+                if (!metaOut.good()) return crow::response(500, R"({"error":"stm_upload_meta_write_failed"})");
 
                 crow::response res(200, buildStmUploadInfoJson().dump());
                 res.set_header("Content-Type", "application/json");

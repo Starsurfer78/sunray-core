@@ -79,6 +79,7 @@
     stmUploadError = "";
     try {
       stmUploadInfo = await uploadStmFirmware(selectedStmFile);
+      await loadStmUploadInfo();
       selectedStmFile = null;
     } catch (error) {
       stmUploadError = error instanceof Error ? error.message : "STM-Firmware konnte nicht hochgeladen werden";
