@@ -55,7 +55,7 @@ openocd_cmd() {
 probe_target() {
   echo "=== SWD Probe ==="
   echo "Testing SWD connection to STM32F103..."
-  if openocd_cmd -f "$OPENOCD_CFG" -c "init; targets; reset halt; exit"; then
+  if openocd_cmd -f "$OPENOCD_CFG" -c "init; targets; reset halt; reset run; shutdown"; then
     echo "✓ SWD connection OK"
   else
     echo "✗ SWD connection FAILED"

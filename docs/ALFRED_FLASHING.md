@@ -84,6 +84,10 @@ sudo bash scripts/flash_alfred.sh probe
 # Output: "✓ SWD connection OK" wenn Verkabelung stimmt
 ```
 
+Hinweis:
+- Der Probe-Pfad setzt den STM32 jetzt nach erfolgreichem Test wieder auf `reset run`.
+- Aeltere Probe-Laeufe mit `reset halt` koennen den STM im Debug-Halt hinterlassen; in diesem Fall antwortet `sunray-core` anschliessend nicht mehr ueber UART, bis der STM resettet oder stromlos gemacht wurde.
+
 ### Bewiesener Stand auf Alfred
 
 - `FACT`: Der SWD-Probe ist auf Alfred jetzt praktisch bestätigt.
