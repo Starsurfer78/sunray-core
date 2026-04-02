@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { telemetry } from "../stores/telemetry";
+  import { connection } from "../stores/connection";
   import { otaCheck, otaUpdate, type OtaCheckResponse } from "../api/rest";
 
   let checkResult: OtaCheckResponse | null = null;
@@ -9,6 +11,19 @@
   let waitingForRestart = false;
   let restartCountdown = 120;
   let countdownTimer: ReturnType<typeof setInterval> | null = null;
+
+  function clearRestartState() {
+    waitingForRestart = false;
+    busy = false;
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }
+
+  $: if (waitingForRestart && $connection.connected) {
+    clearRestartState();
+  }
 
   async function handleCheck() {
     busy = true;
@@ -34,8 +49,7 @@
       countdownTimer = setInterval(() => {
         restartCountdown -= 1;
         if (restartCountdown <= 0) {
-          clearInterval(countdownTimer!);
-          countdownTimer = null;
+          clearRestartState();
           window.location.reload();
         }
       }, 1000);
@@ -44,6 +58,10 @@
       busy = false;
     }
   }
+
+  onDestroy(() => {
+    if (countdownTimer) clearInterval(countdownTimer);
+  });
 </script>
 
 <div class="ota-panel">
