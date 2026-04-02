@@ -99,6 +99,7 @@ Hinweis:
   - `✓ SWD connection OK`
 - `FACT`: Damit sind `openocd`, die Pi-4-OpenOCD-Konfiguration (`bcm2835gpio`), die SWD-Verkabelung und der grundsaetzliche Flash-Zugriff auf Alfreds STM32 belegt.
 - `UNKNOWN`: Ein kompletter Flash aus der WebUI ist damit noch nicht bewiesen; bislang ist nur der Probe-Pfad hart bestaetigt.
+- `FIELD`: Bei `RM18 v1.1.20` kann `pinMotorMowFault` im gebremsten/inaktiven Zustand low bleiben. `RM18 v1.1.21` korrigiert das, indem dieser Eingang nur waehrend aktiver Maehmotor-Ansteuerung in das kombinierte Summary-Fault-Bit uebernommen wird; sonst erscheint faelschlich ein `Mähmotorfehler` in `Idle` oder `Charge`.
 
 ### Option C: Nur Flash (Binary bereits vorhanden)
 ```bash

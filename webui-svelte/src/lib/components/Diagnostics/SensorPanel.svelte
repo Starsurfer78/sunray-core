@@ -6,7 +6,7 @@
     { label: 'Bumper rechts', value: 'bumper_r' },
     { label: 'Stop-Button', value: 'stop_button' },
     { label: 'Lift', value: 'lift' },
-    { label: 'Motorfehler', value: 'motor_err' },
+    { label: 'Mähmotorfehler', value: 'motor_err' },
     { label: 'Diag aktiv', value: 'diag_active' },
   ] as const
 </script>

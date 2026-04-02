@@ -29,7 +29,7 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
         return "Anhebesensor ausgelöst: Bitte Roboter prüfen und sicher absetzen.";
     }
     if (eventReason == "motor_fault") {
-        return "Motorfehler erkannt: Bitte Antrieb und Verkabelung prüfen.";
+        return "Mähmotorfehler erkannt: Bitte Mähantrieb und Verkabelung prüfen.";
     }
     if (eventReason == "bumper_triggered") {
         return "Hindernis erkannt: Der Roboter weicht aus.";
@@ -98,7 +98,7 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
         return "Fehlerzustand aktiv: Der Anhebesensor ist ausgelöst.";
     }
     if (errorCode == "ERR_MOTOR_FAULT") {
-        return "Fehlerzustand aktiv: Ein Motorfehler liegt an.";
+        return "Fehlerzustand aktiv: Ein Mähmotorfehler liegt an.";
     }
     if (errorCode == "ERR_GPS_TIMEOUT") {
         return "Fehlerzustand aktiv: Es gab zu lange keinen gültigen GPS-Fix.";

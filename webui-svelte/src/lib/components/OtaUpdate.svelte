@@ -9,11 +9,13 @@
   let errorMsg = "";
   // After update_started the service restarts — we poll until the UI reconnects.
   let waitingForRestart = false;
+  let sawRestartDisconnect = false;
   let restartCountdown = 120;
   let countdownTimer: ReturnType<typeof setInterval> | null = null;
 
   function clearRestartState() {
     waitingForRestart = false;
+    sawRestartDisconnect = false;
     busy = false;
     if (countdownTimer) {
       clearInterval(countdownTimer);
@@ -21,7 +23,11 @@
     }
   }
 
-  $: if (waitingForRestart && $connection.connected) {
+  $: if (waitingForRestart && !$connection.connected) {
+    sawRestartDisconnect = true;
+  }
+
+  $: if (waitingForRestart && sawRestartDisconnect && $connection.connected) {
     clearRestartState();
   }
 
@@ -45,6 +51,7 @@
     try {
       await otaUpdate();
       waitingForRestart = true;
+      sawRestartDisconnect = false;
       restartCountdown = 120;
       countdownTimer = setInterval(() => {
         restartCountdown -= 1;
@@ -75,7 +82,13 @@
   {#if waitingForRestart}
     <div class="ota-status restarting">
       Update läuft — Roboter startet neu…
-      <span class="ota-countdown">Seite lädt in {restartCountdown}s</span>
+      <span class="ota-countdown">
+        {#if sawRestartDisconnect}
+          Verbindung weg, Seite lädt in {restartCountdown}s neu
+        {:else}
+          Warte auf Service-Neustart … Seite lädt in {restartCountdown}s neu
+        {/if}
+      </span>
     </div>
   {:else}
     <div class="ota-actions">

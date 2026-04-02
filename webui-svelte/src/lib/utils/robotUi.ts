@@ -126,7 +126,7 @@ export function getPreflightChecks(
       value: errorFree ? "Frei" : "Blockiert",
       hint: errorFree
         ? "Keine aktiven Sensor- oder Fehlerblocker"
-        : "Lift, Bumper, Motorfehler oder Error aktiv",
+        : "Lift, Bumper, Mähmotorfehler oder Error aktiv",
     },
   ];
 }
@@ -177,7 +177,7 @@ export function getPrimaryNotice(
     return {
       tone: "error",
       title: "Sicherheitsblocker aktiv",
-      detail: "Lift, Bumper oder Motorfehler verhindern den normalen Betrieb.",
+      detail: "Lift, Bumper oder Mähmotorfehler verhindern den normalen Betrieb.",
       action: "Roboter freistellen, Sensoren pruefen und erst danach neu starten.",
     };
   }

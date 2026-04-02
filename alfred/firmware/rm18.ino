@@ -83,7 +83,7 @@
 
 // #define DEBUG 1
 
-#define VER "RM18,1.1.20" // Bump Software version to 1.1.20 for release (IMP-09: lift sensor wiring compensation, TASK-BUMPER-01: separate left/right bumper channels, IMP-07: motor overload recovery escalation, IMP-06: safer watchdog timeout, IMP-05: faster mow motor overload response, IMP-04: LP-filtered battery voltage in summary, IMP-03: lift LP reset only when both sensors are in normal position, IMP-02: combined hardware/software fault reporting, IMP-01: added hardware over-voltage check from motor driver IC)
+#define VER "RM18,1.1.21" // Bump Software version to 1.1.21 for release (mow-fault input is now gated to active mower operation; previous 1.1.20 changes kept: lift sensor wiring compensation, separate left/right bumper channels, overload recovery escalation, safer watchdog timeout, faster mow motor overload response, LP-filtered battery voltage in summary, combined hardware/software fault reporting, hardware over-voltage check)
 
 #define pinSwdCLK PA14
 #define pinSwdSDA PA13
@@ -234,6 +234,14 @@ unsigned long stopButtonTimeout = 0;
 unsigned long nextMotorControlTime = 0;
 unsigned long mowBrakeStateTimeout = 0;
 int mowBrakeState = 0;
+
+bool mowerCommandActive()
+{
+  // The mow driver fault line can stay asserted while the brake relay holds the
+  // spindle stopped. Treat the hardware fault input as safety-relevant only
+  // while the mower is actually commanded or still in its brake-release ramp.
+  return (abs(mowSpeedSet) > 0) || (mowBrakeState > 0);
+}
 
 // choose one UART to use for communication
 // HardwareSerial mSerial(pinUsartRX3, pinUsartTX3);  // rx, tx        - UART for perimeter MCU comm
@@ -488,7 +496,7 @@ void readSensors()
 
   batteryTemp = ((float)analogRead(pinBatteryT)) / 10.0 - 50.0; // BUG-02 fix: corrected pin (was pinChargeV)
   ovCheck = digitalRead(pinOVCheck);
-  motorMowFault = (digitalRead(pinMotorMowFault) == LOW);
+  motorMowFault = (digitalRead(pinMotorMowFault) == LOW) && mowerCommandActive();
 
   // rain (lift low-pass filtering)
   rain = analogRead(pinRain);

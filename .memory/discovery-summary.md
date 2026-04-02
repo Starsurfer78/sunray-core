@@ -59,6 +59,8 @@
 - `FACT`: History summary now exposes grouped incident counters by reason, type, and level for field diagnostics and optimization statistics.
 - `FACT`: History summary now also exposes `last_event_wall_ts_ms` for operator-facing real-time chronology on the `Verlauf` page.
 - `FACT`: Alfred field testing after flashing `RM18 v1.1.20` showed `Motorfehler` blinking in Diagnose while the runtime stayed stable in `Charge`; root cause was mixed Pi-side parsing semantics between fast `AT+M` frames and slower `AT+S` summary frames, not an immediately recurring hard motor fault.
+- `FACT`: After the Pi-side parser fix, Alfred then showed `Motorfehler` permanently active while still stable in `Charge`. This exposed a second issue in `rm18.ino`: `pinMotorMowFault` can stay low while the mower brake is engaged, so the firmware must gate that hardware fault input on an actually active mower state.
+- `FACT`: The resulting STM hotfix was versioned as `RM18 v1.1.21`, and the UI/operator wording was narrowed to `Mähmotorfehler` to match the actual Alfred signal source.
 
 ## Bugs
 
