@@ -14,12 +14,13 @@
 - `FACT`: Frontend build is npm + Vite/Svelte.
 - `FACT`: Pi deployment path is documented through `scripts/install_sunray.sh` and generated `sunray-core.service`.
 - `FACT`: STM32 flash path is `arduino-cli` + OpenOCD via `scripts/flash_alfred.sh`.
+- `FACT`: Alfred's STM32 SWD probe is now field-proven: OpenOCD reaches the STM32 over Pi-GPIO SWD, identifies the Cortex-M3 target, and halts it successfully.
 - `FACT`: A read-only deployment verifier now exists at `scripts/check_deploy_state.sh` for artefacts, runtime files, and rollback-anchor visibility.
 - `FACT`: `config.example.json` now covers the active Alfred runtime baseline for key hardware, docking, planner, and path defaults.
 - `FACT`: WebUI now includes a `Verlauf` page backed by `/api/history/events`, `/api/history/sessions`, `/api/statistics/summary`, and `/api/history/export`.
 - `FACT`: Pi-side OTA/update assistant is now functional through the WebUI for `sunray-core` userspace update/check/restart.
 - `UNKNOWN`: OTA/update rollback beyond the documented manual paths.
-- `UNKNOWN`: STM32 firmware OTA and rollback remain unproven.
+- `UNKNOWN`: STM32 firmware flash through the WebUI and rollback remain unproven; only the SWD probe path is currently field-proven.
 
 ## Hardware
 

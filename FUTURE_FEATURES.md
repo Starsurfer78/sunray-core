@@ -315,12 +315,18 @@ Feature does not mean:
 - Architecture fit:
   - Must land on top of the existing Pi-side OTA/update assistant, not beside it.
   - Must integrate with the current firmware flashing path in `scripts/flash_alfred.sh` and the documented OpenOCD / `arduino-cli` workflow.
+  - Recommended first step is a staged WebUI flow:
+    - upload a prebuilt `rm18.ino.bin` from the operator PC
+    - store it on Alfred
+    - flash it through the already proven SWD path
+    - add on-device compile only later if still needed
 - Affected modules:
   - `scripts/flash_alfred.sh`
   - OTA/update backend surface
   - update docs and rollback notes
 - Hardware dependencies:
   - Requires the existing STM32 flashing path on Alfred to be callable and recoverable remotely.
+  - SWD probe on Alfred is now field-proven through OpenOCD `bcm2835gpio`.
   - No repository evidence yet proves a safe unattended rollback path after a bad STM flash.
 - Safety implications:
   - High: a failed or interrupted STM update can remove the low-level motion/safety runtime.
@@ -332,7 +338,8 @@ Feature does not mean:
 - Blockers:
   - No proven automated rollback for failed STM flash
   - no verified production-safe recovery path after interrupted firmware update
-  - no field proof yet that the current flash tooling can be safely driven through the WebUI
+  - the actual flash operation is not yet field-proven through the WebUI
+  - upload, file-retention, and operator-confirmation flow still need to be defined
 - Recommended phase:
   - F3
 - Confidence level:

@@ -84,10 +84,27 @@ sudo bash scripts/flash_alfred.sh probe
 # Output: "✓ SWD connection OK" wenn Verkabelung stimmt
 ```
 
+### Bewiesener Stand auf Alfred
+
+- `FACT`: Der SWD-Probe ist auf Alfred jetzt praktisch bestätigt.
+- `FACT`: OpenOCD erreicht den STM32 ueber Pi-GPIO-SWD und liefert:
+  - `Info : SWD DPIDR 0x1ba01477`
+  - `Info : [stm32f1x.cpu] Cortex-M3 r1p1 processor detected`
+  - `Info : [stm32f1x.cpu] Examination succeed`
+  - `halted due to debug-request`
+  - `✓ SWD connection OK`
+- `FACT`: Damit sind `openocd`, die Pi-4-OpenOCD-Konfiguration (`bcm2835gpio`), die SWD-Verkabelung und der grundsaetzliche Flash-Zugriff auf Alfreds STM32 belegt.
+- `UNKNOWN`: Ein kompletter Flash aus der WebUI ist damit noch nicht bewiesen; bislang ist nur der Probe-Pfad hart bestaetigt.
+
 ### Option C: Nur Flash (Binary bereits vorhanden)
 ```bash
 sudo bash scripts/flash_alfred.sh flash
 ```
+
+> Empfohlener naechster Schritt fuer WebUI-OTA:
+> zuerst Upload einer bereits am PC erzeugten `rm18.ino.bin`, danach manuelles Flashen
+> auf Alfred. Das reduziert den Einfuehrungsumfang deutlich gegenueber einem sofortigen
+> kompletten On-Pi-Build per `arduino-cli`.
 
 ### Option D: Nur Kompilieren (kein Flash)
 ```bash
