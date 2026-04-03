@@ -314,6 +314,22 @@ function createMapStore() {
       selectedExclusionIndex: null,
       dirty: false,
     })),
+    restore: (map: MapLoadDocument) => update((state) => ({
+      ...state,
+      map: {
+        perimeter: map.perimeter ?? [],
+        dock: map.dock ?? [],
+        mow: map.mow ?? [],
+        exclusions: map.exclusions ?? [],
+        exclusionMeta: normalizeExclusionMeta(map.exclusionMeta, map.exclusions?.length ?? 0),
+        zones: normalizeZones(map.zones),
+        planner: normalizePlannerSettings(map.planner),
+        dockMeta: normalizeDockMeta(map.dockMeta),
+        captureMeta: map.captureMeta ?? {},
+      },
+      selectedExclusionIndex: null,
+      dirty: true,
+    })),
     setTool: (selectedTool: MapTool) => update((state) => ({ ...state, selectedTool })),
     selectZone: (selectedZoneId: string | null) => update((state) => ({ ...state, selectedZoneId })),
     selectExclusion: (selectedExclusionIndex: number | null) => update((state) => ({

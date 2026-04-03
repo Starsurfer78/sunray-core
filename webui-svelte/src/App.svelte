@@ -7,18 +7,20 @@
   import Settings from './lib/pages/Settings.svelte'
   import StatusBar from './lib/components/StatusBar.svelte'
   import GlobalInfoPanel from './lib/components/GlobalInfoPanel.svelte'
+  import NotificationDisplay from './lib/components/NotificationDisplay.svelte'
+  import LoadingStateDisplay from './lib/components/LoadingStateDisplay.svelte'
   import { sendCmd, startTelemetry, stopTelemetry } from './lib/api/websocket'
   import { telemetry } from './lib/stores/telemetry'
   import { connection } from './lib/stores/connection'
   import { joystickOpen } from './lib/stores/joystick'
   import { mapInfoOpen } from './lib/stores/mapInfo'
+  import { toast } from './lib/stores/notificationStore'
 
   type View = 'dashboard' | 'history' | 'map' | 'mission' | 'settings'
   type NavItem = { id: View | null; label: string; enabled: boolean }
 
   let currentView: View = 'dashboard'
-  let emergencyInfo = ''
-  let emergencyInfoTimer: ReturnType<typeof setTimeout> | null = null
+  let lastGlobalErrorKey = ''
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', enabled: true },
@@ -28,28 +30,19 @@
     { id: null, label: 'Simulator', enabled: false },
   ]
 
-  function showEmergencyInfo(message: string, durationMs = 3000) {
-    emergencyInfo = message
-    if (emergencyInfoTimer) window.clearTimeout(emergencyInfoTimer)
-    emergencyInfoTimer = window.setTimeout(() => {
-      if (emergencyInfo === message) emergencyInfo = ''
-      emergencyInfoTimer = null
-    }, durationMs)
-  }
-
   function triggerEmergencyStop() {
     if (!$connection.connected) {
-      showEmergencyInfo('NOTAUS nicht gesendet: keine Live-Verbindung', 3400)
+      toast.warning('NOTAUS nicht gesendet: keine Live-Verbindung')
       return
     }
 
     const sent = sendCmd('stop')
     if (!sent) {
-      showEmergencyInfo('NOTAUS nicht gesendet: Verbindung nicht bereit', 3400)
+      toast.error('NOTAUS nicht gesendet: Verbindung nicht bereit')
       return
     }
 
-    showEmergencyInfo('NOTAUS gesendet - Roboter stoppt sofort', 3400)
+    toast.success('✓ NOTAUS gesendet - Roboter stoppt sofort')
   }
 
   function humanizeReason(reason: string) {
@@ -70,6 +63,25 @@
       ? humanizeReason($telemetry.event_reason)
       : ''
 
+  $: {
+    const errorKey = globalError
+      ? `${globalError}|${globalErrorDetail}|${$connection.connected}`
+      : ''
+
+    if (globalError && $connection.connected && errorKey !== lastGlobalErrorKey) {
+      lastGlobalErrorKey = errorKey
+      toast.error(globalError, 8000, {
+        label: 'Roboter zurücksetzen',
+        handler: () => {
+          sendCmd('reset')
+          toast.info('Reset-Befehl gesendet...')
+        },
+      })
+    } else if (!globalError) {
+      lastGlobalErrorKey = ''
+    }
+  }
+
   function toggleJoystick() {
     joystickOpen.update((open) => !open)
   }
@@ -89,6 +101,7 @@
 </script>
 
 <main class="app-shell">
+  <LoadingStateDisplay />
   <header class="topbar">
     <div class="topbar-main">
       <div class="brand">
@@ -162,21 +175,7 @@
       >
         <span aria-hidden="true">i</span>
       </button>
-
-      {#if emergencyInfo}
-        <span class="topbar-info">{emergencyInfo}</span>
-      {/if}
     </div>
-
-    {#if globalError}
-      <div class="error-banner" role="alert" aria-live="assertive">
-        <strong>Fehler:</strong>
-        <span>{globalError}</span>
-        {#if globalErrorDetail && globalErrorDetail !== globalError}
-          <small>{globalErrorDetail}</small>
-        {/if}
-      </div>
-    {/if}
   </header>
 
   <section class="view">
@@ -193,6 +192,7 @@
       <Settings />
     {/if}
   </section>
+  <NotificationDisplay />
 </main>
 
 <style>
@@ -306,12 +306,6 @@
     opacity: 0.65;
   }
 
-  .topbar-info {
-    color: #94a3b8;
-    font-size: 0.78rem;
-    white-space: nowrap;
-  }
-
   .topbar-joystick {
     flex-shrink: 0;
     width: 2.4rem;
@@ -394,27 +388,6 @@
   .view {
     min-width: 0;
     overflow: hidden;
-  }
-
-  .error-banner {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    flex-wrap: wrap;
-    padding: 0.6rem 0.8rem;
-    border: 1px solid #dc2626;
-    border-radius: 0.55rem;
-    background: rgba(69, 10, 10, 0.88);
-    color: #fecaca;
-    font-size: 0.84rem;
-  }
-
-  .error-banner strong {
-    color: #fca5a5;
-  }
-
-  .error-banner small {
-    color: #fda4af;
   }
 
   @media (max-width: 900px) {

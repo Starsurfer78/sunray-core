@@ -16,6 +16,8 @@
   } from "../api/rest";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { missionStore, type Mission } from "../stores/missions";
+  import { toast } from "../stores/notificationStore";
+  import { withLoading } from "../stores/loadingState";
   import { sendCmd } from "../api/websocket";
 
   const weekDays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -169,16 +171,24 @@
   async function saveCurrentMission() {
     if (!selectedMission) return;
     try {
-      await updateMissionDocument(selectedMission.id, selectedMission);
+      await withLoading("save-mission", "Speichert Mission...", async () =>
+        updateMissionDocument(selectedMission.id, selectedMission),
+      );
       backendOnline = true;
       info = `Mission "${selectedMission.name}" gespeichert`;
+      toast.success("✓ Mission gespeichert");
       error = "";
     } catch (err) {
       backendOnline = false;
-      error =
+      const message =
         err instanceof Error
           ? err.message
           : "Mission konnte nicht gespeichert werden";
+      error = message;
+      toast.error(`Fehler: ${message}`, 6000, {
+        label: "Erneut versuchen",
+        handler: saveCurrentMission,
+      });
     }
   }
 
@@ -308,16 +318,24 @@
   async function saveZoneOverrides() {
     if (!selectedMission) return;
     try {
-      await updateMissionDocument(selectedMission.id, selectedMission);
+      await withLoading("save-mission", "Speichert Mission...", async () =>
+        updateMissionDocument(selectedMission.id, selectedMission),
+      );
       backendOnline = true;
+      toast.success("✓ Mission gespeichert");
       info = "Missions-Zonen-Einstellungen gespeichert";
       error = "";
     } catch (err) {
       backendOnline = false;
-      error =
+      const message =
         err instanceof Error
           ? err.message
           : "Missions-Zonen-Einstellungen konnten nicht gespeichert werden";
+      error = message;
+      toast.error(`Fehler: ${message}`, 6000, {
+        label: "Erneut versuchen",
+        handler: saveZoneOverrides,
+      });
       info = "";
     }
   }
