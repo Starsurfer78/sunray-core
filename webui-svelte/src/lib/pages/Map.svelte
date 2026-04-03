@@ -18,6 +18,9 @@
   } from "../api/rest";
   import { type Telemetry } from "../api/types";
   import { connection } from "../stores/connection";
+  import { toast } from "../stores/notificationStore";
+  import { withLoading } from "../stores/loadingState";
+  import { createUndoRedo } from "../stores/undoRedo";
   import {
     mapStore,
     type ExclusionMeta,
@@ -41,6 +44,11 @@
   let storedMaps: StoredMapEntry[] = [];
   let activeMapId = "";
   let selectedMapId = "";
+  let mapHistory: ReturnType<typeof createUndoRedo<RobotMap>>;
+  let lastHistorySnapshot = "";
+  let applyingHistory = false;
+  let undoLabel = "";
+  let redoLabel = "";
   const SHOW_ADVANCED_MAP_TUNING = false;
   const DRAFT_KEY = "sunray-map-draft-v1";
   const CONNECTION_FRESH_MS = 5000;
@@ -80,6 +88,14 @@
     infoTimer = setTimeout(() => {
       info = "";
     }, 2500);
+
+    if (tone === "error") {
+      toast.error(msg, 6000);
+    } else if (tone === "warning") {
+      toast.warning(msg, 3000);
+    } else {
+      toast.success(msg, 2200);
+    }
   }
 
   function normalizePoints(
@@ -253,6 +269,42 @@
     };
   }
 
+  function restoreHistoryState(nextMap: RobotMap) {
+    applyingHistory = true;
+    mapStore.restore(structuredClone(nextMap));
+    lastHistorySnapshot = JSON.stringify(nextMap);
+    queueMicrotask(() => {
+      applyingHistory = false;
+    });
+  }
+
+  function undoMapEdit() {
+    if (!mapHistory || !mapHistory.canUndo()) return;
+    mapHistory.undo();
+    restoreHistoryState(mapHistory.getCurrentState());
+    toast.info(`Rueckgaengig: ${undoLabel || "Letzte Aenderung"}`);
+  }
+
+  function redoMapEdit() {
+    if (!mapHistory || !mapHistory.canRedo()) return;
+    mapHistory.redo();
+    restoreHistoryState(mapHistory.getCurrentState());
+    toast.info(`Wiederhergestellt: ${redoLabel || "Naechste Aenderung"}`);
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    const modifier = event.ctrlKey || event.metaKey;
+    if (!modifier) return;
+    if (event.key.toLowerCase() !== "z") return;
+
+    event.preventDefault();
+    if (event.shiftKey) {
+      redoMapEdit();
+      return;
+    }
+    undoMapEdit();
+  }
+
   function saveDraft() {
     if (typeof localStorage === "undefined" || !hydrationDone) return;
     const draft: DraftDocument = {
@@ -286,7 +338,9 @@
   async function loadMap() {
     busy = true;
     try {
-      const map = await getMapDocument();
+      const map = await withLoading("load-map", "Lade Karte...", async () =>
+        getMapDocument(),
+      );
       mapStore.load(normalizeMapDocument(map));
       await refreshStoredMaps(true);
       if (!restoreDraft()) {
@@ -397,16 +451,25 @@
     }
     busy = true;
     try {
-      const result = await saveMapDocument(mapPayload());
+      const result = await withLoading(
+        "save-map",
+        "Speichert Karte...",
+        async () => saveMapDocument(mapPayload()),
+      );
       if (!result.ok) {
-        showInfo(result.error ?? "Fehler", "error");
-        return;
+        throw new Error(result.error ?? "Fehler");
       }
       mapStore.markSaved();
       clearDraft();
-      showInfo("Gespeichert");
+      toast.success("✓ Karte gespeichert");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Fehler", "error");
+      const message = err instanceof Error ? err.message : "Fehler";
+      toast.error(`Fehler: ${message}`, 6000, {
+        label: "Erneut versuchen",
+        handler: saveMap,
+      });
+      info = message;
+      infoTone = "error";
     } finally {
       busy = false;
     }
@@ -415,7 +478,11 @@
   async function exportMap() {
     busy = true;
     try {
-      const blob = await exportMapGeoJson();
+      const blob = await withLoading(
+        "export-map",
+        "Exportiere GeoJSON...",
+        async () => exportMapGeoJson(),
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -440,7 +507,11 @@
       busy = true;
       try {
         const text = await file.text();
-        const result = await importMapGeoJson(text);
+        const result = await withLoading(
+          "import-map",
+          "Importiere GeoJSON...",
+          async () => importMapGeoJson(text),
+        );
         if (!result.ok) {
           showInfo(result.error ?? "Import fehlgeschlagen", "error");
           return;
@@ -863,6 +934,8 @@
       ? Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000))
       : null;
   onMount(() => {
+    mapHistory = createUndoRedo(structuredClone($mapStore.map), 30);
+    window.addEventListener("keydown", handleKeydown);
     const interval = setInterval(() => {
       nowMs = Date.now();
     }, 1000);
@@ -871,6 +944,7 @@
       await loadMap();
     })();
     return () => {
+      window.removeEventListener("keydown", handleKeydown);
       clearInterval(interval);
       if (infoTimer) clearTimeout(infoTimer);
     };
@@ -878,6 +952,20 @@
 
   $: if (hydrationDone) {
     saveDraft();
+  }
+
+  $: if (hydrationDone && mapHistory && !applyingHistory) {
+    const snapshot = JSON.stringify($mapStore.map);
+    if (snapshot !== lastHistorySnapshot) {
+      lastHistorySnapshot = snapshot;
+      mapHistory.push(structuredClone($mapStore.map), "Map updated");
+    }
+  }
+
+  $: if (mapHistory) {
+    const history = mapHistory.getHistory();
+    undoLabel = history.past[history.past.length - 1]?.description ?? "";
+    redoLabel = history.future[0]?.description ?? "";
   }
 </script>
 
@@ -925,6 +1013,16 @@
       <div class="mt-sep"></div>
 
       <div class="mt-actions">
+        <button
+          type="button"
+          title={undoLabel ? `Rueckgaengig: ${undoLabel}` : "Rueckgaengig (Strg/Cmd+Z)"}
+          disabled={!mapHistory || !mapHistory.canUndo()}
+          on:click={undoMapEdit}>↶ Undo{#if undoLabel}<span class="mt-sub-label">{undoLabel}</span>{/if}</button>
+        <button
+          type="button"
+          title={redoLabel ? `Wiederholen: ${redoLabel}` : "Wiederholen (Strg/Cmd+Shift+Z)"}
+          disabled={!mapHistory || !mapHistory.canRedo()}
+          on:click={redoMapEdit}>↷ Redo{#if redoLabel}<span class="mt-sub-label">{redoLabel}</span>{/if}</button>
         <select
           class="mt-map-select"
           bind:value={selectedMapId}
@@ -1032,6 +1130,20 @@
             title="Neue Karte"
             disabled={busy}
             on:click={newMap}>Neu</button
+          >
+          <button
+            type="button"
+            class="sb-btn"
+            title={undoLabel ? `Rueckgaengig: ${undoLabel}` : "Rueckgaengig"}
+            disabled={!mapHistory || !mapHistory.canUndo()}
+            on:click={undoMapEdit}>Undo</button
+          >
+          <button
+            type="button"
+            class="sb-btn"
+            title={redoLabel ? `Wiederholen: ${redoLabel}` : "Wiederholen"}
+            disabled={!mapHistory || !mapHistory.canRedo()}
+            on:click={redoMapEdit}>Redo</button
           >
           <button
             type="button"
@@ -1310,6 +1422,17 @@
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.15s, background 0.15s;
+  }
+
+  .mt-sub-label {
+    display: block;
+    margin-top: 0.12rem;
+    font-size: 0.64rem;
+    line-height: 1.1;
+    color: #7a8da8;
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .mt-tools button:hover, .mt-actions button:hover:not(:disabled) {
