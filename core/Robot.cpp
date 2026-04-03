@@ -11,6 +11,7 @@
 
 #include "core/Robot.h"
 #include "core/MqttClient.h"
+#include "core/navigation/MowRoutePlanner.h"
 
 #include <filesystem>
 #include <fstream>
@@ -766,12 +767,48 @@ bool Robot::canStartMowingMission() {
     return true;
 }
 
+bool Robot::canStartPlannedMission(const nav::RoutePlan& route) {
+    if (!map_.isLoaded()) {
+        rejectStartMowingMission("start_rejected_no_map",
+                                 "Start verweigert: keine aktive Karte geladen");
+        return false;
+    }
+    if (route.points.empty()) {
+        rejectStartMowingMission("start_rejected_no_mow_points",
+                                 "Start verweigert: Mission liefert keine Fahrbahn");
+        return false;
+    }
+    return true;
+}
+
 void Robot::rejectStartMowingMission(const std::string& eventReason,
                                      const std::string& message) {
     logger_->warn(TAG, message);
     showUiNotice(message, "warn", eventReason);
     buzzerSequencer_.play(*hw_, now_ms_, BuzzerPattern::StartRejected);
     recordEvent("warn", "start_rejected", eventReason, message);
+}
+
+nlohmann::json Robot::loadMissionDocumentById(const std::string& missionId) const {
+    const std::string missionPath = config_->get<std::string>("mission_path", "");
+    if (missionPath.empty()) return nlohmann::json::object();
+
+    std::ifstream in(missionPath);
+    if (!in.is_open()) return nlohmann::json::object();
+
+    nlohmann::json missions;
+    try {
+        in >> missions;
+    } catch (...) {
+        return nlohmann::json::object();
+    }
+    if (!missions.is_array()) return nlohmann::json::object();
+
+    for (const auto& mission : missions) {
+        if (!mission.is_object()) continue;
+        if (mission.value("id", std::string()) == missionId) return mission;
+    }
+    return nlohmann::json::object();
 }
 
 void Robot::startMowing() {
@@ -809,7 +846,22 @@ void Robot::startMowingZones(const std::vector<std::string>& zoneIds) {
 
 void Robot::startMowingMission(const std::string& missionId,
                                const std::vector<std::string>& zoneIds) {
-    if (!canStartMowingMission()) return;
+    if (!map_.isLoaded()) {
+        rejectStartMowingMission("start_rejected_no_map",
+                                 "Start verweigert: keine aktive Karte geladen");
+        return;
+    }
+
+    nlohmann::json missionDoc = loadMissionDocumentById(missionId);
+    if (!missionDoc.is_object()) {
+        rejectStartMowingMission("start_rejected_no_mission",
+                                 "Start verweigert: Mission konnte nicht geladen werden");
+        return;
+    }
+    if (!zoneIds.empty()) missionDoc["zoneIds"] = zoneIds;
+
+    const nav::RoutePlan plannedRoute = nav::buildMissionMowRoutePreview(map_, missionDoc);
+    if (!canStartPlannedMission(plannedRoute)) return;
 
     unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                    : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
@@ -819,12 +871,22 @@ void Robot::startMowingMission(const std::string& missionId,
                               age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
     armMissionResumeGuard();
     activeMissionId_ = missionId;
-    activeMissionZoneIds_ = zoneIds;
+    activeMissionZoneIds_.clear();
+    if (missionDoc.contains("zoneIds") && missionDoc["zoneIds"].is_array()) {
+        for (const auto& zoneId : missionDoc["zoneIds"]) {
+            if (zoneId.is_string()) activeMissionZoneIds_.push_back(zoneId.get<std::string>());
+        }
+    }
     if (activeMissionZoneIds_.empty()) {
         for (const auto& zone : map_.zones()) activeMissionZoneIds_.push_back(zone.id);
     }
     activeMissionZoneIndex_ = 0;
-    map_.startMowingZones(stateEst_.x(), stateEst_.y(), activeMissionZoneIds_);
+    if (!map_.startPlannedMowing(stateEst_.x(), stateEst_.y(), plannedRoute)) {
+        rejectStartMowingMission("start_rejected_no_mow_points",
+                                 "Start verweigert: Missionsroute konnte nicht aktiviert werden");
+        clearActiveMissionTracking();
+        return;
+    }
     refreshActiveMissionProgress();
     recordEvent("info", "operator_command", "operator_start_mission",
                 "Mission wurde gestartet");

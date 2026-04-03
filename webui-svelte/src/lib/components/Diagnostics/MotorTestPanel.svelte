@@ -196,75 +196,78 @@
 <style>
   .panel {
     display: grid;
-    gap: 1rem;
-    padding: 1rem;
+    gap: 0.6rem;
+    padding: 0.75rem 0.85rem;
     border-radius: 0.8rem;
     background: #0f1829;
     border: 1px solid #1e3a5f;
   }
 
   header,
-  .block,
   .block-header {
     display: grid;
-    gap: 0.25rem;
-  }
-
-  h2,
-  p {
-    margin: 0;
-  }
-
-  p,
-  .block-header span {
-    color: #64748b;
-    font-size: 0.84rem;
+    gap: 0.15rem;
   }
 
   .block {
-    gap: 0.8rem;
-    padding: 0.85rem;
-    border-radius: 0.7rem;
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.55rem;
     background: #0a1020;
     border: 1px solid #1a2a40;
   }
 
+  h2, p { margin: 0; }
+
+  h2 { font-size: 0.92rem; color: #e2e8f0; }
+
+  p,
+  .block-header span {
+    color: #64748b;
+    font-size: 0.78rem;
+  }
+
+  .block-header strong { font-size: 0.84rem; color: #cbd5e1; }
+
   .settings {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.8rem;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 0.5rem;
   }
 
   label {
     display: grid;
-    gap: 0.3rem;
-    color: #cbd5e1;
-    font-size: 0.84rem;
+    gap: 0.2rem;
+    color: #94a3b8;
+    font-size: 0.78rem;
   }
 
   input {
     width: 100%;
-    padding: 0.7rem 0.8rem;
+    padding: 0.35rem 0.55rem;
     border: 1px solid #1a2a40;
-    border-radius: 0.6rem;
+    border-radius: 0.4rem;
     background: #08101d;
     color: #dce8e8;
+    font-size: 0.82rem;
   }
 
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.8rem;
+    gap: 0.4rem;
   }
 
   button {
-    padding: 0.8rem 1rem;
+    padding: 0.4rem 0.7rem;
     border: 1px solid #2563eb;
-    border-radius: 0.6rem;
+    border-radius: 0.45rem;
     cursor: pointer;
     background: #0c1a3a;
     color: #93c5fd;
-    font-weight: 700;
+    font-weight: 600;
+    font-size: 0.82rem;
   }
 
   button:disabled {
@@ -275,8 +278,8 @@
   .summary {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
-    color: #64748b;
-    font-size: 0.84rem;
+    gap: 0.5rem 1rem;
+    color: #475569;
+    font-size: 0.78rem;
   }
 </style>

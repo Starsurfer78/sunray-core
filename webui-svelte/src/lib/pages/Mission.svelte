@@ -33,6 +33,7 @@
   let busy = false;
   let backendOnline = false;
   let selectedZoneId: string | null = null;
+  let zoneSettingsExpanded = true;
   let sidebarCollapsed = false;
   let lastZoneSignature = "";
 
@@ -60,6 +61,56 @@
         pattern: zone.settings.pattern ?? "stripe",
       },
     };
+  }
+
+  type Segment = { a: Point; b: Point };
+
+  function orientation(a: Point, b: Point, c: Point) {
+    return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+  }
+
+  function onSegment(a: Point, b: Point, c: Point) {
+    return (
+      Math.min(a.x, c.x) <= b.x &&
+      b.x <= Math.max(a.x, c.x) &&
+      Math.min(a.y, c.y) <= b.y &&
+      b.y <= Math.max(a.y, c.y)
+    );
+  }
+
+  function segmentsIntersect(s1: Segment, s2: Segment) {
+    const o1 = orientation(s1.a, s1.b, s2.a);
+    const o2 = orientation(s1.a, s1.b, s2.b);
+    const o3 = orientation(s2.a, s2.b, s1.a);
+    const o4 = orientation(s2.a, s2.b, s1.b);
+
+    if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true;
+    if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true;
+    if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true;
+    if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true;
+
+    return o1 > 0 !== o2 > 0 && o3 > 0 !== o4 > 0;
+  }
+
+  function hasSelfIntersection(points: Point[]) {
+    if (points.length < 4) return false;
+    const segments: Segment[] = points.map((point, index) => ({
+      a: point,
+      b: points[(index + 1) % points.length],
+    }));
+
+    for (let i = 0; i < segments.length; i += 1) {
+      for (let j = i + 1; j < segments.length; j += 1) {
+        const adjacent = j === i + 1 || (i === 0 && j === segments.length - 1);
+        if (adjacent) continue;
+        if (segmentsIntersect(segments[i], segments[j])) return true;
+      }
+    }
+    return false;
+  }
+
+  function isZoneValid(zone: Zone) {
+    return zone.polygon.length >= 3 && !hasSelfIntersection(zone.polygon);
   }
 
   function normalizeMission(doc: MissionDocument): Mission {
@@ -210,35 +261,70 @@
     return zoneColors[index % zoneColors.length] ?? zoneColors[0];
   }
 
-  function addZoneToMission() {
+  function addZonesFromPicker(event: Event) {
     if (!selectedMission) return;
-    const nextZone = $mapStore.map.zones.find(
-      (z) => !selectedMission.zoneIds.includes(z.id),
-    );
-    if (!nextZone) return;
+    const select = event.currentTarget as HTMLSelectElement;
+    const selectedIds = Array.from(select.selectedOptions).map((option) => option.value);
+    if (selectedIds.length === 0) return;
+
+    const addIds = selectedIds.filter((zoneId) => {
+      const zone = $mapStore.map.zones.find((entry) => entry.id === zoneId);
+      return !!zone && isZoneValid(zone) && !selectedMission.zoneIds.includes(zoneId);
+    });
+    if (addIds.length === 0) return;
+
     missionStore.setMissionZoneIds(
       selectedMission.id,
-      [...selectedMission.zoneIds, nextZone.id],
+      [...selectedMission.zoneIds, ...addIds],
       $mapStore.map.zones,
     );
-    selectedZoneId = nextZone.id;
+    selectedZoneId = addIds[addIds.length - 1];
+    zoneSettingsExpanded = true;
+
+    // Optional convenience: clear current multi-selection after applying.
+    for (const option of Array.from(select.options)) option.selected = false;
   }
 
   function removeZoneFromMission(zoneId: string) {
     if (!selectedMission) return;
+    const missionId = selectedMission.id;
     missionStore.setMissionZoneIds(
-      selectedMission.id,
+      missionId,
       selectedMission.zoneIds.filter((entry) => entry !== zoneId),
       $mapStore.map.zones,
     );
+    const updatedMission = get(missionStore).missions.find(
+      (mission) => mission.id === missionId,
+    );
     if (selectedZoneId === zoneId) {
-      selectedZoneId =
-        selectedMission.zoneIds.find((entry) => entry !== zoneId) ?? null;
+      selectedZoneId = updatedMission?.zoneIds[0] ?? null;
     }
   }
 
   function startMission(missionId: string) {
     sendCmd("start", { missionId });
+  }
+
+  async function saveZoneOverrides() {
+    if (!selectedMission) return;
+    try {
+      await updateMissionDocument(selectedMission.id, selectedMission);
+      backendOnline = true;
+      info = "Missions-Zonen-Einstellungen gespeichert";
+      error = "";
+    } catch (err) {
+      backendOnline = false;
+      error =
+        err instanceof Error
+          ? err.message
+          : "Missions-Zonen-Einstellungen konnten nicht gespeichert werden";
+      info = "";
+    }
+  }
+
+  function onZoneSelect(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    selectedZoneId = value || null;
   }
 
   function scheduleSummary(mission: Mission): string {
@@ -268,9 +354,18 @@
 
   $: if (
     selectedMission &&
-    (!selectedZoneId || !selectedMission.zoneIds.includes(selectedZoneId))
+    selectedZoneId &&
+    !selectedMission.zoneIds.includes(selectedZoneId)
   ) {
     selectedZoneId = selectedMission.zoneIds[0] ?? null;
+  }
+
+  $: if (
+    !selectedMission &&
+    selectedZoneId &&
+    !$mapStore.map.zones.some((zone) => zone.id === selectedZoneId)
+  ) {
+    selectedZoneId = null;
   }
 
   $: selectedZone = selectedZoneId
@@ -283,6 +378,18 @@
           selectedMission.zoneIds.indexOf(selectedZoneId) % zoneColors.length
         ] ?? zoneColors[0])
       : zoneColors[0];
+
+  $: selectedMissionZones = selectedMission
+    ? selectedMission.zoneIds
+        .map((zoneId) => $mapStore.map.zones.find((zone) => zone.id === zoneId))
+        .filter((zone): zone is Zone => Boolean(zone))
+    : [];
+
+  $: validZones = $mapStore.map.zones.filter((zone) => isZoneValid(zone));
+  $: selectableZones = selectedMission
+    ? validZones.filter((zone) => !selectedMission.zoneIds.includes(zone.id))
+    : $mapStore.map.zones;
+  $: unassignedZonesCount = selectableZones.length;
 
   onMount(async () => {
     await ensureZonesLoaded();
@@ -297,9 +404,11 @@
   <div class="ms-body">
     <div class="ms-canvas-wrap">
       <PathPreview
+        map={$mapStore.map}
         zones={$mapStore.map.zones}
         perimeter={$mapStore.map.perimeter}
         exclusions={$mapStore.map.exclusions}
+        dock={$mapStore.map.dock}
         mission={selectedMission}
         {selectedZoneId}
         on:selectzone={(e) => {
@@ -308,15 +417,51 @@
       />
     </div>
 
-    {#if selectedMission && selectedZone}
-      <ZoneSettings
-        mission={selectedMission}
-        zone={selectedZone}
-        color={selectedZoneColor}
-        on:close={() => {
-          selectedZoneId = null;
-        }}
-      />
+    {#if selectedMission}
+      <div class="ms-zone-panel">
+        <div class="ms-zone-panel-hd">
+          <button
+            type="button"
+            class="ms-zone-toggle"
+            on:click={() => (zoneSettingsExpanded = !zoneSettingsExpanded)}
+            aria-expanded={zoneSettingsExpanded}
+          >
+            {zoneSettingsExpanded ? "▾" : "▸"} Zonen-Einstellungen
+          </button>
+          <select
+            class="ms-zone-select"
+            value={selectedZoneId ?? ""}
+            on:change={onZoneSelect}
+            disabled={selectedMissionZones.length === 0}
+          >
+            <option value="" disabled={selectedMissionZones.length > 0}>
+              {selectedMissionZones.length > 0 ? "Zone auswaehlen" : "Keine Zone in dieser Mission"}
+            </option>
+            {#each selectedMissionZones as zone}
+              <option value={zone.id}>{zone.settings.name}</option>
+            {/each}
+          </select>
+        </div>
+
+        {#if zoneSettingsExpanded}
+          {#if selectedZone}
+            <ZoneSettings
+              mission={selectedMission}
+              zone={selectedZone}
+              color={selectedZoneColor}
+              showHeader={false}
+              on:save={saveZoneOverrides}
+              on:close={() => {
+                zoneSettingsExpanded = false;
+              }}
+            />
+          {:else}
+            <div class="ms-zone-empty">
+              Waehle oben eine Zone aus, um Bahnen und Parameter zu bearbeiten.
+            </div>
+          {/if}
+        {/if}
+      </div>
     {/if}
   </div>
 
@@ -397,11 +542,23 @@
         <div class="ms-ed-sec">
           <div class="ms-ed-slbl">
             <span>Zonen</span>
-            <button
-              type="button"
-              class="ms-add-zone"
-              on:click={addZoneToMission}>+ hinzufügen</button
+            <span class="ms-zone-count">{unassignedZonesCount} frei</span>
+          </div>
+          <div class="ms-zone-picker">
+            <select
+              class="ms-zone-picker-select"
+              multiple
+              size="4"
+              on:change={addZonesFromPicker}
+              disabled={selectableZones.length === 0}
             >
+              {#each selectableZones as zone}
+                <option value={zone.id}>
+                  {zone.settings.name}
+                </option>
+              {/each}
+            </select>
+            <div class="ms-zone-picker-hint">Vorhandene Zonen auswählen und zur Mission hinzufügen (Mehrfachauswahl möglich).</div>
           </div>
           {#if selectedMission.zoneIds.length === 0}
             <div class="ms-empty-inline">
@@ -554,6 +711,52 @@
     overflow: hidden;
   }
 
+  .ms-zone-panel {
+    flex-shrink: 0;
+    border-top: 1px solid #1e3a5f;
+    background: #0a1020;
+  }
+
+  .ms-zone-panel-hd {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #1e3a5f;
+  }
+
+  .ms-zone-toggle {
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+    color: #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .ms-zone-select {
+    min-width: 220px;
+    max-width: 340px;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .ms-zone-select:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .ms-zone-empty {
+    padding: 10px 12px;
+    font-size: 11px;
+    color: #64748b;
+  }
+
   .ms-sb-hd {
     padding: 10px 14px;
     border-bottom: 1px solid #1e3a5f;
@@ -581,6 +784,13 @@
 
   .ms-add-btn:hover {
     border-color: #3b82f6;
+  }
+
+  .ms-add-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: #1e3a5f;
+    color: #64748b;
   }
 
   /* Mission cards */
@@ -743,17 +953,37 @@
     justify-content: space-between;
   }
 
-  .ms-add-zone {
+  .ms-zone-count {
     font-size: 10px;
-    background: transparent;
-    border: 1px solid #1e3a5f;
-    color: #60a5fa;
-    border-radius: 4px;
-    padding: 1px 6px;
-    cursor: pointer;
-    font-weight: 400;
+    color: #64748b;
     letter-spacing: 0;
     text-transform: none;
+    font-weight: 400;
+  }
+
+  .ms-zone-picker {
+    margin-bottom: 6px;
+  }
+
+  .ms-zone-picker-select {
+    width: 100%;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+    color: #e2e8f0;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .ms-zone-picker-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .ms-zone-picker-hint {
+    margin-top: 4px;
+    font-size: 10px;
+    color: #64748b;
   }
 
   /* Zone rows */
@@ -939,4 +1169,5 @@
     color: #475569;
     padding: 4px 0;
   }
+
 </style>

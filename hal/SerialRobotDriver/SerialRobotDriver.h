@@ -145,11 +145,16 @@ private:
     float cpuTemp_        = 30.0f;
     bool  wifiConnected_  = false;
     bool  wifiInactive_   = false;
+    std::string wifiInterface_ = "wlan0";
+    std::string wifiState_;
+    std::string wifiLastLoggedState_;
     bool  serialDebug_    = false;
     bool  shutdownPending_ = false;
     uint64_t shutdownAt_  = 0;   // nowMs() at which shutdown command fires
     uint64_t rxLastByteMs_ = 0;
     uint64_t rxGapMs_      = 50;
+    uint64_t wifiLastScanMs_ = 0;
+    uint64_t wifiLastReconnectMs_ = 0;
 
     // Diagnostic counters (reset every 1 s)
     int motorTxCount_   = 0;
@@ -189,11 +194,14 @@ private:
 
     void updateCpuTemp();
     void updateWifi();
+    void recoverWifi();
     void updateWifiLed();
 
     // ── Utility ───────────────────────────────────────────────────────────────
     static uint64_t    nowMs();
     static std::string shellRead(const char* cmd);  // popen + collect output
+    static bool        shellExec(const std::string& cmd);
+    static std::string trim(std::string s);
     void               logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const;
     uint8_t            configI2cAddr(const std::string& key, uint8_t fallback) const;
     static int           fieldInt  (const std::string& s);

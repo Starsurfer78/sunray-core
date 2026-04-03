@@ -36,45 +36,48 @@
 <style>
   .panel {
     display: grid;
-    gap: 1rem;
-    padding: 1rem;
+    gap: 0.65rem;
+    padding: 0.75rem 0.85rem;
     border-radius: 0.8rem;
     background: #0f1829;
     border: 1px solid #1e3a5f;
   }
 
-  header, .grid {
+  header {
     display: grid;
-    gap: 0.8rem;
+    gap: 0.2rem;
   }
 
-  h2, p {
-    margin: 0;
-  }
+  h2, p { margin: 0; }
 
-  p { color: #64748b; font-size: 0.84rem; }
+  h2 { font-size: 0.92rem; color: #e2e8f0; }
+
+  p { color: #64748b; font-size: 0.78rem; }
 
   .grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.45rem;
   }
 
   .card {
     display: grid;
-    gap: 0.35rem;
-    padding: 0.9rem;
-    border-radius: 0.7rem;
+    gap: 0.2rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 0.55rem;
     background: #0a1020;
     border: 1px solid #1a2a40;
-    transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+    transition: border-color 120ms ease, background 120ms ease;
   }
 
-  strong { color: #94a3b8; }
+  .card span { font-size: 0.78rem; color: #64748b; }
+
+  strong { font-size: 0.82rem; color: #94a3b8; }
 
   .active { color: #4ade80; }
 
   .active-card {
-    border-color: rgba(74, 222, 128, 0.72);
+    border-color: rgba(74, 222, 128, 0.6);
     background: linear-gradient(180deg, rgba(12, 48, 28, 0.96), rgba(8, 28, 18, 0.96));
-    transform: translateY(-1px);
   }
 </style>

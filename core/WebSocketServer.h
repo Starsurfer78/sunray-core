@@ -34,6 +34,7 @@
 #include <nlohmann/json.hpp>
 
 #include <atomic>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <memory>
@@ -284,6 +285,7 @@ private:
     std::string      mapPath_;
     std::string      missionPath_;
     std::mutex       mapReloadMutex_;
+    std::mutex       mapCatalogMutex_;
     MapGetCallback   mapGetCallback_;
     MapReloadCallback mapReloadCallback_;
 
@@ -295,6 +297,14 @@ private:
     static constexpr int         PUSH_INTERVAL_MS = 100;
 
     void setupHttpRoutes();
+
+    std::filesystem::path mapsDir() const;
+    std::filesystem::path mapsCatalogPath() const;
+    bool ensureMapsCatalogLocked(std::string* err = nullptr);
+    bool syncActiveMapSnapshotLocked(const nlohmann::json& mapDoc, std::string* err = nullptr);
+    bool activateMapByIdLocked(const std::string& mapId, std::string* err = nullptr);
+    nlohmann::json loadMapsCatalogLocked() const;
+    bool saveMapsCatalogLocked(const nlohmann::json& catalog, std::string* err = nullptr) const;
 };
 
 } // namespace sunray

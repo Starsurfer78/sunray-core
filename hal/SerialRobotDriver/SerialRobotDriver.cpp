@@ -21,6 +21,8 @@ namespace {
 constexpr auto kStartupLedHold = std::chrono::milliseconds(300);
 constexpr auto kStartupBuzzerPulse = std::chrono::milliseconds(120);
 constexpr unsigned kChargerDebounceSamples = 2;
+constexpr uint64_t kWifiScanIntervalMs = 15000;
+constexpr uint64_t kWifiReconnectIntervalMs = 10000;
 
 bool chargerConnectedFromVoltage(float chargeVoltage, float threshold) {
     return chargeVoltage > threshold;
@@ -44,6 +46,7 @@ SerialRobotDriver::~SerialRobotDriver() {
 bool SerialRobotDriver::init() {
     serialDebug_ = config_->get<bool>("serial_debug", false);
     rxGapMs_     = static_cast<uint64_t>(config_->get<int>("serial_rx_gap_ms", 50));
+    wifiInterface_ = config_->get<std::string>("wifi_interface", "wlan0");
 
     // ── UART to STM32 ─────────────────────────────────────────────────────────
     const std::string port = config_->get<std::string>("driver_port", "/dev/ttyS0");
@@ -199,12 +202,6 @@ void SerialRobotDriver::run() {
         motorTxCount_ = motorRxCount_ = summaryTxCount_ = summaryRxCount_ = 0;
     }
 
-    // 3 s — WiFi LED update
-    if (now >= nextLedMs_) {
-        nextLedMs_ = now + 3000;
-        updateWifiLed();
-    }
-
     // 59 s — CPU temperature + fan control
     if (now >= nextTempMs_) {
         nextTempMs_ = now + 59000;
@@ -217,6 +214,12 @@ void SerialRobotDriver::run() {
     if (now >= nextWifiMs_) {
         nextWifiMs_ = now + 7000;
         updateWifi();
+    }
+
+    // 3 s — WiFi LED update
+    if (now >= nextLedMs_) {
+        nextLedMs_ = now + 3000;
+        updateWifiLed();
     }
 
     // Shutdown sequencing
@@ -664,11 +667,41 @@ void SerialRobotDriver::updateCpuTemp() {
 
 void SerialRobotDriver::updateWifi() {
     // wpa_state values: COMPLETED, DISCONNECTED, SCANNING, INACTIVE, …
-    std::string s = shellRead(
-        "wpa_cli -i wlan0 status 2>/dev/null | grep wpa_state | cut -d '=' -f2");
-    if (!s.empty() && s.back() == '\n') s.pop_back();
-    wifiConnected_ = (s == "COMPLETED");
-    wifiInactive_  = (s == "INACTIVE");
+    const std::string cmd = "wpa_cli -i " + wifiInterface_
+        + " status 2>/dev/null | grep wpa_state | cut -d '=' -f2";
+    wifiState_ = trim(shellRead(cmd.c_str()));
+    if (wifiState_.empty()) {
+        wifiState_ = "UNKNOWN";
+    }
+    if (wifiState_ != wifiLastLoggedState_) {
+        std::cerr << "[SRD] WiFi state(" << wifiInterface_ << "): " << wifiState_ << '\n';
+        wifiLastLoggedState_ = wifiState_;
+    }
+    wifiConnected_ = (wifiState_ == "COMPLETED");
+    wifiInactive_  = (wifiState_ == "INACTIVE");
+    recoverWifi();
+}
+
+void SerialRobotDriver::recoverWifi() {
+    if (wifiConnected_) {
+        wifiLastScanMs_ = 0;
+        wifiLastReconnectMs_ = 0;
+        return;
+    }
+
+    const uint64_t now = nowMs();
+    if (now - wifiLastScanMs_ >= kWifiScanIntervalMs) {
+        wifiLastScanMs_ = now;
+        const bool ok = shellExec("wpa_cli -i " + wifiInterface_ + " scan >/dev/null 2>&1");
+        std::cerr << "[SRD] WiFi recovery(" << wifiInterface_ << "): active scan requested"
+                  << " while state=" << wifiState_ << (ok ? "" : " FAILED") << '\n';
+    }
+    if (now - wifiLastReconnectMs_ >= kWifiReconnectIntervalMs) {
+        wifiLastReconnectMs_ = now;
+        const bool ok = shellExec("wpa_cli -i " + wifiInterface_ + " reconnect >/dev/null 2>&1");
+        std::cerr << "[SRD] WiFi recovery(" << wifiInterface_ << "): reconnect requested"
+                  << " while state=" << wifiState_ << (ok ? "" : " FAILED") << '\n';
+    }
 }
 
 void SerialRobotDriver::updateWifiLed() {
@@ -693,6 +726,23 @@ std::string SerialRobotDriver::shellRead(const char* cmd) {
     while (::fgets(buf, sizeof(buf), f)) result += buf;
     ::pclose(f);
     return result;
+}
+
+bool SerialRobotDriver::shellExec(const std::string& cmd) {
+    return std::system(cmd.c_str()) == 0;
+}
+
+std::string SerialRobotDriver::trim(std::string s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' ||
+                          s.back() == ' ' || s.back() == '\t')) {
+        s.pop_back();
+    }
+    size_t first = 0;
+    while (first < s.size() && (s[first] == ' ' || s[first] == '\t' ||
+                                s[first] == '\n' || s[first] == '\r')) {
+        ++first;
+    }
+    return s.substr(first);
 }
 
 void SerialRobotDriver::logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const {

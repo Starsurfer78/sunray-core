@@ -6,7 +6,11 @@
 #include "core/WebSocketServer.h"
 
 #include "crow.h"
+#include "core/navigation/MowRoutePlanner.h"
+#include "core/navigation/Map.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -69,6 +73,52 @@ static std::string readFile(const std::filesystem::path& p) {
     return { std::istreambuf_iterator<char>(f), {} };
 }
 
+static bool jsonPointToNavPoint(const nlohmann::json& value, sunray::nav::Point& out) {
+    if (!value.is_array() || value.size() < 2) return false;
+    if (!value[0].is_number() || !value[1].is_number()) return false;
+    out.x = value[0].get<float>();
+    out.y = value[1].get<float>();
+    return true;
+}
+
+static sunray::nav::WayType parseWayType(const std::string& raw, sunray::nav::WayType fallback) {
+    if (raw == "dock") return sunray::nav::WayType::DOCK;
+    if (raw == "mow") return sunray::nav::WayType::MOW;
+    if (raw == "perimeter") return sunray::nav::WayType::PERIMETER;
+    if (raw == "exclusion") return sunray::nav::WayType::EXCLUSION;
+    if (raw == "free") return sunray::nav::WayType::FREE;
+    return fallback;
+}
+
+static std::string encodeWayType(sunray::nav::WayType mode) {
+    switch (mode) {
+        case sunray::nav::WayType::PERIMETER: return "perimeter";
+        case sunray::nav::WayType::EXCLUSION: return "exclusion";
+        case sunray::nav::WayType::DOCK: return "dock";
+        case sunray::nav::WayType::MOW: return "mow";
+        case sunray::nav::WayType::FREE: return "free";
+    }
+    return "free";
+}
+
+static nlohmann::json encodeRoutePlanJson(const sunray::nav::RoutePlan& route) {
+    nlohmann::json out;
+    out["active"] = route.active;
+    out["sourceMode"] = encodeWayType(route.sourceMode);
+    out["points"] = nlohmann::json::array();
+    for (const auto& point : route.points) {
+        out["points"].push_back({
+            { "p", { point.p.x, point.p.y } },
+            { "reverse", point.reverse },
+            { "slow", point.slow },
+            { "reverseAllowed", point.reverseAllowed },
+            { "clearance_m", point.clearance_m },
+            { "sourceMode", encodeWayType(point.sourceMode) },
+        });
+    }
+    return out;
+}
+
 static constexpr const char* kDefaultMapJson =
     R"({"perimeter":[],"mow":[],"dock":[],"exclusions":[],"zones":[]})";
 
@@ -107,6 +157,28 @@ static std::string sanitizeUploadName(const std::string& rawName) {
         cleaned.push_back(safe ? ch : '_');
     }
     return cleaned;
+}
+
+static std::string slugifyMapId(const std::string& rawName) {
+    std::string out;
+    out.reserve(rawName.size());
+    bool prevDash = false;
+    for (char ch : rawName) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isalnum(uch)) {
+            out.push_back(static_cast<char>(std::tolower(uch)));
+            prevDash = false;
+            continue;
+        }
+        if (!prevDash) {
+            out.push_back('-');
+            prevDash = true;
+        }
+    }
+    while (!out.empty() && out.front() == '-') out.erase(out.begin());
+    while (!out.empty() && out.back() == '-') out.pop_back();
+    if (out.empty()) out = "map";
+    return out;
 }
 
 static nlohmann::json readStmUploadMeta() {
@@ -251,6 +323,212 @@ void WebSocketServer::setStmFlashScriptPath(const std::string& path) {
 void WebSocketServer::onStmFlashStateChange(StmFlashStateCallback cb) {
     std::lock_guard<std::mutex> lk(stmFlashStateMutex_);
     stmFlashStateCb_ = std::move(cb);
+}
+
+std::filesystem::path WebSocketServer::mapsDir() const {
+    if (mapPath_.empty()) return {};
+    return std::filesystem::path(mapPath_).parent_path() / "maps";
+}
+
+std::filesystem::path WebSocketServer::mapsCatalogPath() const {
+    const auto dir = mapsDir();
+    if (dir.empty()) return {};
+    return dir / "catalog.json";
+}
+
+nlohmann::json WebSocketServer::loadMapsCatalogLocked() const {
+    const auto catalogPath = mapsCatalogPath();
+    if (catalogPath.empty() || !std::filesystem::exists(catalogPath)) {
+        return nlohmann::json::object();
+    }
+    try {
+        return nlohmann::json::parse(readFile(catalogPath));
+    } catch (...) {
+        return nlohmann::json::object();
+    }
+}
+
+bool WebSocketServer::saveMapsCatalogLocked(const nlohmann::json& catalog, std::string* err) const {
+    try {
+        const auto catalogPath = mapsCatalogPath();
+        if (catalogPath.empty()) {
+            if (err) *err = "map path not configured";
+            return false;
+        }
+        std::filesystem::create_directories(catalogPath.parent_path());
+        std::ofstream out(catalogPath);
+        if (!out.is_open()) {
+            if (err) *err = "cannot write map catalog";
+            return false;
+        }
+        out << catalog.dump(2);
+        if (!out.good()) {
+            if (err) *err = "failed to flush map catalog";
+            return false;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        if (err) *err = e.what();
+        return false;
+    }
+}
+
+bool WebSocketServer::ensureMapsCatalogLocked(std::string* err) {
+    try {
+        if (mapPath_.empty()) {
+            if (err) *err = "map path not configured";
+            return false;
+        }
+
+        auto catalog = loadMapsCatalogLocked();
+        if (!catalog.is_object()) catalog = nlohmann::json::object();
+        if (!catalog.contains("maps") || !catalog["maps"].is_array()) {
+            catalog["maps"] = nlohmann::json::array();
+        }
+
+        auto& maps = catalog["maps"];
+        if (maps.empty()) {
+            std::filesystem::create_directories(mapsDir());
+
+            std::string raw = readFile(mapPath_);
+            if (raw.empty()) raw = kDefaultMapJson;
+            nlohmann::json parsed = nlohmann::json::parse(raw, nullptr, false);
+            if (!parsed.is_object()) parsed = nlohmann::json::parse(kDefaultMapJson);
+
+            const std::string id = "default";
+            const std::string file = "default.json";
+            const auto mapFilePath = mapsDir() / file;
+            {
+                std::ofstream out(mapFilePath);
+                if (!out.is_open()) {
+                    if (err) *err = "cannot write initial map entry";
+                    return false;
+                }
+                out << parsed.dump(2);
+            }
+            const long long now = unixNowMs();
+            maps.push_back({
+                {"id", id},
+                {"name", "Standardkarte"},
+                {"file", file},
+                {"created_at_ms", now},
+                {"updated_at_ms", now},
+            });
+            catalog["active_id"] = id;
+        }
+
+        std::string activeId = catalog.value("active_id", std::string());
+        if (activeId.empty()) {
+            activeId = maps.front().value("id", std::string("default"));
+            catalog["active_id"] = activeId;
+        }
+
+        bool activeFound = false;
+        for (const auto& entry : maps) {
+            if (entry.value("id", std::string()) == activeId) {
+                activeFound = true;
+                break;
+            }
+        }
+        if (!activeFound) {
+            catalog["active_id"] = maps.front().value("id", std::string("default"));
+        }
+
+        return saveMapsCatalogLocked(catalog, err);
+    } catch (const std::exception& e) {
+        if (err) *err = e.what();
+        return false;
+    }
+}
+
+bool WebSocketServer::syncActiveMapSnapshotLocked(const nlohmann::json& mapDoc, std::string* err) {
+    if (!ensureMapsCatalogLocked(err)) return false;
+
+    auto catalog = loadMapsCatalogLocked();
+    auto& maps = catalog["maps"];
+    const std::string activeId = catalog.value("active_id", std::string());
+    for (auto& entry : maps) {
+        if (entry.value("id", std::string()) != activeId) continue;
+        const auto file = entry.value("file", std::string());
+        if (file.empty()) break;
+        try {
+            std::filesystem::create_directories(mapsDir());
+            std::ofstream out(mapsDir() / file);
+            if (!out.is_open()) {
+                if (err) *err = "cannot write active map snapshot";
+                return false;
+            }
+            out << mapDoc.dump(2);
+            if (!out.good()) {
+                if (err) *err = "failed to flush active map snapshot";
+                return false;
+            }
+            entry["updated_at_ms"] = unixNowMs();
+            return saveMapsCatalogLocked(catalog, err);
+        } catch (const std::exception& e) {
+            if (err) *err = e.what();
+            return false;
+        }
+    }
+    if (err) *err = "active map entry not found";
+    return false;
+}
+
+bool WebSocketServer::activateMapByIdLocked(const std::string& mapId, std::string* err) {
+    if (!ensureMapsCatalogLocked(err)) return false;
+
+    auto catalog = loadMapsCatalogLocked();
+    auto& maps = catalog["maps"];
+    nlohmann::json* selected = nullptr;
+    for (auto& entry : maps) {
+        if (entry.value("id", std::string()) == mapId) {
+            selected = &entry;
+            break;
+        }
+    }
+    if (!selected) {
+        if (err) *err = "map not found";
+        return false;
+    }
+
+    const std::string file = selected->value("file", std::string());
+    if (file.empty()) {
+        if (err) *err = "map file missing";
+        return false;
+    }
+    const auto srcPath = mapsDir() / file;
+    const std::string raw = readFile(srcPath);
+    if (raw.empty()) {
+        if (err) *err = "map file unreadable";
+        return false;
+    }
+
+    {
+        std::ofstream dst(mapPath_);
+        if (!dst.is_open()) {
+            if (err) *err = "cannot write active map file";
+            return false;
+        }
+        dst << raw;
+        if (!dst.good()) {
+            if (err) *err = "failed to flush active map file";
+            return false;
+        }
+    }
+
+    catalog["active_id"] = mapId;
+    if (!saveMapsCatalogLocked(catalog, err)) return false;
+
+    bool reloadOk = true;
+    {
+        std::lock_guard<std::mutex> lk(mapReloadMutex_);
+        if (mapReloadCallback_) reloadOk = mapReloadCallback_();
+    }
+    if (!reloadOk) {
+        if (err) *err = "reload failed";
+        return false;
+    }
+    return true;
 }
 
 // ── HTTP route setup ──────────────────────────────────────────────────────────
@@ -524,6 +802,270 @@ void WebSocketServer::setupHttpRoutes() {
         }
     );
 
+    // ── POST /api/planner/preview — compute planner routes for preview ───────
+    CROW_ROUTE(app, "/api/planner/preview").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            try {
+                const auto body = nlohmann::json::parse(req.body.empty() ? "{}" : req.body);
+                if (!body.is_object()) return crow::response(400, R"({"error":"expected object payload"})");
+
+                nlohmann::json mapJson = body.value("map", nlohmann::json::object());
+                if (!mapJson.is_object()) {
+                    const std::string raw = mapPath_.empty() ? std::string() : readFile(mapPath_);
+                    if (!raw.empty()) {
+                        mapJson = nlohmann::json::parse(raw, nullptr, false);
+                    }
+                }
+                if (!mapJson.is_object()) {
+                    mapJson = nlohmann::json::parse(kDefaultMapJson);
+                }
+
+                nav::Map previewMap(config_);
+                if (!previewMap.loadJson(mapJson)) {
+                    return crow::response(400, R"({"error":"invalid map snapshot"})");
+                }
+
+                nlohmann::json routes = nlohmann::json::array();
+
+                if (body.contains("mission") && body["mission"].is_object()) {
+                    const nav::RoutePlan route = nav::buildMissionMowRoutePreview(previewMap, body["mission"]);
+                    routes.push_back({
+                        {"index", 0},
+                        {"ok", !route.points.empty()},
+                        {"error", route.points.empty() ? "planner returned no route" : ""},
+                        {"route", encodeRoutePlanJson(route)},
+                    });
+                } else {
+                    const auto jobs = body.value("jobs", nlohmann::json::array());
+                    if (!jobs.is_array()) {
+                        return crow::response(400, R"({"error":"expected jobs array"})");
+                    }
+                    for (size_t i = 0; i < jobs.size(); ++i) {
+                        const auto& job = jobs[i];
+                        nav::Point src;
+                        nav::Point dst;
+                        if (!jsonPointToNavPoint(job.value("source", nlohmann::json::array()), src)
+                            || !jsonPointToNavPoint(job.value("destination", nlohmann::json::array()), dst)) {
+                            routes.push_back({
+                                {"index", i},
+                                {"ok", false},
+                                {"error", "invalid source/destination"},
+                            });
+                            continue;
+                        }
+
+                        const nav::WayType missionMode = parseWayType(job.value("missionMode", std::string("free")), nav::WayType::FREE);
+                        const nav::WayType planningMode = parseWayType(job.value("planningMode", std::string("free")), nav::WayType::FREE);
+                        const float headingReferenceRad = job.value("headingReferenceRad", 0.0f);
+                        const bool hasHeadingReference = job.value("hasHeadingReference", false);
+                        const bool reverseAllowed = job.value("reverseAllowed", false);
+                        const float clearance_m = job.value("clearance_m", 0.25f);
+                        const float robotRadius_m = job.value("robotRadius_m", 0.0f);
+
+                        const nav::RoutePlan route = previewMap.previewPath(
+                            src,
+                            dst,
+                            missionMode,
+                            planningMode,
+                            headingReferenceRad,
+                            hasHeadingReference,
+                            reverseAllowed,
+                            clearance_m,
+                            robotRadius_m);
+
+                        if (route.points.empty()) {
+                            routes.push_back({
+                                {"index", i},
+                                {"ok", false},
+                                {"error", "planner returned no route"},
+                            });
+                            continue;
+                        }
+
+                        routes.push_back({
+                            {"index", i},
+                            {"ok", true},
+                            {"route", encodeRoutePlanJson(route)},
+                        });
+                    }
+                }
+
+                nlohmann::json out = {
+                    {"ok", true},
+                    {"routes", routes},
+                };
+                crow::response res(200, out.dump());
+                res.set_header("Content-Type", "application/json");
+                res.set_header("Access-Control-Allow-Origin", "*");
+                return res;
+            } catch (const std::exception& e) {
+                logger_->warn(TAG, std::string("POST /api/planner/preview error: ") + e.what());
+                return crow::response(400, R"({"error":"bad planner preview payload"})");
+            }
+        }
+    );
+
+    // ── GET /api/maps — list stored maps + active selection ──────────────────
+    CROW_ROUTE(app, "/api/maps").methods(crow::HTTPMethod::GET)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (mapPath_.empty()) return crow::response(503, R"({"error":"map path not configured"})");
+            std::lock_guard<std::mutex> lk(mapCatalogMutex_);
+            std::string err;
+            if (!ensureMapsCatalogLocked(&err)) {
+                logger_->warn(TAG, "GET /api/maps: " + err);
+                return crow::response(500, R"({"error":"map catalog unavailable"})");
+            }
+            const auto catalog = loadMapsCatalogLocked();
+            nlohmann::json out = nlohmann::json::object();
+            out["active_id"] = catalog.value("active_id", std::string());
+            out["maps"] = catalog.value("maps", nlohmann::json::array());
+            return crow::response(200, out.dump());
+        }
+    );
+
+    // ── POST /api/maps — create a new named map entry ────────────────────────
+    CROW_ROUTE(app, "/api/maps").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (mapPath_.empty()) return crow::response(503, R"({"error":"map path not configured"})");
+            try {
+                const auto body = nlohmann::json::parse(req.body.empty() ? "{}" : req.body);
+                const std::string requestedName = body.value("name", std::string("Neue Karte"));
+                const bool activate = body.value("activate", true);
+
+                nlohmann::json mapDoc;
+                if (body.contains("map")) mapDoc = body["map"];
+                if (!mapDoc.is_object()) {
+                    const std::string raw = readFile(mapPath_);
+                    mapDoc = nlohmann::json::parse(raw.empty() ? kDefaultMapJson : raw, nullptr, false);
+                }
+                if (!mapDoc.is_object()) {
+                    return crow::response(400, R"({"error":"invalid map payload"})");
+                }
+
+                std::lock_guard<std::mutex> lk(mapCatalogMutex_);
+                std::string err;
+                if (!ensureMapsCatalogLocked(&err)) {
+                    logger_->warn(TAG, "POST /api/maps ensure catalog failed: " + err);
+                    return crow::response(500, R"({"error":"map catalog unavailable"})");
+                }
+                auto catalog = loadMapsCatalogLocked();
+                auto maps = catalog.value("maps", nlohmann::json::array());
+
+                std::string baseId = slugifyMapId(requestedName);
+                std::unordered_set<std::string> usedIds;
+                for (const auto& entry : maps) usedIds.insert(entry.value("id", std::string()));
+                std::string id = baseId;
+                int suffix = 2;
+                while (usedIds.count(id) > 0) {
+                    id = baseId + "-" + std::to_string(suffix++);
+                }
+
+                const std::string file = id + ".json";
+                const auto mapFilePath = mapsDir() / file;
+                std::filesystem::create_directories(mapFilePath.parent_path());
+                {
+                    std::ofstream out(mapFilePath);
+                    if (!out.is_open()) return crow::response(500, R"({"error":"cannot write map file"})");
+                    out << mapDoc.dump(2);
+                }
+
+                const long long now = unixNowMs();
+                maps.push_back({
+                    {"id", id},
+                    {"name", requestedName.empty() ? id : requestedName},
+                    {"file", file},
+                    {"created_at_ms", now},
+                    {"updated_at_ms", now},
+                });
+                catalog["maps"] = maps;
+                if (catalog.value("active_id", std::string()).empty()) {
+                    catalog["active_id"] = id;
+                }
+                if (!saveMapsCatalogLocked(catalog, &err)) {
+                    logger_->warn(TAG, "POST /api/maps save catalog failed: " + err);
+                    return crow::response(500, R"({"error":"cannot update map catalog"})");
+                }
+
+                if (activate) {
+                    if (!activateMapByIdLocked(id, &err)) {
+                        logger_->warn(TAG, "POST /api/maps activate failed: " + err);
+                        return crow::response(200, std::string(R"({"ok":false,"error":")") + err + "\"}");
+                    }
+                }
+
+                nlohmann::json out = {{"ok", true}, {"id", id}, {"active", activate}};
+                return crow::response(200, out.dump());
+            } catch (const std::exception& e) {
+                logger_->warn(TAG, std::string("POST /api/maps error: ") + e.what());
+                return crow::response(400, R"({"error":"bad map payload"})");
+            }
+        }
+    );
+
+    // ── POST /api/maps/<id>/activate — switch active map ─────────────────────
+    CROW_ROUTE(app, "/api/maps/<string>/activate").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req, const std::string& mapId) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (mapPath_.empty()) return crow::response(503, R"({"error":"map path not configured"})");
+            std::lock_guard<std::mutex> lk(mapCatalogMutex_);
+            std::string err;
+            const bool ok = activateMapByIdLocked(mapId, &err);
+            if (!ok) {
+                logger_->warn(TAG, "POST /api/maps/<id>/activate failed: " + err);
+                return crow::response(200, std::string(R"({"ok":false,"error":")") + err + "\"}");
+            }
+            return crow::response(200, R"({"ok":true})");
+        }
+    );
+
+    // ── DELETE /api/maps/<id> — delete stored map (except active) ────────────
+    CROW_ROUTE(app, "/api/maps/<string>").methods(crow::HTTPMethod::DELETE)(
+        [this, isAuthorized](const crow::request& req, const std::string& mapId) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+            if (mapPath_.empty()) return crow::response(503, R"({"error":"map path not configured"})");
+            std::lock_guard<std::mutex> lk(mapCatalogMutex_);
+            std::string err;
+            if (!ensureMapsCatalogLocked(&err)) {
+                logger_->warn(TAG, "DELETE /api/maps ensure catalog failed: " + err);
+                return crow::response(500, R"({"error":"map catalog unavailable"})");
+            }
+            auto catalog = loadMapsCatalogLocked();
+            auto maps = catalog.value("maps", nlohmann::json::array());
+            const std::string activeId = catalog.value("active_id", std::string());
+            if (mapId == activeId) {
+                return crow::response(200, R"({"ok":false,"error":"cannot delete active map"})");
+            }
+
+            bool removed = false;
+            std::string fileToDelete;
+            nlohmann::json kept = nlohmann::json::array();
+            for (const auto& entry : maps) {
+                if (entry.value("id", std::string()) == mapId) {
+                    removed = true;
+                    fileToDelete = entry.value("file", std::string());
+                    continue;
+                }
+                kept.push_back(entry);
+            }
+            if (!removed) return crow::response(200, R"({"ok":false,"error":"map not found"})");
+            if (kept.empty()) return crow::response(200, R"({"ok":false,"error":"at least one map required"})");
+
+            catalog["maps"] = kept;
+            if (!saveMapsCatalogLocked(catalog, &err)) {
+                logger_->warn(TAG, "DELETE /api/maps save catalog failed: " + err);
+                return crow::response(500, R"({"error":"cannot update map catalog"})");
+            }
+            if (!fileToDelete.empty()) {
+                std::error_code ec;
+                std::filesystem::remove(mapsDir() / fileToDelete, ec);
+            }
+            return crow::response(200, R"({"ok":true})");
+        }
+    );
+
     // ── POST /api/map ──────────────────────────────────────────────────────────
     CROW_ROUTE(app, "/api/map").methods(crow::HTTPMethod::POST)(
         [this, isAuthorized](const crow::request& req) -> crow::response {
@@ -541,6 +1083,13 @@ void WebSocketServer::setupHttpRoutes() {
                         return crow::response(500);
                     }
                     f << j.dump(2);
+                }
+                {
+                    std::lock_guard<std::mutex> mapsLk(mapCatalogMutex_);
+                    std::string mapErr;
+                    if (!syncActiveMapSnapshotLocked(j, &mapErr)) {
+                        logger_->warn(TAG, "POST /api/map: active snapshot sync failed: " + mapErr);
+                    }
                 }
 
                 // Notify robot to reload
@@ -804,6 +1353,13 @@ void WebSocketServer::setupHttpRoutes() {
                     std::ofstream f(mapPath_);
                     if (!f.is_open()) return crow::response(500);
                     f << outMap.dump(2);
+                }
+                {
+                    std::lock_guard<std::mutex> mapsLk(mapCatalogMutex_);
+                    std::string mapErr;
+                    if (!syncActiveMapSnapshotLocked(outMap, &mapErr)) {
+                        logger_->warn(TAG, "POST /api/map/geojson: active snapshot sync failed: " + mapErr);
+                    }
                 }
                 bool ok = true;
                 {

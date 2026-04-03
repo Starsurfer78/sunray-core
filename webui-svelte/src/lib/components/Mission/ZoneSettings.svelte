@@ -6,8 +6,12 @@
   export let mission: Mission
   export let zone: Zone | null = null
   export let color: string = '#a855f7'
+  export let showHeader: boolean = true
 
-  const dispatch = createEventDispatcher<{ close: void }>()
+  const dispatch = createEventDispatcher<{
+    close: void
+    save: void
+  }>()
 
   function effectiveValue<K extends keyof Zone['settings']>(key: K): Zone['settings'][K] | null {
     if (!zone) return null
@@ -15,17 +19,12 @@
     return (override[key as keyof typeof override] ?? zone.settings[key]) as Zone['settings'][K]
   }
 
-  function updateOverride<K extends 'stripWidth' | 'angle' | 'edgeMowing' | 'edgeRounds' | 'speed' | 'pattern'>(
+  function updateOverride<K extends 'stripWidth' | 'angle' | 'edgeMowing' | 'edgeRounds' | 'speed'>(
     key: K,
-    value: K extends 'edgeMowing' ? boolean : K extends 'pattern' ? 'stripe' | 'spiral' : number,
+    value: K extends 'edgeMowing' ? boolean : number,
   ) {
     if (!zone) return
     missionStore.updateMissionZoneOverride(mission.id, zone.id, { [key]: value })
-  }
-
-  function clearOverrides() {
-    if (!zone) return
-    missionStore.clearMissionZoneOverride(mission.id, zone.id)
   }
 
   $: edgeMowing = (effectiveValue('edgeMowing') ?? true) as boolean
@@ -34,12 +33,14 @@
 
 {#if zone}
   <div class="ms-settings">
-    <div class="ms-set-header">
-      <span class="ms-set-zone-dot" style="background:{color}"></span>
-      <span class="ms-set-title">{zone.settings.name}</span>
-      <span class="ms-set-hint">Änderungen gelten für diese Zone in der aktuellen Mission</span>
-      <button type="button" class="ms-set-close" on:click={() => dispatch('close')}>✕</button>
-    </div>
+    {#if showHeader}
+      <div class="ms-set-header">
+        <span class="ms-set-zone-dot" style="background:{color}"></span>
+        <span class="ms-set-title">{zone.settings.name}</span>
+        <span class="ms-set-hint">Einstellungen gelten für diese Zone in der aktuellen Mission</span>
+        <button type="button" class="ms-set-close" on:click={() => dispatch('close')}>✕</button>
+      </div>
+    {/if}
     <div class="ms-set-body">
 
       <div class="ms-set-field">
@@ -70,20 +71,6 @@
           />
           <span class="ms-ang-val">{currentAngle}°</span>
         </div>
-      </div>
-
-      <div class="ms-set-vdiv"></div>
-
-      <div class="ms-set-field">
-        <span class="ms-set-lbl">Muster</span>
-        <select
-          class="ms-set-in"
-          value={effectiveValue('pattern') ?? 'stripe'}
-          on:change={(e) => updateOverride('pattern', (e.currentTarget as HTMLSelectElement).value as 'stripe' | 'spiral')}
-        >
-          <option value="stripe">Streifen</option>
-          <option value="spiral">Spirale</option>
-        </select>
       </div>
 
       <div class="ms-set-vdiv"></div>
@@ -136,10 +123,9 @@
 
       <div class="ms-set-vdiv"></div>
 
-      <div class="ms-set-field ms-set-reset-wrap">
-        <button type="button" class="ms-set-reset" on:click={clearOverrides}>Reset</button>
-      </div>
-
+    </div>
+    <div class="ms-set-actions">
+      <button type="button" class="ms-set-action primary" on:click={() => dispatch('save')}>Speichern</button>
     </div>
   </div>
 {/if}
@@ -211,12 +197,6 @@
     flex-shrink: 0;
   }
 
-  .ms-set-reset-wrap {
-    justify-content: flex-end;
-    align-self: flex-end;
-    margin-left: auto;
-  }
-
   .ms-set-lbl {
     font-size: 10px;
     color: #475569;
@@ -234,7 +214,6 @@
   }
 
   .ms-set-in:focus { outline: none; border-color: #2563eb; }
-  select.ms-set-in { width: 94px; }
   .ms-set-in:disabled { opacity: 0.45; cursor: not-allowed; }
 
   .ms-set-vdiv {
@@ -321,15 +300,26 @@
     color: #94a3b8;
   }
 
-  .ms-set-reset {
+  .ms-set-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 14px;
+    border-top: 1px solid #1e3a5f;
+  }
+
+  .ms-set-action {
     padding: 4px 10px;
     border-radius: 5px;
     border: 1px solid #1e3a5f;
     background: #0f1829;
-    color: #60a5fa;
+    color: #cbd5e1;
     font-size: 11px;
     cursor: pointer;
   }
 
-  .ms-set-reset:hover { border-color: #2563eb; }
+  .ms-set-action.primary {
+    border-color: #2563eb;
+    color: #93c5fd;
+  }
 </style>

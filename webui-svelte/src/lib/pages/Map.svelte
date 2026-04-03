@@ -3,7 +3,19 @@
   import PageLayout from "../components/PageLayout.svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
   import BottomPanel from "../components/Dashboard/BottomPanel.svelte";
-  import { getMapDocument, saveMapDocument, type MapDocument, type MapZone } from "../api/rest";
+  import {
+    activateStoredMap,
+    createStoredMap,
+    deleteStoredMap,
+    exportMapGeoJson,
+    getMapDocument,
+    getStoredMaps,
+    importMapGeoJson,
+    saveMapDocument,
+    type MapDocument,
+    type MapZone,
+    type StoredMapEntry,
+  } from "../api/rest";
   import { type Telemetry } from "../api/types";
   import { connection } from "../stores/connection";
   import {
@@ -26,6 +38,9 @@
   let sidebarCollapsed = false;
   let nowMs = Date.now();
   let hydrationDone = false;
+  let storedMaps: StoredMapEntry[] = [];
+  let activeMapId = "";
+  let selectedMapId = "";
   const SHOW_ADVANCED_MAP_TUNING = false;
   const DRAFT_KEY = "sunray-map-draft-v1";
   const CONNECTION_FRESH_MS = 5000;
@@ -273,6 +288,7 @@
     try {
       const map = await getMapDocument();
       mapStore.load(normalizeMapDocument(map));
+      await refreshStoredMaps(true);
       if (!restoreDraft()) {
         showInfo("Geladen");
       }
@@ -281,6 +297,96 @@
     } finally {
       busy = false;
       hydrationDone = true;
+    }
+  }
+
+  async function refreshStoredMaps(keepSelection = false) {
+    const mapsState = await getStoredMaps();
+    storedMaps = mapsState.maps;
+    activeMapId = mapsState.active_id;
+    if (keepSelection && selectedMapId && storedMaps.some((m) => m.id === selectedMapId)) {
+      return;
+    }
+    selectedMapId = activeMapId || storedMaps[0]?.id || "";
+  }
+
+  async function activateMap() {
+    if (!selectedMapId) {
+      showInfo("Keine Karte ausgewaehlt", "warning");
+      return;
+    }
+    if (selectedMapId === activeMapId) {
+      showInfo("Karte ist bereits aktiv");
+      return;
+    }
+    busy = true;
+    try {
+      const result = await activateStoredMap(selectedMapId);
+      if (!result.ok) {
+        showInfo(result.error ?? "Aktivieren fehlgeschlagen", "error");
+        return;
+      }
+      clearDraft();
+      await loadMap();
+      await refreshStoredMaps();
+      showInfo("Karte aktiviert");
+    } catch (err) {
+      showInfo(err instanceof Error ? err.message : "Aktivieren fehlgeschlagen", "error");
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function saveAsNewMap() {
+    const suggested = `Karte ${storedMaps.length + 1}`;
+    const name = prompt("Name der neuen Karte:", suggested)?.trim();
+    if (!name) return;
+    busy = true;
+    try {
+      const result = await createStoredMap({
+        name,
+        activate: true,
+        map: mapPayload(),
+      });
+      if (!result.ok) {
+        showInfo(result.error ?? "Speichern als neue Karte fehlgeschlagen", "error");
+        return;
+      }
+      clearDraft();
+      await loadMap();
+      await refreshStoredMaps();
+      showInfo("Neue Karte gespeichert und aktiviert");
+    } catch (err) {
+      showInfo(err instanceof Error ? err.message : "Speichern als neue Karte fehlgeschlagen", "error");
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function removeMap() {
+    if (!selectedMapId) {
+      showInfo("Keine Karte ausgewaehlt", "warning");
+      return;
+    }
+    if (selectedMapId === activeMapId) {
+      showInfo("Aktive Karte kann nicht geloescht werden", "warning");
+      return;
+    }
+    const mapName = storedMaps.find((m) => m.id === selectedMapId)?.name ?? selectedMapId;
+    if (!confirm(`Karte "${mapName}" wirklich loeschen?`)) return;
+    busy = true;
+    try {
+      const result = await deleteStoredMap(selectedMapId);
+      if (!result.ok) {
+        showInfo(result.error ?? "Loeschen fehlgeschlagen", "error");
+        return;
+      }
+      await refreshStoredMaps();
+      showInfo("Karte geloescht");
+    } catch (err) {
+      showInfo(err instanceof Error ? err.message : "Loeschen fehlgeschlagen", "error");
+    } finally {
+      busy = false;
     }
   }
 
@@ -306,48 +412,46 @@
     }
   }
 
-  function exportMap() {
-    const data = JSON.stringify(
-      {
-        perimeter: $mapStore.map.perimeter,
-        dock: $mapStore.map.dock,
-        mow: $mapStore.map.mow,
-        exclusions: $mapStore.map.exclusions,
-        exclusionMeta: $mapStore.map.exclusionMeta,
-        zones: $mapStore.map.zones,
-        planner: $mapStore.map.planner,
-        dockMeta: $mapStore.map.dockMeta,
-        captureMeta: $mapStore.map.captureMeta,
-      },
-      null,
-      2,
-    );
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "map.json";
-    a.click();
-    URL.revokeObjectURL(url);
-    showInfo("Exportiert");
+  async function exportMap() {
+    busy = true;
+    try {
+      const blob = await exportMapGeoJson();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "sunray-map.geojson";
+      a.click();
+      URL.revokeObjectURL(url);
+      showInfo("GeoJSON exportiert");
+    } catch (err) {
+      showInfo(err instanceof Error ? err.message : "Export fehlgeschlagen", "error");
+    } finally {
+      busy = false;
+    }
   }
 
   function importMap() {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".json";
+    input.accept = ".geojson,.json,application/geo+json,application/json";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
+      busy = true;
       try {
         const text = await file.text();
-        const data = JSON.parse(text) as MapDocument;
-        mapStore.load(normalizeMapDocument(data));
-        hydrationDone = true;
-        saveDraft();
-        showInfo("Importiert");
-      } catch {
-        showInfo("Import fehlgeschlagen", "error");
+        const result = await importMapGeoJson(text);
+        if (!result.ok) {
+          showInfo(result.error ?? "Import fehlgeschlagen", "error");
+          return;
+        }
+        clearDraft();
+        await loadMap();
+        showInfo("GeoJSON importiert");
+      } catch (err) {
+        showInfo(err instanceof Error ? err.message : "Import fehlgeschlagen", "error");
+      } finally {
+        busy = false;
       }
     };
     input.click();
@@ -355,16 +459,27 @@
 
   $: activeTool = $mapStore.selectedTool;
   $: dockActive = activeTool === "dock";
+  $: zoneActive = activeTool === "zone";
   $: moveActive = activeTool === "move";
-  $: layer = (activeTool === "nogo" ? "nogo" : "perimeter") as Extract<
+  $: layer = (activeTool === "nogo"
+    ? "nogo"
+    : activeTool === "zone"
+      ? "zone"
+      : "perimeter") as Extract<
     MapTool,
-    "perimeter" | "nogo"
+    "perimeter" | "nogo" | "zone"
   >;
 
-  function setLayer(l: "perimeter" | "nogo") {
-    if (l === "nogo" && $mapStore.map.exclusions.length === 0)
+  function setLayer(l: "perimeter" | "nogo" | "zone") {
+    if (l === "nogo" && $mapStore.map.exclusions.length === 0) {
       mapStore.createExclusion();
-    else mapStore.setTool(l);
+      return;
+    }
+    if (l === "zone" && $mapStore.map.zones.length === 0) {
+      mapStore.createZone();
+      return;
+    }
+    mapStore.setTool(l);
   }
 
   function toggleDock() {
@@ -459,7 +574,33 @@
       mapStore.createExclusion();
       return;
     }
+    if (tool === "zone" && $mapStore.map.zones.length === 0) {
+      mapStore.createZone();
+      return;
+    }
     mapStore.setTool(tool);
+  }
+
+  function createZoneTool() {
+    mapStore.createZone();
+    showInfo(`Zone ${$mapStore.map.zones.length} gestartet`);
+  }
+
+  function selectZone(zoneId: string) {
+    mapStore.selectZone(zoneId);
+    mapStore.setTool("zone");
+  }
+
+  function deleteActiveZone() {
+    if (!$mapStore.selectedZoneId) {
+      showInfo("Bitte zuerst eine Zone auswaehlen", "warning");
+      return;
+    }
+    const zoneLabel =
+      $mapStore.map.zones.find((zone) => zone.id === $mapStore.selectedZoneId)
+        ?.settings.name ?? "Zone";
+    mapStore.deleteSelectedZone();
+    showInfo(`${zoneLabel} geloescht`);
   }
 
   function finishNoGoStep() {
@@ -541,6 +682,8 @@
       ? "Aktuelle Roboterposition als Docking-Pfadpunkt speichern"
       : activeTool === "nogo"
         ? "Aktuelle Roboterposition als NoGo-Punkt speichern"
+        : zoneActive
+          ? "Aktuelle Roboterposition als Zonenpunkt speichern"
         : "Aktuelle Roboterposition als Perimeterpunkt speichern";
 
   $: connectionFresh =
@@ -723,7 +866,10 @@
     const interval = setInterval(() => {
       nowMs = Date.now();
     }, 1000);
-    void loadMap();
+    void (async () => {
+      await refreshStoredMaps();
+      await loadMap();
+    })();
     return () => {
       clearInterval(interval);
       if (infoTimer) clearTimeout(infoTimer);
@@ -769,11 +915,29 @@
           class:active={dockActive}
           on:click={toggleDock}
         ><span class="mt-dot dock"></span>Dock-Pfad</button>
+        <button
+          type="button"
+          class:active={zoneActive}
+          on:click={() => setLayer("zone")}
+        ><span class="mt-dot zone"></span>Zone</button>
       </div>
 
       <div class="mt-sep"></div>
 
       <div class="mt-actions">
+        <select
+          class="mt-map-select"
+          bind:value={selectedMapId}
+          title="Gespeicherte Karten"
+          disabled={busy || storedMaps.length === 0}
+        >
+          {#each storedMaps as map}
+            <option value={map.id}>{map.name}{map.id === activeMapId ? " (aktiv)" : ""}</option>
+          {/each}
+        </select>
+        <button type="button" title="Ausgewaehlte Karte aktivieren" disabled={busy} on:click={activateMap}>Aktivieren</button>
+        <button type="button" title="Aktuelle Bearbeitung als neue Karte speichern" disabled={busy} on:click={saveAsNewMap}>Speichern als</button>
+        <button type="button" title="Ausgewaehlte Karte loeschen" disabled={busy || selectedMapId === activeMapId} on:click={removeMap}>Loeschen</button>
         <button type="button" title="GeoJSON exportieren" on:click={exportMap}>↑ GeoJSON</button>
         <button type="button" title="GeoJSON importieren" on:click={importMap}>↓ GeoJSON</button>
         <button type="button" disabled={busy} on:click={loadMap}>Laden</button>
@@ -1049,6 +1213,44 @@
           <span>NoGo</span><strong>{$mapStore.map.exclusions.length}</strong>
         </div>
       </div>
+
+      <div class="sb-section">
+        <span class="sb-label">Zonen</span>
+        <div class="assistant-card" class:active={zoneActive}>
+          <strong>{$mapStore.map.zones.length} Zonen</strong>
+          <span>Zone auf der Karte anlegen, dann Punkte setzen und per Klick zwischen Zonen wechseln.</span>
+          <div class="assistant-actions">
+            <button
+              type="button"
+              class="sb-btn"
+              on:click={createZoneTool}>+ Neue Zone</button
+            >
+            <button
+              type="button"
+              class="sb-btn"
+              disabled={!$mapStore.selectedZoneId}
+              on:click={deleteActiveZone}>Löschen</button
+            >
+          </div>
+        </div>
+        <div class="zone-list">
+          {#each $mapStore.map.zones as zone}
+            <button
+              type="button"
+              class="zone-chip"
+              class:active={$mapStore.selectedZoneId === zone.id}
+              on:click={() => selectZone(zone.id)}
+            >
+              <span class="zone-chip-dot"></span>
+              <span class="zone-chip-name">{zone.settings.name}</span>
+              <span class="zone-chip-count">{zone.polygon.length}</span>
+            </button>
+          {/each}
+          {#if $mapStore.map.zones.length === 0}
+            <span class="zone-empty">Noch keine Zonen angelegt.</span>
+          {/if}
+        </div>
+      </div>
     </div></svelte:fragment
   >
 </PageLayout>
@@ -1141,6 +1343,7 @@
   .mt-dot.nogo      { background: #dc2626; }
   .mt-dot.dock      { background: #d97706; }
   .mt-dot.dock-corridor { background: #facc15; }
+  .mt-dot.zone      { background: #67e8f9; }
 
   .mt-badge {
     background: #1e3a5f;
@@ -1159,6 +1362,23 @@
     display: flex;
     align-items: center;
     gap: 0.15rem;
+  }
+
+  .mt-map-select {
+    min-width: 10rem;
+    max-width: 15rem;
+    padding: 0.24rem 0.5rem;
+    border-radius: 0.35rem;
+    border: 1px solid #1e3a5f;
+    background: #0b1424;
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .mt-map-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .map-toast {
@@ -1290,6 +1510,58 @@
     border-color: #facc15;
     background: rgba(113, 63, 18, 0.55);
     color: #fde68a;
+  }
+
+  .zone-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+  }
+
+  .zone-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid #1e3a5f;
+    background: #0a1020;
+    color: #cbd5e1;
+    font-size: 0.66rem;
+    cursor: pointer;
+  }
+
+  .zone-chip.active {
+    border-color: #67e8f9;
+    background: rgba(8, 47, 73, 0.72);
+    color: #a5f3fc;
+  }
+
+  .zone-chip-dot {
+    width: 0.35rem;
+    height: 0.35rem;
+    border-radius: 50%;
+    background: #67e8f9;
+    flex-shrink: 0;
+  }
+
+  .zone-chip-name {
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zone-chip-count {
+    font-family: monospace;
+    font-size: 0.62rem;
+    color: #67e8f9;
+  }
+
+  .zone-empty {
+    font-size: 0.68rem;
+    color: #64748b;
   }
 
   .item-new {

@@ -1,17 +1,16 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import type { Mission } from '../../stores/missions'
-  import type { Zone, ZoneSettings, Point } from '../../stores/map'
-  import { getEffectiveZoneArea } from '../../geometry/polygon'
-  import { generateStripes, type Segment } from '../../geometry/scanline'
-  import { generateEdgeRounds } from '../../geometry/edge'
-  import { sortSegmentsNearestNeighbour } from '../../geometry/sequence'
+  import type { Zone, Point, RobotMap } from '../../stores/map'
+  import { previewPlannerRoutes, type PlannerPreviewRequest, type PlannerPreviewRoute } from '../../api/rest'
 
   export let zones: Zone[] = []
   export let perimeter: Point[] = []
   export let exclusions: Point[][] = []
+  export let dock: Point[] = []
   export let mission: Mission | null = null
   export let selectedZoneId: string | null = null
+  export let map: RobotMap | null = null
 
   const dispatch = createEventDispatcher<{ selectzone: { zoneId: string } }>()
 
@@ -27,11 +26,6 @@
   export const zoneColors = ['#a855f7', '#22d3ee', '#22c55e', '#f59e0b', '#f97316', '#38bdf8']
 
   type Bounds = { minX: number; minY: number; maxX: number; maxY: number }
-
-  function effectiveSettings(zone: Zone): ZoneSettings {
-    const override = mission?.overrides?.[zone.id] ?? {}
-    return { ...zone.settings, ...override }
-  }
 
   function boundsOf(pts: Point[]): Bounds {
     if (pts.length === 0) return { minX: 0, minY: 0, maxX: 10, maxY: 10 }
@@ -70,6 +64,20 @@
     return { x: total.x / Math.max(1, zone.polygon.length), y: total.y / Math.max(1, zone.polygon.length) }
   }
 
+  function labelWidth(text: string) {
+    return Math.max(44, Math.min(108, text.length * 5.2 + 10))
+  }
+
+  function labelPosition(point: Point, bounds: Bounds, text: string) {
+    const anchor = project(point, bounds)
+    const width = labelWidth(text)
+    return {
+      x: Math.max(8, Math.min(width - 8, anchor.x)),
+      y: Math.max(12, Math.min(height - 10, anchor.y)),
+      width,
+    }
+  }
+
   function startDrag(event: PointerEvent) {
     dragging = true
     dragStartX = event.clientX - offsetX
@@ -106,32 +114,112 @@
     : missionZones.flatMap(z => z.polygon)
   $: bounds = boundsOf(viewPts)
 
-  // Echte Geometrie pro Zone berechnen
-  type ZoneGeometry = {
-    effectiveAreas: Point[][]
-    edgePaths: Point[][]
-    segments: Segment[]
+  let plannerRoutes: PlannerPreviewRoute[] = []
+  let plannerLoading = false
+  let plannerError = ''
+  let plannerRequestId = 0
+
+  function routePoints(route: PlannerPreviewRoute['route'] | undefined): Point[] {
+    return route?.points.map((entry) => ({ x: entry.p[0], y: entry.p[1] })) ?? []
   }
-  $: zoneGeometry = new Map<string, ZoneGeometry>(
-    missionZones.map(zone => {
-      const settings = effectiveSettings(zone)
-      const effectiveAreas = getEffectiveZoneArea(zone.polygon, perimeter, exclusions)
 
-      let edgePaths: Point[][] = []
-      let infillAreas = effectiveAreas
+  function plannerMapSnapshot(source: RobotMap): PlannerPreviewRequest['map'] {
+    return {
+      perimeter: source.perimeter.map((point) => [point.x, point.y]),
+      dock: source.dock.map((point) => [point.x, point.y]),
+      mow: source.mow.map((point) => [point.x, point.y]),
+      exclusions: source.exclusions.map((exclusion) => exclusion.map((point) => [point.x, point.y])),
+      exclusionMeta: source.exclusionMeta?.map((entry) => ({
+        type: entry.type,
+        clearance: entry.clearance,
+        costScale: entry.costScale,
+      })),
+      zones: source.zones.map((zone) => ({
+        id: zone.id,
+        order: zone.order,
+        polygon: zone.polygon.map((point) => [point.x, point.y]),
+        settings: {
+          name: zone.settings.name,
+          stripWidth: zone.settings.stripWidth,
+          angle: zone.settings.angle,
+          edgeMowing: zone.settings.edgeMowing,
+          edgeRounds: zone.settings.edgeRounds,
+          speed: zone.settings.speed,
+          pattern: zone.settings.pattern,
+          reverseAllowed: zone.settings.reverseAllowed,
+          clearance: zone.settings.clearance,
+        },
+      })),
+      planner: source.planner
+        ? {
+            defaultClearance: source.planner.defaultClearance,
+            perimeterSoftMargin: source.planner.perimeterSoftMargin,
+            perimeterHardMargin: source.planner.perimeterHardMargin,
+            obstacleInflation: source.planner.obstacleInflation,
+            softNoGoCostScale: source.planner.softNoGoCostScale,
+            replanPeriodMs: source.planner.replanPeriodMs,
+            gridCellSize: source.planner.gridCellSize,
+          }
+        : undefined,
+      dockMeta: source.dockMeta
+        ? {
+            approachMode: source.dockMeta.approachMode,
+            corridor: source.dockMeta.corridor.map((point) => [point.x, point.y]),
+            finalAlignHeadingDeg: source.dockMeta.finalAlignHeadingDeg,
+            slowZoneRadius: source.dockMeta.slowZoneRadius,
+          }
+        : undefined,
+      captureMeta: source.captureMeta,
+    } as unknown as PlannerPreviewRequest['map']
+  }
 
-      if (settings.edgeMowing && settings.edgeRounds > 0) {
-        const edge = generateEdgeRounds(effectiveAreas, settings.stripWidth, settings.edgeRounds)
-        edgePaths = edge.edgePaths
-        infillAreas = edge.infillAreas
-      }
+  function plannerMissionSnapshot(source: Mission): PlannerPreviewRequest['mission'] {
+    return {
+      id: source.id,
+      name: source.name,
+      zoneIds: [...source.zoneIds],
+      overrides: source.overrides,
+      schedule: source.schedule,
+    }
+  }
 
-      const rawSegments = generateStripes(infillAreas, settings.stripWidth, settings.angle)
-      const segments = sortSegmentsNearestNeighbour(rawSegments)
+  async function refreshPlannerPreview() {
+    if (!map || !mission || missionZones.length === 0) {
+      plannerRoutes = []
+      plannerLoading = false
+      plannerError = ''
+      return
+    }
 
-      return [zone.id, { effectiveAreas, edgePaths, segments }]
-    })
-  )
+    const requestId = ++plannerRequestId
+    plannerLoading = true
+    plannerError = ''
+    try {
+      const response = await previewPlannerRoutes({ map: plannerMapSnapshot(map), mission: plannerMissionSnapshot(mission) })
+      if (requestId !== plannerRequestId) return
+      plannerRoutes = response.routes ?? []
+      plannerError = response.routes.some((entry) => !entry.ok)
+        ? 'Die C++-Bahnplanung konnte nicht vollständig erzeugt werden.'
+        : ''
+    } catch (err) {
+      if (requestId !== plannerRequestId) return
+      plannerRoutes = []
+      plannerError = err instanceof Error ? err.message : 'Planner-Vorschau fehlgeschlagen'
+    } finally {
+      if (requestId === plannerRequestId) plannerLoading = false
+    }
+  }
+
+  $: if (map && mission && missionZones.length > 0) {
+    void refreshPlannerPreview()
+  } else {
+    plannerRoutes = []
+    plannerLoading = false
+    plannerError = ''
+  }
+
+  $: previewRoute = routePoints(plannerRoutes.find((entry) => entry.ok && entry.route)?.route)
+  $: hasPreviewRoute = previewRoute.length >= 2
 </script>
 
 <div class="preview-root">
@@ -146,10 +234,18 @@
         >
           <span class="ms-leg-dot" style="background:{zoneColors[i % zoneColors.length]}"></span>
           <span class="ms-leg-name">{zone.settings.name}</span>
-          <span class="ms-leg-angle">{effectiveSettings(zone).angle}°</span>
+          <span class="ms-leg-angle">{(mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle)}°</span>
         </button>
       {/each}
     </div>
+  {/if}
+
+  {#if plannerLoading}
+    <div class="planner-status">Planner wird geprueft...</div>
+  {:else if plannerError}
+    <div class="planner-status error">{plannerError}</div>
+  {:else if missionZones.length > 0 && !hasPreviewRoute}
+    <div class="planner-status warn">Keine Bahnvorschau vom C++-Planner erhalten.</div>
   {/if}
 
   {#if missionZones.length === 0}
@@ -178,24 +274,56 @@
     </defs>
 
     <rect x="-9999" y="-9999" width="19999" height="19999" fill="#070d18" />
-    <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#pp-grid)" />
+    <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#pp-grid)" opacity="0.8" />
 
     <!-- Perimeter -->
     {#if perimeter.length >= 3}
       <polygon
         points={polyPoints(perimeter, bounds)}
-        fill="none"
-        stroke="#1e3a5f"
-        stroke-width="1.5"
-        stroke-dasharray="6 3"
+        fill="rgba(30, 58, 95, 0.06)"
+        stroke="#7c9ccf"
+        stroke-width="1.2"
+        stroke-dasharray="5 4"
+        stroke-linejoin="round"
       />
+    {/if}
+
+    <!-- NoGo-Ausschlussflaechen -->
+    {#if exclusions.length > 0}
+      {#each exclusions as exclusion}
+        {#if exclusion.length >= 3}
+          <polygon
+            points={polyPoints(exclusion, bounds)}
+            fill="rgba(220, 38, 38, 0.10)"
+            stroke="#f87171"
+            stroke-width="1.15"
+            stroke-dasharray="4 4"
+            stroke-linejoin="round"
+          />
+        {/if}
+      {/each}
+    {/if}
+
+    <!-- Docking-Pfad -->
+    {#if dock.length >= 2}
+      <polyline
+        points={polyPoints(dock, bounds)}
+        fill="none"
+        stroke="#fbbf24"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-dasharray="6 5"
+      />
+      {@const dockEnd = project(dock[dock.length - 1], bounds)}
+      <circle cx={dockEnd.x} cy={dockEnd.y} r="4" fill="#fbbf24" />
     {/if}
 
     <!-- Zonen -->
     {#each missionZones as zone, i}
       {@const color = zoneColors[i % zoneColors.length]}
-      {@const geo = zoneGeometry.get(zone.id)}
-      {@const center = project(polygonCenter(zone), bounds)}
+      {@const label = `${zone.settings.name} · ${(mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle)}°`}
+      {@const labelPos = labelPosition(polygonCenter(zone), bounds, label)}
 
       <g
         role="button"
@@ -209,60 +337,60 @@
           }
         }}
       >
-        <!-- Effektive Fläche (geclippte Zone) -->
-        {#if geo && geo.effectiveAreas.length > 0}
-          {#each geo.effectiveAreas as area}
-            <polygon
-              points={polyPoints(area, bounds)}
-              fill={selectedZoneId === zone.id ? `${color}44` : `${color}26`}
-              stroke={color}
-              stroke-width={selectedZoneId === zone.id ? 3 : 1.8}
-            />
-          {/each}
-        {:else}
-          <!-- Fallback: Zone-Polygon direkt -->
-          <polygon
-            points={polyPoints(zone.polygon, bounds)}
-            fill={selectedZoneId === zone.id ? `${color}44` : `${color}26`}
-            stroke={color}
-            stroke-width={selectedZoneId === zone.id ? 3 : 1.8}
-            stroke-dasharray="4 2"
+        <polygon
+          points={polyPoints(zone.polygon, bounds)}
+          fill={selectedZoneId === zone.id ? `${color}36` : `${color}18`}
+          stroke={color}
+          stroke-width={selectedZoneId === zone.id ? 2.4 : 1.35}
+          stroke-dasharray="4 3"
+          stroke-linejoin="round"
+        />
+
+        <g>
+          <rect
+            x={labelPos.x - labelPos.width / 2}
+            y={labelPos.y - 13}
+            width={labelPos.width}
+            height="14"
+            rx="7"
+            fill="rgba(7, 13, 24, 0.72)"
+            stroke={selectedZoneId === zone.id ? color : 'rgba(148, 163, 184, 0.2)'}
+            stroke-width="1"
           />
-        {/if}
-
-        <!-- Randmäh-Runden -->
-        {#if geo}
-          {#each geo.edgePaths as edgePoly}
-            <polygon
-              points={polyPoints(edgePoly, bounds)}
-              fill="none"
-              stroke={color}
-              stroke-opacity="0.75"
-              stroke-width="1.4"
-            />
-          {/each}
-        {/if}
-
-        <!-- Infill-Mähbahnen -->
-        {#if geo}
-          {#each geo.segments as seg}
-            {@const pa = project(seg.a, bounds)}
-            {@const pb = project(seg.b, bounds)}
-            <line
-              x1={pa.x} y1={pa.y}
-              x2={pb.x} y2={pb.y}
-              stroke={color}
-              stroke-opacity="0.6"
-              stroke-width="1.1"
-            />
-          {/each}
-        {/if}
-
-        <text x={center.x} y={center.y} text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">
-          {zone.settings.name}
-        </text>
+          <text
+            x={labelPos.x}
+            y={labelPos.y - 4}
+            text-anchor="middle"
+            fill="#e2e8f0"
+            font-size="8.5"
+            font-weight="600"
+          >
+            {label}
+          </text>
+        </g>
       </g>
     {/each}
+
+    {#if hasPreviewRoute}
+      <polyline
+        points={polyPoints(previewRoute, bounds)}
+        fill="none"
+        stroke="rgba(7, 13, 24, 0.92)"
+        stroke-width="3.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <polyline
+        points={polyPoints(previewRoute, bounds)}
+        fill="none"
+        stroke="#fbbf24"
+        stroke-opacity="0.96"
+        stroke-width="1.6"
+        stroke-dasharray="5 4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    {/if}
   </svg>
 
   <div class="ms-zoom">
@@ -285,6 +413,8 @@
     display: block;
     width: 100%;
     height: 100%;
+    touch-action: none;
+    user-select: none;
   }
 
   .ms-legend {
@@ -324,6 +454,29 @@
 
   .ms-leg-name { color: #e2e8f0; }
   .ms-leg-angle { color: #475569; font-size: 10px; font-family: monospace; }
+
+  .planner-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 3;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(15, 24, 41, 0.88);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    color: #fde68a;
+    font-size: 10px;
+  }
+
+  .planner-status.error {
+    border-color: rgba(248, 113, 113, 0.4);
+    color: #fecaca;
+  }
+
+  .planner-status.warn {
+    border-color: rgba(251, 191, 36, 0.35);
+    color: #fde68a;
+  }
 
   .ms-zoom {
     position: absolute;
