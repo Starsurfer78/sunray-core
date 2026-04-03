@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageLayout from "../components/PageLayout.svelte";
   import OtaUpdate from "../components/OtaUpdate.svelte";
   import {
     flashUploadedStm,
@@ -21,6 +22,7 @@
 
   type Section = "general" | "diagnostics";
 
+  let sidebarCollapsed = false;
   let activeSection: Section = "general";
   let stmProbeBusy = false;
   let stmProbeResult: StmProbeResponse | null = null;
@@ -124,226 +126,182 @@
         : "";
 </script>
 
-<section class="settings-shell">
-  <aside class="settings-nav">
-    <div class="settings-nav-head">
-      <span class="eyebrow">Einstellungen</span>
-      <h1>System und Service</h1>
-      <p>Selten genutzte Werkzeuge bewusst aus der Hauptnavigation herausgenommen.</p>
+<PageLayout {sidebarCollapsed} on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}>
+  <div class="settings-page">
+
+    <div class="hero">
+      <div>
+        <span class="eyebrow">{activeSection === "general" ? "Allgemein" : "Diagnose"}</span>
+        <h1>{activeSection === "general" ? "Systemstatus und Update" : "Hardware und Kalibrierung"}</h1>
+        <p>{activeSection === "general" ? "OTA, Versionen und STM32-Firmware." : "Live-Sensorik und Servicefunktionen gebündelt."}</p>
+      </div>
     </div>
 
-    <nav class="settings-menu" aria-label="Einstellungsbereiche">
-      <button
-        type="button"
-        class:active={activeSection === "general"}
-        on:click={() => (activeSection = "general")}
-      >
-        <span>Allgemein</span>
-        <small>OTA, Runtime, Versionen</small>
-      </button>
-      <button
-        type="button"
-        class:active={activeSection === "diagnostics"}
-        on:click={() => (activeSection = "diagnostics")}
-      >
-        <span>Diagnose</span>
-        <small>Sensoren, Kalibrierung, Motor-Tests</small>
-      </button>
-    </nav>
-  </aside>
-
-  <div class="settings-content">
     {#if activeSection === "general"}
-      <div class="section-head">
-        <span class="eyebrow">Allgemein</span>
-        <h2>Systemstatus und Update</h2>
-        <p>Hier liegen die Dinge, die man nur gelegentlich anfasst.</p>
-      </div>
 
-      <div class="info-grid">
-        <div class="info-card">
+      <section class="stats-grid">
+        <article class="stat-card">
           <span class="label">Runtime</span>
           <strong>{$telemetry.runtime_health || "ok"}</strong>
-          <span>Op: {$telemetry.op || "—"}</span>
-          <span>Phase: {$telemetry.state_phase || "—"}</span>
-          <span>Resume: {$telemetry.resume_target || "—"}</span>
-        </div>
+          <span class="muted">Op: {$telemetry.op || "—"} · Phase: {$telemetry.state_phase || "—"}</span>
+          <span class="muted">Resume: {$telemetry.resume_target || "—"}</span>
+        </article>
 
-        <div class="info-card">
-          <span class="label">Versionen</span>
+        <article class="stat-card">
+          <span class="label">Version</span>
           <strong>{$telemetry.pi_v || "—"}</strong>
-          <span>MCU: {$telemetry.mcu_v || "—"}</span>
-          <span>GPS: {$telemetry.gps_text || "—"}</span>
-          <span>History: {$telemetry.history_backend_ready ? "bereit" : "nicht bereit"}</span>
-        </div>
+          <span class="muted">MCU: {$telemetry.mcu_v || "—"} · GPS: {$telemetry.gps_text || "—"}</span>
+          <span class="muted">History: {$telemetry.history_backend_ready ? "bereit" : "nicht bereit"}</span>
+        </article>
 
-        <div class="info-card">
+        <article class="stat-card">
           <span class="label">Letztes Ereignis</span>
           <strong>{humanizeReason($telemetry.event_reason)}</strong>
-          <span>Fehler: {$telemetry.error_code || "—"}</span>
-          <span>Zustand: {recoveryNotice.title}</span>
-          <span>{recoveryNotice.detail}</span>
-        </div>
-      </div>
+          <span class="muted">Fehler: {$telemetry.error_code || "—"}</span>
+          <span class="muted">{recoveryNotice.title}</span>
+        </article>
+      </section>
 
-      <div class="panel-card">
+      <div class="panel ota-wrap">
         <OtaUpdate />
       </div>
 
-      <div class="panel-card stm-panel">
-        <div class="panel-head">
-          <span class="eyebrow">STM32 Firmware</span>
-          <h3>SWD-Verbindung prüfen</h3>
-          <p>Testet nur, ob Alfred aktuell eine flashfähige SWD-Verbindung zum STM32 aufbauen kann.</p>
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <span class="label">STM32 Firmware</span>
+            <h2>SWD-Verbindung und Flash</h2>
+          </div>
         </div>
 
-        <div class="stm-actions">
-          <button type="button" class="probe-btn" disabled={stmProbeBusy} on:click={runStmProbe}>
-            {stmProbeBusy ? "Prüfe SWD ..." : "SWD-Verbindung prüfen"}
-          </button>
-          <span class="stm-note">Kein Flash, nur `flash_alfred.sh probe`.</span>
-        </div>
+        <div class="stm-steps">
 
-        {#if stmProbeResult}
-          <div class="stm-result" class:ok={stmProbeResult.ok} class:error={!stmProbeResult.ok}>
-            <strong>{stmProbeHeading}</strong>
-            <div class="stm-result-actions">
-              <span>Ausgabe bereit</span>
-              <button
-                type="button"
-                class="detail-btn"
-                on:click={() => openStmDetail(stmProbeHeading, stmProbeResult?.detail || "")}
-              >
-                Details öffnen
-              </button>
+          <div class="stm-step">
+            <span class="step-num">1</span>
+            <div class="step-body">
+              <strong>SWD-Verbindung prüfen</strong>
+              <p>Testet ob Alfred aktuell eine flashfähige Verbindung zum STM32 aufbauen kann.</p>
+              <div class="step-actions">
+                <button type="button" class="btn" disabled={stmProbeBusy} on:click={runStmProbe}>
+                  {stmProbeBusy ? "Prüfe …" : "SWD prüfen"}
+                </button>
+                {#if stmProbeResult || stmProbeError}
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    on:click={() => openStmDetail(stmProbeHeading, stmProbeResult?.detail ?? stmProbeError)}
+                  >
+                    Ausgabe ansehen
+                  </button>
+                {/if}
+              </div>
+              {#if stmProbeResult}
+                <div class="result-row" class:ok={stmProbeResult.ok} class:err={!stmProbeResult.ok}>
+                  {stmProbeHeading}
+                </div>
+              {:else if stmProbeError}
+                <div class="result-row err">Keine flashfähige Verbindung</div>
+              {/if}
             </div>
           </div>
-        {/if}
 
-        {#if stmProbeError}
-          <div class="stm-result error">
-            <strong>Keine flashfähige Verbindung</strong>
-            <div class="stm-result-actions">
-              <span>Fehlerausgabe bereit</span>
-              <button
-                type="button"
-                class="detail-btn"
-                on:click={() => openStmDetail("Keine flashfähige Verbindung", stmProbeError)}
-              >
-                Details öffnen
-              </button>
+          <div class="stm-step">
+            <span class="step-num">2</span>
+            <div class="step-body">
+              <strong>Firmware hochladen</strong>
+              <p>.bin vom PC auf Alfred übertragen, ohne sofort zu flashen.</p>
+              <div class="step-actions">
+                <label class="file-label">
+                  <input
+                    type="file"
+                    accept=".bin,application/octet-stream"
+                    class="file-input"
+                    on:change={(event) => {
+                      const input = event.currentTarget as HTMLInputElement;
+                      selectedStmFile = input.files?.[0] ?? null;
+                    }}
+                  />
+                  <span>{selectedStmFile ? selectedStmFile.name : "Datei wählen …"}</span>
+                </label>
+                <button
+                  type="button"
+                  class="btn"
+                  disabled={!selectedStmFile || stmUploadBusy}
+                  on:click={handleStmUpload}
+                >
+                  {stmUploadBusy ? "Lädt hoch …" : "Hochladen"}
+                </button>
+              </div>
+              {#if stmUploadError}
+                <div class="result-row err">{stmUploadError}</div>
+              {:else if stmUploadInfo?.exists}
+                <div class="result-row ok">
+                  {stmUploadInfo.original_name || "rm18-upload.bin"} ·
+                  {Math.round((stmUploadInfo.size_bytes ?? 0) / 1024)} KB ·
+                  {stmUploadInfo.uploaded_at_ms ? new Date(stmUploadInfo.uploaded_at_ms).toLocaleString("de-DE") : "—"}
+                </div>
+              {:else}
+                <div class="result-row">Noch keine Firmware hochgeladen.</div>
+              {/if}
             </div>
           </div>
-        {/if}
 
-        <div class="stm-upload-box">
-          <div class="stm-upload-copy">
-            <strong>Firmware hochladen</strong>
-            <span>.bin vom PC auf Alfred ablegen, ohne sofort zu flashen.</span>
-          </div>
-          <div class="stm-actions">
-            <input
-              type="file"
-              accept=".bin,application/octet-stream"
-              on:change={(event) => {
-                const input = event.currentTarget as HTMLInputElement;
-                selectedStmFile = input.files?.[0] ?? null;
-              }}
-            />
-            <button
-              type="button"
-              class="probe-btn"
-              disabled={!selectedStmFile || stmUploadBusy}
-              on:click={handleStmUpload}
-            >
-              {stmUploadBusy ? "Lade hoch ..." : "Upload .bin"}
-            </button>
-          </div>
-          {#if selectedStmFile}
-            <span class="stm-note">
-              Gewählt: {selectedStmFile.name} ({Math.round(selectedStmFile.size / 1024)} KB)
-            </span>
-          {/if}
-          {#if stmUploadError}
-            <div class="stm-result error">
-              <strong>Upload fehlgeschlagen</strong>
-              <span>{stmUploadError}</span>
+          <div class="stm-step last">
+            <span class="step-num">3</span>
+            <div class="step-body">
+              <strong>Hochgeladene Firmware flashen</strong>
+              <p>Nur aus <code>Idle</code> oder <code>Charge</code> und nach erfolgreichem Upload.</p>
+              <div class="step-actions">
+                <button
+                  type="button"
+                  class="btn-danger"
+                  disabled={!!stmFlashBlockedReason || stmFlashBusy}
+                  on:click={handleStmFlash}
+                >
+                  {stmFlashBusy ? "Flashe …" : "Jetzt flashen"}
+                </button>
+                {#if stmFlashBlockedReason}
+                  <span class="hint">{stmFlashBlockedReason}</span>
+                {/if}
+                {#if stmFlashResult}
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    on:click={() => openStmDetail(
+                      stmFlashResult?.ok ? "STM-Flash erfolgreich" : "STM-Flash fehlgeschlagen",
+                      stmFlashResult?.detail ?? ""
+                    )}
+                  >
+                    Ausgabe ansehen
+                  </button>
+                {/if}
+              </div>
+              {#if stmFlashError}
+                <div class="result-row err">{stmFlashError}</div>
+              {/if}
             </div>
-          {/if}
-        </div>
+          </div>
 
-        <div class="stm-upload-box">
-          <div class="stm-upload-copy">
-            <strong>Hochgeladene Firmware</strong>
-            <span>Fixer Speicherort fuer den naechsten kontrollierten Flash.</span>
-          </div>
-          {#if stmUploadInfo?.exists}
-            <div class="stm-result ok">
-              <strong>{stmUploadInfo.original_name || "rm18-upload.bin"}</strong>
-              <span>
-                {Math.round((stmUploadInfo.size_bytes ?? 0) / 1024)} KB ·
-                {stmUploadInfo.uploaded_at_ms ? new Date(stmUploadInfo.uploaded_at_ms).toLocaleString("de-DE") : "—"}
-              </span>
-              <span>{stmUploadInfo.stored_path || "—"}</span>
-            </div>
-          {:else}
-            <div class="stm-result">
-              <strong>Keine Firmware hochgeladen</strong>
-              <span>Der Upload legt die Datei unter `/var/lib/sunray-core/stm-upload/` ab.</span>
-            </div>
-          {/if}
-        </div>
-
-        <div class="stm-upload-box">
-          <div class="stm-upload-copy">
-            <strong>Hochgeladene Firmware flashen</strong>
-            <span>Nur nach erfolgreichem Upload und nur aus `Idle` oder `Charge`.</span>
-          </div>
-          <div class="stm-actions">
-            <button
-              type="button"
-              class="probe-btn"
-              disabled={!!stmFlashBlockedReason || stmFlashBusy}
-              on:click={handleStmFlash}
-            >
-              {stmFlashBusy ? "Flashe STM ..." : "Hochgeladene Firmware flashen"}
-            </button>
-            <span class="stm-note">
-              {stmFlashBlockedReason || "Flash-Ausgabe erscheint im gleichen Terminalfenster wie beim Probe."}
-            </span>
-          </div>
-          {#if stmFlashError}
-            <div class="stm-result error">
-              <strong>STM-Flash fehlgeschlagen</strong>
-              <span>{stmFlashError}</span>
-            </div>
-          {/if}
         </div>
       </div>
+
     {:else}
-      <div class="section-head">
-        <span class="eyebrow">Diagnose</span>
-        <h2>Hardware und Kalibrierung</h2>
-        <p>Live-Sensorik und Servicefunktionen gebündelt auf einer ruhigeren Unterseite.</p>
-      </div>
 
       <div class="diag-summary">
         <div class={`state-card ${recoveryNotice.tone}`}>
           <span class="label">Betriebszustand</span>
           <strong>{recoveryNotice.title}</strong>
-          <span>{recoveryNotice.detail}</span>
-          <span class="action">{recoveryNotice.action}</span>
+          <span class="muted">{recoveryNotice.detail}</span>
+          <span class="action-text">{recoveryNotice.action}</span>
         </div>
-
-        <div class="state-card neutral">
+        <div class="state-card">
           <span class="label">Letzte Aktion</span>
           <strong>{$diagnostics.activeAction ?? "bereit"}</strong>
           {#if $diagnostics.error}
-            <span class="error">{$diagnostics.error}</span>
+            <span class="text-err">{$diagnostics.error}</span>
           {:else if $diagnostics.lastResult}
-            <span class="ok">
-              {$diagnostics.lastResult.message ??
-                ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
+            <span class="text-ok">
+              {$diagnostics.lastResult.message ?? ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
             </span>
           {:else}
             <span class="muted">Noch kein Ergebnis</span>
@@ -361,16 +319,70 @@
         <TickCalibration />
         <DirectionValidation />
       </div>
+
     {/if}
   </div>
-</section>
+
+  <svelte:fragment slot="sidebar">
+    <div class="sidebar-header">
+      <span class="eyebrow">Einstellungen</span>
+      <h2>System und Service</h2>
+      <p>Selten genutzte Werkzeuge aus der Hauptnavigation.</p>
+    </div>
+
+    <div class="sr-sec">
+      <div class="sr-lbl">Bereiche</div>
+      <button
+        type="button"
+        class="nav-btn"
+        class:active={activeSection === "general"}
+        on:click={() => (activeSection = "general")}
+      >
+        <div class="nav-title">Allgemein</div>
+        <div class="nav-sub">OTA, Runtime, Versionen</div>
+      </button>
+      <button
+        type="button"
+        class="nav-btn"
+        class:active={activeSection === "diagnostics"}
+        on:click={() => (activeSection = "diagnostics")}
+      >
+        <div class="nav-title">Diagnose</div>
+        <div class="nav-sub">Sensoren, Kalibrierung, Motor-Tests</div>
+      </button>
+    </div>
+
+    <div class="sr-sec">
+      <div class="sr-lbl">Betriebszustand</div>
+      <div class="sr-stbig">{recoveryNotice.title}</div>
+      <div class="sr-detail">{recoveryNotice.detail}</div>
+      {#if recoveryNotice.action}
+        <div class="sr-action">{recoveryNotice.action}</div>
+      {/if}
+    </div>
+
+    <div class="sr-sec">
+      <div class="sr-lbl">Letzte Diag-Aktion</div>
+      <div class="sr-stbig">{$diagnostics.activeAction ?? "bereit"}</div>
+      {#if $diagnostics.error}
+        <div class="sr-err">{$diagnostics.error}</div>
+      {:else if $diagnostics.lastResult}
+        <div class="sr-ok">
+          {$diagnostics.lastResult.message ?? ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
+        </div>
+      {:else}
+        <div class="sr-muted">Noch kein Ergebnis</div>
+      {/if}
+    </div>
+  </svelte:fragment>
+</PageLayout>
 
 {#if showStmDetail && stmDetailBody}
   <div
     class="probe-modal-backdrop"
     role="button"
     tabindex="0"
-    aria-label="STM-Probe-Details schließen"
+    aria-label="STM-Details schließen"
     on:click={() => (showStmDetail = false)}
     on:keydown={(event) => {
       if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
@@ -383,7 +395,7 @@
       role="dialog"
       tabindex="-1"
       aria-modal="true"
-      aria-label="STM Probe Details"
+      aria-label="STM Details"
       on:click|stopPropagation
       on:keydown|stopPropagation
     >
@@ -392,7 +404,7 @@
           <span class="eyebrow">STM32 Firmware</span>
           <h3>{stmDetailTitle}</h3>
         </div>
-        <button type="button" class="detail-btn close-btn" on:click={() => (showStmDetail = false)}>
+        <button type="button" class="btn-ghost" on:click={() => (showStmDetail = false)}>
           Schließen
         </button>
       </div>
@@ -410,224 +422,376 @@
 {/if}
 
 <style>
-  .settings-shell {
+  /* ── Page ───────────────────────────────────────────── */
+  .settings-page {
     height: 100%;
-    display: grid;
-    grid-template-columns: 250px minmax(0, 1fr);
-    gap: 1rem;
+    overflow-y: auto;
     padding: 1rem;
-    box-sizing: border-box;
+    display: grid;
+    gap: 1rem;
+    align-content: start;
+    background:
+      radial-gradient(circle at top right, rgba(30, 58, 95, 0.2), transparent 40%),
+      linear-gradient(180deg, rgba(7, 13, 24, 0.98), rgba(10, 15, 26, 0.98));
   }
 
-  .settings-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1rem;
+  /* ── Hero ───────────────────────────────────────────── */
+  .hero {
+    padding: 1rem 1.1rem;
+    border-radius: 1rem;
+    background: rgba(15, 24, 41, 0.95);
     border: 1px solid #1e3a5f;
-    border-radius: 0.9rem;
-    background: #0a1020;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
-  }
-
-  .settings-nav-head,
-  .section-head {
-    display: grid;
-    gap: 0.35rem;
   }
 
   .eyebrow {
+    display: inline-block;
     color: #60a5fa;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.72rem;
+    margin-bottom: 0.35rem;
   }
 
-  h1,
-  h2 {
-    margin: 0;
-    font-size: 1.45rem;
-    line-height: 1.05;
-    color: #e2e8f0;
-  }
+  h1, h2, h3 { margin: 0; }
 
-  p {
-    margin: 0;
+  h1 { font-size: 1.45rem; line-height: 1.1; color: #f8fafc; }
+  h2 { font-size: 1rem; color: #e2e8f0; }
+
+  .hero p {
+    margin: 0.35rem 0 0;
     color: #94a3b8;
-    font-size: 0.82rem;
+    font-size: 0.84rem;
     line-height: 1.45;
   }
 
-  .settings-menu {
+  /* ── Stats grid ─────────────────────────────────────── */
+  .stats-grid {
     display: grid;
-    gap: 0.5rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
   }
 
-  .settings-menu button {
+  .stat-card {
     display: grid;
-    gap: 0.18rem;
-    padding: 0.8rem 0.9rem;
-    border-radius: 0.7rem;
-    border: 1px solid #1e3a5f;
-    background: #0f1829;
-    color: #dbeafe;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .settings-menu button.active {
-    border-color: #60a5fa;
-    background: #10213b;
-  }
-
-  .settings-menu span {
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-
-  .settings-menu small {
-    color: #7a8da8;
-    font-size: 0.72rem;
-    line-height: 1.35;
-  }
-
-  .settings-content {
-    min-width: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding-right: 0.25rem;
-  }
-
-  .info-grid,
-  .diag-summary {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 1rem;
-  }
-
-  .info-card,
-  .state-card,
-  .panel-card {
-    display: grid;
-    gap: 0.25rem;
+    gap: 0.2rem;
     padding: 1rem;
     border-radius: 0.9rem;
-    border: 1px solid #1e3a5f;
     background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
-  .panel-card {
+  .stat-card strong {
+    font-size: 1.1rem;
+    color: #f8fafc;
+    margin-top: 0.1rem;
+  }
+
+  /* ── Panel ──────────────────────────────────────────── */
+  .panel {
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+    border-radius: 0.9rem;
+    padding: 1rem;
+  }
+
+  .ota-wrap {
+    padding: 0;
     overflow: hidden;
   }
 
-  .stm-panel {
-    gap: 0.8rem;
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
   }
 
-  .stm-upload-box {
+  /* ── STM steps ──────────────────────────────────────── */
+  .stm-steps {
+    display: grid;
+    border-radius: 0.75rem;
+    border: 1px solid #1e3a5f;
+    overflow: hidden;
+  }
+
+  .stm-step {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.9rem;
+    padding: 1rem;
+    border-bottom: 1px solid #1e3a5f;
+    background: rgba(10, 16, 32, 0.6);
+    align-items: start;
+  }
+
+  .stm-step.last {
+    border-bottom: none;
+  }
+
+  .step-num {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: #0a1020;
+    border: 1px solid #1e3a5f;
+    color: #60a5fa;
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+  }
+
+  .step-body {
     display: grid;
     gap: 0.55rem;
-    padding: 0.9rem 1rem;
-    border-radius: 0.8rem;
-    border: 1px solid #1e3a5f;
-    background: #0a1020;
   }
 
-  .stm-upload-copy {
-    display: grid;
-    gap: 0.2rem;
-  }
-
-  .stm-upload-copy strong {
+  .step-body strong {
     color: #e2e8f0;
     font-size: 0.92rem;
   }
 
-  .panel-head {
+  .step-body p {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  .step-body code {
+    color: #93c5fd;
+    font-size: 0.8rem;
+  }
+
+  .step-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .result-row {
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #070d18;
+    color: #94a3b8;
+    font-size: 0.82rem;
+  }
+
+  .result-row.ok { border-color: #166534; color: #86efac; }
+  .result-row.err { border-color: #7f1d1d; color: #fca5a5; }
+
+  /* ── Buttons ────────────────────────────────────────── */
+  .btn {
+    padding: 0.55rem 0.9rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #10203a;
+    color: #dbeafe;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.84rem;
+  }
+
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn:not(:disabled):hover { border-color: #3b82f6; }
+
+  .btn-ghost {
+    padding: 0.55rem 0.9rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: transparent;
+    color: #7a8da8;
+    cursor: pointer;
+    font-size: 0.84rem;
+  }
+
+  .btn-ghost:hover { border-color: #3b82f6; color: #93c5fd; }
+
+  .btn-danger {
+    padding: 0.55rem 0.9rem;
+    border-radius: 0.55rem;
+    border: 1px solid #7f1d1d;
+    background: #1c0a0a;
+    color: #fca5a5;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.84rem;
+  }
+
+  .btn-danger:not(:disabled):hover { border-color: #ef4444; color: #fecaca; }
+  .btn-danger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .hint {
+    color: #64748b;
+    font-size: 0.78rem;
+  }
+
+  /* ── File input ─────────────────────────────────────── */
+  .file-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.9rem;
+    border-radius: 0.55rem;
+    border: 1px solid #1e3a5f;
+    background: #0a1020;
+    color: #7a8da8;
+    cursor: pointer;
+    font-size: 0.82rem;
+    max-width: 240px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .file-label:hover { border-color: #3b82f6; color: #93c5fd; }
+
+  .file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  /* ── Diag summary ───────────────────────────────────── */
+  .diag-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+  }
+
+  .state-card {
+    display: grid;
+    gap: 0.2rem;
+    padding: 1rem;
+    border-radius: 0.9rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
+  }
+
+  .state-card.success { border-color: #166534; }
+  .state-card.warning { border-color: #92400e; }
+  .state-card.error   { border-color: #7f1d1d; }
+  .state-card.info    { border-color: #1d4ed8; }
+
+  .state-card strong { color: #e2e8f0; font-size: 0.95rem; }
+
+  .action-text { color: #dbeafe; font-size: 0.82rem; }
+  .text-ok     { color: #86efac; font-size: 0.82rem; }
+  .text-err    { color: #fca5a5; font-size: 0.82rem; }
+
+  .diagnostics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    align-items: start;
+  }
+
+  /* ── Shared text ────────────────────────────────────── */
+  .label {
+    color: #7a8da8;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .muted {
+    color: #94a3b8;
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  /* ── Sidebar ────────────────────────────────────────── */
+  .sidebar-header {
+    padding: 1rem;
+    border-bottom: 1px solid #0f1829;
     display: grid;
     gap: 0.3rem;
   }
 
-  h3 {
-    margin: 0;
+  .sidebar-header h2 {
+    font-size: 1.1rem;
     color: #e2e8f0;
-    font-size: 1.05rem;
   }
 
-  .stm-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.6rem;
+  .sidebar-header p {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    line-height: 1.4;
   }
 
-  .probe-btn {
-    padding: 0.55rem 0.85rem;
-    border-radius: 0.55rem;
-    border: 1px solid #1e3a5f;
-    background: #10213b;
-    color: #dbeafe;
+  .sr-sec {
+    padding: 10px 12px;
+    border-bottom: 1px solid #0f1829;
+    display: grid;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .sr-lbl {
+    font-size: 10px;
+    font-weight: 500;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+  }
+
+  .nav-btn {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #94a3b8;
     cursor: pointer;
+    text-align: left;
+    transition: background 120ms, border-color 120ms;
+  }
+
+  .nav-btn:hover {
+    background: #0f1829;
+    border-color: #1e3a5f;
+  }
+
+  .nav-btn.active {
+    background: #0f1829;
+    border-color: #3b82f6;
+    color: #dbeafe;
+  }
+
+  .nav-title {
+    font-size: 0.84rem;
     font-weight: 600;
   }
 
-  .probe-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+  .nav-sub {
+    font-size: 0.72rem;
+    color: #475569;
+    line-height: 1.3;
   }
 
-  .stm-note {
+  .nav-btn.active .nav-sub {
     color: #7a8da8;
-    font-size: 0.76rem;
   }
 
-  .stm-result-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    color: #cbd5e1;
-    font-size: 0.8rem;
-  }
+  .sr-stbig { font-size: 14px; font-weight: 500; color: #60a5fa; }
+  .sr-detail { font-size: 11px; color: #64748b; line-height: 1.4; }
+  .sr-action { font-size: 11px; color: #dbeafe; }
+  .sr-ok     { font-size: 11px; color: #86efac; }
+  .sr-err    { font-size: 11px; color: #fca5a5; }
+  .sr-muted  { font-size: 11px; color: #64748b; }
 
-  .detail-btn {
-    padding: 0.45rem 0.75rem;
-    border-radius: 0.55rem;
-    border: 1px solid #335c8b;
-    background: #10213b;
-    color: #dbeafe;
-    cursor: pointer;
-    font: inherit;
-  }
-
-  .detail-btn:hover {
-    border-color: #60a5fa;
-  }
-
-  .stm-result {
-    display: grid;
-    gap: 0.4rem;
-    padding: 0.9rem 1rem;
-    border-radius: 0.75rem;
-    border: 1px solid #1e3a5f;
-    background: #0a1020;
-  }
-
-  .stm-result.ok {
-    border-color: #166534;
-  }
-
-  .stm-result.error {
-    border-color: #7f1d1d;
-  }
-
-  .stm-result strong {
-    color: #e2e8f0;
-    font-size: 0.9rem;
-  }
-
+  /* ── Modal ──────────────────────────────────────────── */
   .probe-modal-backdrop {
     position: fixed;
     inset: 0;
@@ -657,10 +821,6 @@
     align-items: start;
     justify-content: space-between;
     gap: 1rem;
-  }
-
-  .close-btn {
-    white-space: nowrap;
   }
 
   .probe-log {
@@ -703,17 +863,9 @@
     display: inline-block;
   }
 
-  .dot.red {
-    background: #ef4444;
-  }
-
-  .dot.yellow {
-    background: #f59e0b;
-  }
-
-  .dot.green {
-    background: #22c55e;
-  }
+  .dot.red    { background: #ef4444; }
+  .dot.yellow { background: #f59e0b; }
+  .dot.green  { background: #22c55e; }
 
   .probe-terminal-title {
     margin-left: 0.35rem;
@@ -722,81 +874,17 @@
     letter-spacing: 0.04em;
   }
 
-  .label {
-    color: #7a8da8;
-    font-size: 0.74rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .info-card strong,
-  .state-card strong {
-    color: #e2e8f0;
-    font-size: 0.95rem;
-  }
-
-  .info-card span,
-  .state-card span {
-    color: #a9bacd;
-    font-size: 0.8rem;
-    line-height: 1.4;
-  }
-
-  .state-card.success {
-    border-color: #166534;
-  }
-
-  .state-card.warning {
-    border-color: #92400e;
-  }
-
-  .state-card.error {
-    border-color: #7f1d1d;
-  }
-
-  .state-card.info {
-    border-color: #1d4ed8;
-  }
-
-  .state-card.neutral {
-    border-color: #1e3a5f;
-  }
-
-  .action {
-    color: #dbeafe !important;
-  }
-
-  .muted {
-    color: #94a3b8 !important;
-  }
-
-  .ok {
-    color: #a8e2a1 !important;
-  }
-
-  .error {
-    color: #f1aaaa !important;
-  }
-
-  .sensor-highlight {
-    flex-shrink: 0;
-  }
-
-  .diagnostics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1rem;
-    align-items: start;
-  }
-
-  @media (max-width: 900px) {
-    .settings-shell {
-      grid-template-columns: 1fr;
+  /* ── Responsive ─────────────────────────────────────── */
+  @media (max-width: 1000px) {
+    .stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+  }
 
-    .diagnostics-grid,
-    .info-grid,
-    .diag-summary {
+  @media (max-width: 680px) {
+    .stats-grid,
+    .diag-summary,
+    .diagnostics-grid {
       grid-template-columns: 1fr;
     }
 

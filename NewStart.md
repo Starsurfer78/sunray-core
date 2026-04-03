@@ -6,7 +6,7 @@ Ziel:
 Erstelle automatisch die vollständige Projektstruktur, Prompt-Struktur,
 Memory-Struktur und Analyse-/Task-Dateien für das Projekt:
 
-E:\TRAE\sunray-core\
+/mnt/LappiDaten/Projekte/sunray-core
 
 Die Dateien sollen direkt angelegt und vollständig mit Inhalt befüllt werden.
 Alle Dateien sind Markdown-Dateien (.md), klar strukturiert, sofort nutzbar

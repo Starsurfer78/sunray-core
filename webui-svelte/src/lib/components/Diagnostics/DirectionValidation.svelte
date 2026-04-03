@@ -116,62 +116,64 @@
 <style>
   .panel {
     display: grid;
-    gap: 1rem;
-    padding: 1.1rem;
-    border-radius: 1rem;
-    background: rgba(13, 25, 22, 0.82);
-    border: 1px solid rgba(152, 187, 170, 0.14);
+    gap: 0.6rem;
+    padding: 0.75rem 0.85rem;
+    border-radius: 0.8rem;
+    background: #0f1829;
+    border: 1px solid #1e3a5f;
   }
 
   header,
   .controls,
   .actions {
     display: grid;
-    gap: 0.8rem;
+    gap: 0.45rem;
   }
 
-  h2,
-  p {
-    margin: 0;
-  }
+  h2, p { margin: 0; }
 
-  p {
-    color: #9db3ab;
-  }
+  h2 { font-size: 0.92rem; color: #e2e8f0; }
+
+  p { color: #64748b; font-size: 0.78rem; }
 
   .controls {
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     align-items: end;
+    gap: 0.5rem;
   }
 
   label {
     display: grid;
-    gap: 0.3rem;
-    color: #c8d9d2;
+    gap: 0.2rem;
+    color: #94a3b8;
+    font-size: 0.78rem;
   }
 
   select,
   input {
     width: 100%;
-    padding: 0.7rem 0.8rem;
-    border: 1px solid rgba(152, 187, 170, 0.2);
-    border-radius: 0.8rem;
-    background: rgba(24, 38, 34, 0.85);
+    padding: 0.35rem 0.55rem;
+    border: 1px solid #1a2a40;
+    border-radius: 0.4rem;
+    background: #08101d;
     color: #dce8e8;
+    font-size: 0.82rem;
   }
 
   .actions {
-    grid-template-columns: repeat(auto-fit, minmax(180px, max-content));
+    grid-template-columns: repeat(auto-fit, minmax(150px, max-content));
+    gap: 0.4rem;
   }
 
   button {
-    padding: 0.8rem 1rem;
-    border: 0;
-    border-radius: 0.9rem;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #2563eb;
+    border-radius: 0.45rem;
     cursor: pointer;
-    background: #95b8d9;
-    color: #07110f;
-    font-weight: 700;
+    background: #0c1a3a;
+    color: #93c5fd;
+    font-weight: 600;
+    font-size: 0.82rem;
   }
 
   button:disabled {
@@ -184,10 +186,11 @@
   }
 
   .note {
-    padding: 0.9rem;
-    border-radius: 0.9rem;
-    background: rgba(24, 38, 34, 0.8);
-    border: 1px solid rgba(152, 187, 170, 0.12);
-    color: #c8d9d2;
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.55rem;
+    background: #0a1020;
+    border: 1px solid #1a2a40;
+    color: #94a3b8;
+    font-size: 0.82rem;
   }
 </style>

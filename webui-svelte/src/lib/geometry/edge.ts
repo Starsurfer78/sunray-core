@@ -34,7 +34,10 @@ export function generateEdgeRounds(
       JoinType.Round,
       EndType.Polygon
     )
-    edgePaths.push(...fromPaths(midPaths))
+    const clippedMid = midPaths.length > 0
+      ? Clipper.Intersect(midPaths, toPaths(effectiveAreas), FillRule.NonZero)
+      : midPaths
+    edgePaths.push(...fromPaths(clippedMid))
   }
 
   // Infill-Fläche: effectiveArea um alle Randrunden schrumpfen
@@ -42,7 +45,7 @@ export function generateEdgeRounds(
   const infillPaths = Clipper.InflatePaths(
     toPaths(effectiveAreas),
     infillDelta,
-    JoinType.Round,
+    JoinType.Miter,
     EndType.Polygon
   )
 

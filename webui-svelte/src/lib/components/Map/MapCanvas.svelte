@@ -59,6 +59,21 @@
   let dragTarget: DragTarget | null = null
   let selectedTarget: DragTarget | null = null
 
+  function canEditTarget(target: DragTarget) {
+    const tool = $mapStore.selectedTool
+    if (tool === 'move') return false
+    if (tool === 'perimeter') return target.kind === 'perimeter'
+    if (tool === 'dock') return target.kind === 'dock'
+    if (tool === 'dock-corridor') return target.kind === 'dock-corridor'
+    if (tool === 'nogo') {
+      return target.kind === 'exclusion' && target.exclusionIndex === $mapStore.selectedExclusionIndex
+    }
+    if (tool === 'zone') {
+      return target.kind === 'zone' && target.zoneId === $mapStore.selectedZoneId
+    }
+    return false
+  }
+
   function worldToScreen(point: Point, scaleValue = currentScale, xOffset = offsetX, yOffset = offsetY) {
     return {
       x: width / 2 + xOffset + point.x * scaleValue,
@@ -110,52 +125,71 @@
   function findDragTarget(clientX: number, clientY: number, target: SVGSVGElement) {
     const cursor = clientToSvgCoordinates(clientX, clientY, target)
 
-    for (let index = 0; index < $mapStore.map.dock.length; index += 1) {
-      const screen = worldToScreen($mapStore.map.dock[index], currentScale, offsetX, offsetY)
-      if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
-        return { kind: 'dock', index } as DragTarget
+    const tool = $mapStore.selectedTool
+
+    if (tool === 'dock') {
+      for (let index = 0; index < $mapStore.map.dock.length; index += 1) {
+        const screen = worldToScreen($mapStore.map.dock[index], currentScale, offsetX, offsetY)
+        if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
+          return { kind: 'dock', index } as DragTarget
+        }
       }
+      return null
     }
 
-    for (let index = 0; index < ($mapStore.map.dockMeta?.corridor.length ?? 0); index += 1) {
-      const point = $mapStore.map.dockMeta?.corridor[index]
-      if (!point) continue
-      const screen = worldToScreen(point, currentScale, offsetX, offsetY)
-      if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
-        return { kind: 'dock-corridor', index } as DragTarget
+    if (tool === 'dock-corridor') {
+      for (let index = 0; index < ($mapStore.map.dockMeta?.corridor.length ?? 0); index += 1) {
+        const point = $mapStore.map.dockMeta?.corridor[index]
+        if (!point) continue
+        const screen = worldToScreen(point, currentScale, offsetX, offsetY)
+        if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
+          return { kind: 'dock-corridor', index } as DragTarget
+        }
       }
+      return null
     }
 
-    for (let index = 0; index < $mapStore.map.perimeter.length; index += 1) {
-      const screen = worldToScreen($mapStore.map.perimeter[index], currentScale, offsetX, offsetY)
-      if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
-        return { kind: 'perimeter', index } as DragTarget
+    if (tool === 'perimeter') {
+      for (let index = 0; index < $mapStore.map.perimeter.length; index += 1) {
+        const screen = worldToScreen($mapStore.map.perimeter[index], currentScale, offsetX, offsetY)
+        if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
+          return { kind: 'perimeter', index } as DragTarget
+        }
       }
+      return null
     }
 
-    for (let exclusionIndex = 0; exclusionIndex < $mapStore.map.exclusions.length; exclusionIndex += 1) {
-      const exclusion = $mapStore.map.exclusions[exclusionIndex]
+    if (tool === 'nogo') {
+      if ($mapStore.selectedExclusionIndex === null) return null
+      const exclusion = $mapStore.map.exclusions[$mapStore.selectedExclusionIndex] ?? []
       for (let index = 0; index < exclusion.length; index += 1) {
         const screen = worldToScreen(exclusion[index], currentScale, offsetX, offsetY)
         if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
-          return { kind: 'exclusion', exclusionIndex, index } as DragTarget
+          return { kind: 'exclusion', exclusionIndex: $mapStore.selectedExclusionIndex, index } as DragTarget
         }
       }
+      return null
     }
 
-    for (const zone of $mapStore.map.zones) {
-      for (let index = 0; index < zone.polygon.length; index += 1) {
-        const screen = worldToScreen(zone.polygon[index], currentScale, offsetX, offsetY)
+    if (tool === 'zone') {
+      const activeZone = $mapStore.map.zones.find((zone) => zone.id === $mapStore.selectedZoneId)
+      if (!activeZone) return null
+      for (let index = 0; index < activeZone.polygon.length; index += 1) {
+        const screen = worldToScreen(activeZone.polygon[index], currentScale, offsetX, offsetY)
         if (distanceSquared(cursor, screen) <= pointHitRadius * pointHitRadius) {
-          return { kind: 'zone', zoneId: zone.id, index } as DragTarget
+          return { kind: 'zone', zoneId: activeZone.id, index } as DragTarget
         }
       }
+      return null
     }
+
+    if (tool === 'move') return null
 
     return null
   }
 
   function applyDraggedPoint(target: DragTarget, point: Point) {
+    if (!canEditTarget(target)) return
     if (target.kind === 'perimeter') {
       mapStore.movePerimeterPoint(target.index, point)
     } else if (target.kind === 'dock') {
@@ -170,6 +204,7 @@
   }
 
   function deleteTarget(target: DragTarget) {
+    if (!canEditTarget(target)) return
     if (target.kind === 'perimeter') {
       mapStore.deletePerimeterPoint(target.index)
     } else if (target.kind === 'dock') {
@@ -211,7 +246,7 @@
 
     if (interactive) {
       const drag = findDragTarget(event.clientX, event.clientY, target)
-      if (drag) {
+      if (drag && canEditTarget(drag)) {
         selectedTarget = drag
         dragTarget = drag
         pointerCaptured = true
@@ -317,6 +352,23 @@
     }
   }
 
+  function zoneLabelBox(text: string) {
+    return Math.max(50, Math.min(120, text.length * 5.4 + 12))
+  }
+
+  function labelWidth(text: string) {
+    return Math.max(44, Math.min(112, text.length * 5.1 + 12))
+  }
+
+  function labelAnchor(point: Point, text: string) {
+    const screen = worldToScreen(point, currentScale, offsetX, offsetY)
+    return {
+      x: Math.max(10, Math.min(width - 10, screen.x)),
+      y: Math.max(18, Math.min(height - 12, screen.y)),
+      width: labelWidth(text),
+    }
+  }
+
   function allMapPoints() {
     const points = [
       ...$mapStore.map.perimeter,
@@ -378,10 +430,10 @@
   $: robotScreen = worldToScreen({ x: $telemetry.x, y: $telemetry.y }, currentScale, offsetX, offsetY)
   $: robotHeadingDeg = -(($telemetry.heading ?? 0) * RAD_TO_DEG)
   $: robotScale = Number(zoom.toFixed(3))
-  $: pointRadius = Number(clamp(4 * zoom, 2.5, 5).toFixed(2))
-  $: selectionRadius = Number((pointRadius + 4).toFixed(2))
+  $: pointRadius = Number(clamp(3.1 * zoom, 2.1, 4.3).toFixed(2))
+  $: selectionRadius = Number((pointRadius + 3.6).toFixed(2))
   $: dockHalfSize = Number(clamp(8 * zoom, 4.5, 8).toFixed(2))
-  $: strokeWidth = Number(clamp(1.5 / zoom, 0.6, 2).toFixed(2))
+  $: strokeWidth = Number(clamp(1.15 / zoom, 0.5, 1.55).toFixed(2))
   $: corridorCenter = centroid($mapStore.map.dockMeta?.corridor ?? [])
 
   function scaleBarMeters(scale: number): number {
@@ -462,23 +514,27 @@
         <polyline
           points={path($mapStore.map.perimeter, currentScale, offsetX, offsetY)}
           fill="none"
-          stroke="#2563eb"
+          stroke="#7aa2ff"
           stroke-width={strokeWidth}
-          stroke-dasharray="6 4"
+          stroke-dasharray="5 4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       {:else if $mapStore.map.perimeter.length > 2}
         <polygon
           points={path($mapStore.map.perimeter, currentScale, offsetX, offsetY)}
-          fill="rgba(29, 78, 216, 0.10)"
-          stroke="#2563eb"
+          fill="rgba(122, 162, 255, 0.10)"
+          stroke="#7aa2ff"
           stroke-width={strokeWidth}
-          stroke-dasharray={$mapStore.selectedTool === 'perimeter' ? '6 4' : 'none'}
+          stroke-dasharray={$mapStore.selectedTool === 'perimeter' ? '5 4' : 'none'}
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       {/if}
 
       {#each $mapStore.map.perimeter as point, index}
         {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
-        <circle cx={p.x} cy={p.y} r={pointRadius} fill="#2563eb" />
+        <circle cx={p.x} cy={p.y} r={pointRadius} fill="#7aa2ff" />
         {#if isSelected({ kind: 'perimeter', index })}
           <circle cx={p.x} cy={p.y} r={selectionRadius} class="selection-ring" />
         {/if}
@@ -488,28 +544,58 @@
         <polyline
           points={path($mapStore.map.dock, currentScale, offsetX, offsetY)}
           fill="none"
-          stroke="#d97706"
+          stroke="#f4b860"
           stroke-width={strokeWidth}
-          stroke-dasharray="6 4"
+          stroke-dasharray="5 4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       {:else if $mapStore.map.dock.length > 2}
         <polyline
           points={path($mapStore.map.dock, currentScale, offsetX, offsetY)}
           fill="none"
-          stroke="#d97706"
+          stroke="#f4b860"
           stroke-width={strokeWidth}
-          stroke-dasharray="6 4"
+          stroke-dasharray="5 4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       {/if}
 
       {#each $mapStore.map.dock as point, index}
         {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
-        <circle cx={p.x} cy={p.y} r={pointRadius} fill="#d97706" />
+        <circle cx={p.x} cy={p.y} r={pointRadius} fill="#f4b860" />
         {#if index === $mapStore.map.dock.length - 1}
           <circle cx={p.x} cy={p.y} r={selectionRadius + 1} class="dock-entry-ring" />
-          <text x={p.x + 10} y={p.y - 10} class="label dock-label">Dock</text>
+          {@const dockLabel = labelAnchor(point, 'Dock')}
+          <g>
+            <rect
+              x={dockLabel.x - dockLabel.width / 2}
+              y={dockLabel.y - 16}
+              width={dockLabel.width}
+              height="15"
+              rx="7.5"
+              fill="rgba(7, 13, 24, 0.72)"
+              stroke="rgba(244, 184, 96, 0.45)"
+              stroke-width="1"
+            />
+            <text x={dockLabel.x} y={dockLabel.y - 5} text-anchor="middle" class="label dock-label">Dock</text>
+          </g>
         {:else}
-          <text x={p.x + 8} y={p.y - 8} class="label dock-point-label">{index + 1}</text>
+          {@const dockPointLabel = labelAnchor(point, `${index + 1}`)}
+          <g>
+            <rect
+              x={dockPointLabel.x - 10}
+              y={dockPointLabel.y - 15}
+              width="16"
+              height="15"
+              rx="7.5"
+              fill="rgba(7, 13, 24, 0.72)"
+              stroke="rgba(244, 184, 96, 0.25)"
+              stroke-width="1"
+            />
+            <text x={dockPointLabel.x} y={dockPointLabel.y - 5} text-anchor="middle" class="label dock-point-label">{index + 1}</text>
+          </g>
         {/if}
         {#if isSelected({ kind: 'dock', index })}
           <circle cx={p.x} cy={p.y} r={selectionRadius + 2} class="selection-ring dock-selection" />
@@ -519,30 +605,34 @@
       {#if ($mapStore.map.dockMeta?.corridor.length ?? 0) === 2}
         <polyline
           points={path($mapStore.map.dockMeta?.corridor ?? [], currentScale, offsetX, offsetY)}
-          fill="rgba(250, 204, 21, 0.06)"
-          stroke="#facc15"
+          fill="rgba(250, 204, 21, 0.08)"
+          stroke="#fde68a"
           stroke-width={strokeWidth}
           stroke-dasharray="4 4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       {:else if ($mapStore.map.dockMeta?.corridor.length ?? 0) > 2}
         <polygon
           points={path($mapStore.map.dockMeta?.corridor ?? [], currentScale, offsetX, offsetY)}
-          fill="rgba(250, 204, 21, 0.10)"
-          stroke="#facc15"
+          fill="rgba(250, 204, 21, 0.12)"
+          stroke="#fde68a"
           stroke-width={strokeWidth}
           stroke-dasharray={$mapStore.selectedTool === 'dock-corridor' ? '4 4' : 'none'}
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       {/if}
 
       {#each $mapStore.map.dockMeta?.corridor ?? [] as point, index}
         {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
         <rect
-          x={p.x - pointRadius}
-          y={p.y - pointRadius}
-          width={pointRadius * 2}
-          height={pointRadius * 2}
-          fill="#facc15"
-          rx="1.6"
+          x={p.x - pointRadius * 0.85}
+          y={p.y - pointRadius * 0.85}
+          width={pointRadius * 1.7}
+          height={pointRadius * 1.7}
+          fill="#fde68a"
+          rx="2.4"
         />
         {#if isSelected({ kind: 'dock-corridor', index })}
           <circle cx={p.x} cy={p.y} r={selectionRadius + 1} class="selection-ring corridor-selection" />
@@ -550,7 +640,19 @@
       {/each}
       {#if corridorCenter}
         {@const center = worldToScreen(corridorCenter, currentScale, offsetX, offsetY)}
-        <text x={center.x + 8} y={center.y - 8} class="label corridor-label">Dock-Korridor</text>
+        <g>
+          <rect
+            x={center.x - 58}
+            y={center.y - 22}
+            width="90"
+            height="15"
+            rx="7.5"
+            fill="rgba(7, 13, 24, 0.72)"
+            stroke="rgba(253, 230, 138, 0.35)"
+            stroke-width="1"
+          />
+          <text x={center.x} y={center.y - 11} text-anchor="middle" class="label corridor-label">Korridor</text>
+        </g>
       {/if}
 
       {#each $mapStore.map.exclusions as exclusion, exclusionIndex}
@@ -558,17 +660,21 @@
           <polyline
             points={path(exclusion, currentScale, offsetX, offsetY)}
             fill="none"
-            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
+            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#fb7185'}
             stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? strokeWidth * 1.6 : strokeWidth}
-            stroke-dasharray="5 3"
+            stroke-dasharray="4 4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
           />
         {:else if exclusion.length > 2}
           <polygon
             points={path(exclusion, currentScale, offsetX, offsetY)}
-            fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(220, 38, 38, 0.16)' : 'rgba(220, 38, 38, 0.08)'}
-            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'}
+            fill={$mapStore.selectedExclusionIndex === exclusionIndex ? 'rgba(248, 113, 113, 0.16)' : 'rgba(248, 113, 113, 0.08)'}
+            stroke={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#fb7185'}
             stroke-width={$mapStore.selectedExclusionIndex === exclusionIndex ? strokeWidth * 1.6 : strokeWidth}
-            stroke-dasharray="5 3"
+            stroke-dasharray="4 4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
             role="button"
             tabindex="-1"
             aria-label={`NoGo ${exclusionIndex + 1} auswaehlen`}
@@ -577,7 +683,7 @@
         {/if}
         {#each exclusion as point, index}
           {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
-          <circle cx={p.x} cy={p.y} r={pointRadius} fill={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#dc2626'} />
+          <circle cx={p.x} cy={p.y} r={pointRadius} fill={$mapStore.selectedExclusionIndex === exclusionIndex ? '#fca5a5' : '#fb7185'} />
           {#if isSelected({ kind: 'exclusion', exclusionIndex, index })}
             <circle cx={p.x} cy={p.y} r={selectionRadius} class="selection-ring nogo-selection" />
           {/if}
@@ -585,15 +691,24 @@
         {@const exclusionCenter = centroid(exclusion)}
         {#if exclusionCenter}
           {@const center = worldToScreen(exclusionCenter, currentScale, offsetX, offsetY)}
-          <text
-            x={center.x + 8}
-            y={center.y - 8}
-            class="label exclusion-label"
+          <g
             role="button"
             tabindex="-1"
             aria-label={`NoGo ${exclusionIndex + 1} auswaehlen`}
             on:click|stopPropagation={() => selectExclusionArea(exclusionIndex)}
-          >NoGo {exclusionIndex + 1}</text>
+          >
+            <rect
+              x={center.x - 31}
+              y={center.y - 22}
+              width="62"
+              height="15"
+              rx="7.5"
+              fill="rgba(7, 13, 24, 0.72)"
+              stroke="rgba(248, 113, 113, 0.36)"
+              stroke-width="1"
+            />
+            <text x={center.x} y={center.y - 11} text-anchor="middle" class="label exclusion-label">NoGo {exclusionIndex + 1}</text>
+          </g>
         {/if}
       {/each}
 
@@ -602,15 +717,23 @@
           <polyline
             points={path(zone.polygon, currentScale, offsetX, offsetY)}
             fill="none"
-            stroke="#0891b2"
+            stroke="#67e8f9"
             stroke-width={strokeWidth}
+            stroke-linecap="round"
+            stroke-linejoin="round"
           />
         {:else if zone.polygon.length > 2}
-          <polygon points={path(zone.polygon, currentScale, offsetX, offsetY)} fill="rgba(8, 145, 178, 0.08)" stroke="#0891b2" stroke-width={strokeWidth} />
+          <polygon
+            points={path(zone.polygon, currentScale, offsetX, offsetY)}
+            fill="rgba(103, 232, 249, 0.09)"
+            stroke="#67e8f9"
+            stroke-width={strokeWidth}
+            stroke-linejoin="round"
+          />
         {/if}
         {#each zone.polygon as point, index}
           {@const p = worldToScreen(point, currentScale, offsetX, offsetY)}
-          <circle cx={p.x} cy={p.y} r={pointRadius} fill="#0891b2" />
+          <circle cx={p.x} cy={p.y} r={pointRadius} fill="#67e8f9" />
           {#if isSelected({ kind: 'zone', zoneId: zone.id, index })}
             <circle cx={p.x} cy={p.y} r={selectionRadius} class="selection-ring zone-selection" />
           {/if}
@@ -618,7 +741,20 @@
         {@const zoneCenter = centroid(zone.polygon)}
         {#if zoneCenter}
           {@const center = worldToScreen(zoneCenter, currentScale, offsetX, offsetY)}
-          <text x={center.x + 8} y={center.y - 8} class="label zone-label">{zone.settings.name}</text>
+          {@const labelWidth = zoneLabelBox(zone.settings.name)}
+          <g>
+            <rect
+              x={Math.max(10, Math.min(width - 10, center.x)) - labelWidth / 2}
+              y={center.y - 22}
+              width={labelWidth}
+              height="15"
+              rx="7.5"
+              fill="rgba(7, 13, 24, 0.72)"
+              stroke="rgba(103, 232, 249, 0.34)"
+              stroke-width="1"
+            />
+            <text x={center.x} y={center.y - 11} text-anchor="middle" class="label zone-label">{zone.settings.name}</text>
+          </g>
         {/if}
       {/each}
 
@@ -767,11 +903,11 @@
   }
 
   .label {
-    font-size: 12px;
+    font-size: 8.5px;
     font-weight: 700;
     paint-order: stroke;
-    stroke: rgba(7, 17, 15, 0.85);
-    stroke-width: 3px;
+    stroke: rgba(7, 13, 24, 0.88);
+    stroke-width: 1.5px;
     stroke-linejoin: round;
   }
 

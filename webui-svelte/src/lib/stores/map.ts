@@ -265,6 +265,25 @@ function wouldCreateSelfIntersection(points: Point[], point: Point) {
   return hasSelfIntersection([...points, point])
 }
 
+function wouldCreateOpenPathIntersection(points: Point[], point: Point) {
+  if (points.length < 3) return false
+
+  const newSegment: Segment = {
+    a: points[points.length - 1],
+    b: point,
+  }
+
+  for (let i = 0; i < points.length - 2; i += 1) {
+    const existing: Segment = {
+      a: points[i],
+      b: points[i + 1],
+    }
+    if (segmentsIntersect(existing, newSegment)) return true
+  }
+
+  return false
+}
+
 function isNearPoint(a: Point, b: Point, threshold = 0.03) {
   return Math.hypot(a.x - b.x, a.y - b.y) <= threshold
 }
@@ -309,7 +328,7 @@ function createMapStore() {
       if (next.selectedTool === 'perimeter') {
         if (wouldDuplicatePoint(next.map.perimeter, point)) {
           result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (!wouldCreateSelfIntersection(next.map.perimeter, point)) {
+        } else if (!wouldCreateOpenPathIntersection(next.map.perimeter, point)) {
           next.map.perimeter.push(point)
           result = { accepted: true }
         } else {
@@ -326,7 +345,7 @@ function createMapStore() {
         next.map.dockMeta = normalizeDockMeta(next.map.dockMeta)
         if (wouldDuplicatePoint(next.map.dockMeta.corridor, point)) {
           result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (!wouldCreateSelfIntersection(next.map.dockMeta.corridor, point)) {
+        } else if (!wouldCreateOpenPathIntersection(next.map.dockMeta.corridor, point)) {
           next.map.dockMeta.corridor.push(point)
           result = { accepted: true }
         } else {
@@ -342,7 +361,7 @@ function createMapStore() {
         const exclusion = next.map.exclusions[next.selectedExclusionIndex]
         if (exclusion && wouldDuplicatePoint(exclusion, point)) {
           result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (exclusion && !wouldCreateSelfIntersection(exclusion, point)) {
+        } else if (exclusion && !wouldCreateOpenPathIntersection(exclusion, point)) {
           exclusion.push(point)
           result = { accepted: true }
         } else {
@@ -358,7 +377,7 @@ function createMapStore() {
         }
         if (wouldDuplicatePoint(zone.polygon, point)) {
           result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (!wouldCreateSelfIntersection(zone.polygon, point)) {
+        } else if (!wouldCreateOpenPathIntersection(zone.polygon, point)) {
           zone.polygon.push(point)
           result = { accepted: true }
         } else {

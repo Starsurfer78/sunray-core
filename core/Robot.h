@@ -233,8 +233,10 @@ private:
     void clearActiveMissionTracking();
     void refreshActiveMissionProgress();
     bool canStartMowingMission();
+    bool canStartPlannedMission(const nav::RoutePlan& route);
     void rejectStartMowingMission(const std::string& eventReason,
                                   const std::string& message);
+    nlohmann::json loadMissionDocumentById(const std::string& missionId) const;
     EventRecord makeEventRecord(const std::string& level,
                                 const std::string& eventType,
                                 const std::string& eventReason,

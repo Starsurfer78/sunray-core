@@ -116,6 +116,10 @@ public:
     /// Returns true on success. On failure, map is cleared (empty).
     bool load(const std::filesystem::path& path);
 
+    /// Load map data directly from a JSON object.
+    /// Mirrors load(path) but avoids touching the filesystem.
+    bool loadJson(const nlohmann::json& j);
+
     /// Save current map to JSON file.
     bool save(const std::filesystem::path& path) const;
     nlohmann::json exportMapJson() const;
@@ -138,6 +142,11 @@ public:
     /// Points are matched via their zone polygon membership.
     /// Falls back to startMowing() if zoneIds is empty or no points match.
     bool startMowingZones(float robotX, float robotY, const std::vector<std::string>& zoneIds);
+
+    /// Begin mowing from an already planned route.
+    /// Used for mission-specific coverage plans so runtime follows exactly the
+    /// same route that preview/save generated.
+    bool startPlannedMowing(float robotX, float robotY, const RoutePlan& route);
 
     /// Begin dock approach from current robot position.
     /// Finds nearest free-path entry point toward dock.
@@ -221,6 +230,17 @@ public:
 
     /// Periodic replanning gate using plannerSettings().replanPeriod_ms.
     bool maybeReplanToCurrentTarget(unsigned long now_ms, float robotX, float robotY);
+
+    /// Compute a planner preview path without mutating map state.
+    RoutePlan previewPath(const Point& src,
+                          const Point& dst,
+                          WayType missionMode = WayType::FREE,
+                          WayType planningMode = WayType::FREE,
+                          float headingReferenceRad = 0.0f,
+                          bool hasHeadingReference = false,
+                          bool reverseAllowed = false,
+                          float clearance_m = 0.25f,
+                          float robotRadius_m = 0.0f) const;
 
     // ── Boundary queries ──────────────────────────────────────────────────────
 

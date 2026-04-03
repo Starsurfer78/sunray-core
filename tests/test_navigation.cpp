@@ -15,6 +15,7 @@
 #include "core/navigation/GridMap.h"
 #include "core/navigation/LineTracker.h"
 #include "core/navigation/Map.h"
+#include "core/navigation/MowRoutePlanner.h"
 #include "core/control/OpenLoopDriveController.h"
 #include "core/control/DifferentialDriveController.h"
 #include "core/op/Op.h"
@@ -372,6 +373,37 @@ TEST_CASE("Map: load() with valid JSON stores mow points", "[map]") {
     std::filesystem::remove(tmpPath);
 }
 
+TEST_CASE("Map: load() keeps zones even when mow points are missing", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+          "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+          "zones":[{
+            "id":"z1",
+            "order":1,
+            "polygon":[[1,1],[4,1],[4,4],[1,4]],
+            "settings":{
+              "name":"Front",
+              "stripWidth":0.5,
+              "angle":0,
+              "edgeMowing":true,
+              "edgeRounds":1,
+              "speed":1.0,
+              "pattern":"stripe",
+              "reverseAllowed":false,
+              "clearance":0.25
+            }
+          }]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    REQUIRE(map.zones().size() == 1);
+    REQUIRE(map.zones().front().id == "z1");
+    REQUIRE(map.mowRoutePlan().points.empty());
+
+    std::filesystem::remove(tmpPath);
+}
+
 TEST_CASE("Map: load() reads planner, dockMeta, exclusionMeta and zone planner fields", "[map]") {
     auto tmpPath = writeTmpMap(
         R"({
@@ -522,6 +554,33 @@ TEST_CASE("Map: startMowingZones() falls back to all mow points for unknown zone
     std::filesystem::remove(tmpPath);
 }
 
+TEST_CASE("Map: startPlannedMowing() activates provided route", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+            "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+            "mow":[]
+        })");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+
+    RoutePlan route;
+    route.sourceMode = WayType::MOW;
+    route.active = true;
+    route.points = {
+        RoutePoint{Point{1.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW},
+        RoutePoint{Point{3.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW},
+        RoutePoint{Point{5.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW},
+    };
+
+    REQUIRE(map.startPlannedMowing(2.8f, 1.0f, route));
+    REQUIRE(map.wayMode == WayType::MOW);
+    REQUIRE(map.targetPoint.x == Approx(3.0f));
+    REQUIRE(map.targetPoint.y == Approx(1.0f));
+
+    std::filesystem::remove(tmpPath);
+}
+
 TEST_CASE("Map: currentTrackingSegment applies dock final align and reverse policy", "[map]") {
     auto tmpPath = writeTmpMap(
         R"({
@@ -617,6 +676,113 @@ TEST_CASE("Map: load/save preserves capture metadata", "[map]") {
 
     std::filesystem::remove(tmpPath);
     std::filesystem::remove(savedPath);
+}
+
+TEST_CASE("Map: save() exports generated mow route from zones", "[map]") {
+    auto tmpPath = writeTmpMap(
+        R"({
+          "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+          "zones":[{
+            "id":"z1",
+            "order":1,
+            "polygon":[[1,1],[4,1],[4,4],[1,4]],
+            "settings":{
+              "name":"Front",
+              "stripWidth":0.5,
+              "angle":0,
+              "edgeMowing":true,
+              "edgeRounds":1,
+              "speed":1.0,
+              "pattern":"stripe",
+              "reverseAllowed":false,
+              "clearance":0.25
+            }
+          }]
+        })");
+
+    auto savedPath = std::filesystem::temp_directory_path() / "sunray_nav_generated_mow_save.json";
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    REQUIRE(map.save(savedPath));
+
+    nlohmann::json saved;
+    std::ifstream in(savedPath);
+    in >> saved;
+    REQUIRE(saved.contains("mow"));
+    REQUIRE_FALSE(saved["mow"].empty());
+
+    std::filesystem::remove(tmpPath);
+    std::filesystem::remove(savedPath);
+}
+
+TEST_CASE("Planner: edge rounds are sampled with curved corners", "[map]") {
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[0,0],[10,0],[10,10],[0,10]],
+      "zones":[{
+        "id":"z1",
+        "order":1,
+        "polygon":[[2,2],[4,2],[4,4],[2,4]],
+        "settings":{
+          "name":"Corner",
+          "stripWidth":2.0,
+          "angle":0,
+          "edgeMowing":true,
+          "edgeRounds":1,
+          "speed":1.0,
+          "pattern":"stripe",
+          "reverseAllowed":false,
+          "clearance":0.25
+        }
+      }]
+    })")));
+
+    nlohmann::json mission = {
+        {"zoneIds", nlohmann::json::array({"z1"})},
+        {"overrides", nlohmann::json::object()},
+    };
+
+    const auto route = buildMissionMowRoutePreview(map, mission);
+    REQUIRE(route.points.size() > 6);
+}
+
+TEST_CASE("Planner: mission route stays outside exclusion areas", "[map]") {
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[0,0],[12,0],[12,12],[0,12]],
+      "exclusions":[[[5,5],[7,5],[7,7],[5,7]]],
+      "zones":[{
+        "id":"z1",
+        "order":1,
+        "polygon":[[3,3],[9,3],[9,9],[3,9]],
+        "settings":{
+          "name":"Inner",
+          "stripWidth":0.8,
+          "angle":0,
+          "edgeMowing":true,
+          "edgeRounds":1,
+          "speed":1.0,
+          "pattern":"stripe",
+          "reverseAllowed":false,
+          "clearance":0.25
+        }
+      }]
+    })")));
+
+    nlohmann::json mission = {
+        {"zoneIds", nlohmann::json::array({"z1"})},
+        {"overrides", nlohmann::json::object()},
+    };
+
+    const auto route = buildMissionMowRoutePreview(map, mission);
+    REQUIRE_FALSE(route.points.empty());
+    for (const auto& point : route.points) {
+        const bool clearlyInsideExclusion =
+            point.p.x > 5.05f && point.p.x < 6.95f &&
+            point.p.y > 5.05f && point.p.y < 6.95f;
+        REQUIRE_FALSE(clearlyInsideExclusion);
+    }
 }
 
 TEST_CASE("Map: isInsideAllowedArea returns true for point inside perimeter", "[map]") {

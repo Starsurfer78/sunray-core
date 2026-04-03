@@ -56,14 +56,12 @@ export function generateStripes(
   let y = minY + stripWidth / 2
 
   while (y <= maxY + stripWidth * 0.01) {
-    for (const poly of rotated) {
-      const xs = intersectionsAtY(poly, y)
-      for (let i = 0; i + 1 < xs.length; i += 2) {
-        const a = rotate({ x: xs[i], y }, cosPos, sinPos)
-        const b = rotate({ x: xs[i + 1], y }, cosPos, sinPos)
-        // Zick-Zack: gerade Reihen vorwärts, ungerade rückwärts
-        segments.push(rowIdx % 2 === 0 ? { a, b } : { a: b, b: a })
-      }
+    const xs = rotated.flatMap((poly) => intersectionsAtY(poly, y)).sort((a, b) => a - b)
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const a = rotate({ x: xs[i], y }, cosPos, sinPos)
+      const b = rotate({ x: xs[i + 1], y }, cosPos, sinPos)
+      // Zick-Zack: gerade Reihen vorwärts, ungerade rückwärts
+      segments.push(rowIdx % 2 === 0 ? { a, b } : { a: b, b: a })
     }
     y += stripWidth
     rowIdx++

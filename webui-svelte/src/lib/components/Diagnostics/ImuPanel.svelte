@@ -51,8 +51,8 @@
 <style>
   .panel {
     display: grid;
-    gap: 1rem;
-    padding: 1rem;
+    gap: 0.6rem;
+    padding: 0.75rem 0.85rem;
     border-radius: 0.8rem;
     background: #0f1829;
     border: 1px solid #1e3a5f;
@@ -60,37 +60,43 @@
 
   header, .values {
     display: grid;
-    gap: 0.8rem;
+    gap: 0.45rem;
   }
 
-  h2, p {
-    margin: 0;
-  }
+  h2, p { margin: 0; }
 
-  p { color: #64748b; font-size: 0.84rem; }
+  h2 { font-size: 0.92rem; color: #e2e8f0; }
+
+  p { color: #64748b; font-size: 0.78rem; }
 
   .values {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
   }
 
   .card {
     display: grid;
-    gap: 0.35rem;
-    padding: 0.9rem;
-    border-radius: 0.7rem;
+    gap: 0.15rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 0.55rem;
     background: #0a1020;
     border: 1px solid #1a2a40;
   }
 
+  .card span { font-size: 0.74rem; color: #64748b; }
+
+  .card strong { font-size: 0.88rem; color: #93c5fd; font-family: ui-monospace, monospace; }
+
   button {
     justify-self: start;
-    padding: 0.8rem 1rem;
+    padding: 0.4rem 0.7rem;
     border: 1px solid #2563eb;
-    border-radius: 0.6rem;
+    border-radius: 0.45rem;
     cursor: pointer;
     background: #0c1a3a;
     color: #93c5fd;
-    font-weight: 700;
+    font-weight: 600;
+    font-size: 0.82rem;
   }
 
   button:disabled {

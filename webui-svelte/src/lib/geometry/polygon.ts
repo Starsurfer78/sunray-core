@@ -1,6 +1,11 @@
 import { Clipper, FillRule } from 'clipper2-js'
 import { toClipper, toPaths, fromPaths, type Point } from './types'
 
+export function normalizeAreaPaths(paths: Point[][]): Point[][] {
+  if (paths.length === 0) return []
+  return fromPaths(Clipper.Union(toPaths(paths), undefined, FillRule.NonZero))
+}
+
 /**
  * Berechnet die tatsächliche Mähfläche einer Zone:
  * effectiveArea = Zone ∩ Perimeter − NoGoZonen
@@ -28,5 +33,5 @@ export function getEffectiveZoneArea(
     result = Clipper.Difference(result, toPaths(validExcl), FillRule.NonZero)
   }
 
-  return fromPaths(result)
+  return normalizeAreaPaths(fromPaths(result))
 }

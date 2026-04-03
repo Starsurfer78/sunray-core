@@ -1,6 +1,7 @@
 // Map.cpp — Waypoint management + polygon operations.
 
 #include "core/navigation/Map.h"
+#include "core/navigation/MowRoutePlanner.h"
 #include "core/navigation/GridMap.h"
 #include "core/navigation/Planner.h"
 
@@ -119,6 +120,16 @@ static PolygonPoints exportPolygonPoints(const RoutePlan& route) {
     return points;
 }
 
+static RoutePlan generatedMowRouteFromZones(const Map& map) {
+    nlohmann::json mission;
+    mission["zoneIds"] = nlohmann::json::array();
+    mission["overrides"] = nlohmann::json::object();
+    for (const auto& zone : map.zones()) {
+        mission["zoneIds"].push_back(zone.id);
+    }
+    return buildMissionMowRoutePreview(map, mission);
+}
+
 static PlannerSettings parsePlannerSettings(const nlohmann::json& jp) {
     PlannerSettings settings;
     settings.defaultClearance_m    = jp.value("defaultClearance", settings.defaultClearance_m);
@@ -192,12 +203,21 @@ static nlohmann::json encodeDockMeta(const DockMeta& meta) {
 }
 
 bool Map::load(const std::filesystem::path& path) {
-    clear();
     try {
         std::ifstream f(path);
         if (!f.is_open()) return false;
         nlohmann::json j;
         f >> j;
+        return loadJson(j);
+    } catch (...) {
+        clear();
+        return false;
+    }
+}
+
+bool Map::loadJson(const nlohmann::json& j) {
+    clear();
+    try {
 
         if (j.contains("perimeter"))  perimeterPoints_ = parsePoints(j["perimeter"]);
         std::vector<MowPoint> parsedMowPoints;
@@ -278,7 +298,10 @@ bool Map::save(const std::filesystem::path& path) const {
 nlohmann::json Map::exportMapJson() const {
     nlohmann::json j;
     j["perimeter"] = encodePoints(perimeterPoints_);
-    j["mow"] = encodeMowPoints(exportMowPoints(mowRoute_));
+    const RoutePlan exportedMowRoute = !zones_.empty()
+        ? generatedMowRouteFromZones(*this)
+        : mowRoute_;
+    j["mow"] = encodeMowPoints(exportMowPoints(exportedMowRoute));
     j["dock"] = encodePoints(exportPolygonPoints(dockRoute_));
     j["exclusions"] = nlohmann::json::array();
     for (const auto& ex : exclusions_) j["exclusions"].push_back(encodePoints(ex));
@@ -484,6 +507,34 @@ bool Map::startMowingZones(float robotX, float robotY, const std::vector<std::st
     for (int i = 0; i < static_cast<int>(mowRoute_.points.size()); ++i) {
         float d = Point(robotX, robotY).distanceTo(mowRoute_.points[i].p);
         if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+
+    mowPointsIdx = bestIdx;
+    shouldMow_   = true;
+    shouldDock_  = false;
+    wayMode      = WayType::MOW;
+
+    setLastTargetPoint(robotX, robotY);
+    trackReverse = mowRoute_.points[mowPointsIdx].reverse;
+    trackSlow    = mowRoute_.points[mowPointsIdx].slow;
+    targetPoint  = mowRoute_.points[mowPointsIdx].p;
+    return true;
+}
+
+bool Map::startPlannedMowing(float robotX, float robotY, const RoutePlan& route) {
+    if (route.points.empty()) return false;
+
+    activateMowRoute(route);
+    if (mowRoute_.points.empty()) return false;
+
+    float bestDist = 1e9f;
+    int bestIdx = 0;
+    for (int i = 0; i < static_cast<int>(mowRoute_.points.size()); ++i) {
+        const float d = Point(robotX, robotY).distanceTo(mowRoute_.points[i].p);
+        if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+        }
     }
 
     mowPointsIdx = bestIdx;
@@ -1202,6 +1253,29 @@ bool Map::maybeReplanToCurrentTarget(unsigned long now_ms, float robotX, float r
 
     lastReplanAttempt_ms_ = now_ms;
     return replanToCurrentTarget(robotX, robotY);
+}
+
+RoutePlan Map::previewPath(const Point& src,
+                           const Point& dst,
+                           WayType missionMode,
+                           WayType planningMode,
+                           float headingReferenceRad,
+                           bool hasHeadingReference,
+                           bool reverseAllowed,
+                           float clearance_m,
+                           float robotRadius_m) const {
+    PlannerContext context;
+    context.robotPose = src;
+    context.source = src;
+    context.destination = dst;
+    context.missionMode = missionMode;
+    context.planningMode = planningMode;
+    context.headingReferenceRad = headingReferenceRad;
+    context.hasHeadingReference = hasHeadingReference;
+    context.reverseAllowed = reverseAllowed;
+    context.clearance_m = clearance_m;
+    context.robotRadius_m = (robotRadius_m > 0.0f) ? robotRadius_m : (clearance_m + planner_.obstacleInflation_m);
+    return Planner::planPath(*this, context);
 }
 
 } // namespace nav

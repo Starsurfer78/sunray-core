@@ -130,6 +130,19 @@ export interface MapDocument {
   captureMeta?: Record<string, unknown>
 }
 
+export interface StoredMapEntry {
+  id: string
+  name: string
+  file: string
+  created_at_ms?: number
+  updated_at_ms?: number
+}
+
+export interface StoredMapsResponse {
+  active_id: string
+  maps: StoredMapEntry[]
+}
+
 export interface MissionScheduleDocument {
   enabled: boolean
   days: number[]
@@ -153,6 +166,56 @@ export interface MissionDocument {
   zoneIds: string[]
   overrides: Record<string, MissionZoneOverridesDocument>
   schedule?: MissionScheduleDocument
+}
+
+export interface PlannerPreviewJob {
+  source: [number, number]
+  destination: [number, number]
+  missionMode?: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
+  planningMode?: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
+  headingReferenceRad?: number
+  hasHeadingReference?: boolean
+  reverseAllowed?: boolean
+  clearance_m?: number
+  robotRadius_m?: number
+}
+
+export interface PlannerPreviewRoutePoint {
+  p: [number, number]
+  reverse: boolean
+  slow: boolean
+  reverseAllowed: boolean
+  clearance_m: number
+  sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
+}
+
+export interface PlannerPreviewRoute {
+  index: number
+  ok: boolean
+  error?: string
+  route?: {
+    active: boolean
+    sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
+    points: PlannerPreviewRoutePoint[]
+  }
+}
+
+export interface PlannerPreviewRequest {
+  map: MapDocument
+  mission?: MissionDocument
+  jobs?: PlannerPreviewJob[]
+}
+
+export interface PlannerPreviewResponse {
+  ok: boolean
+  routes: PlannerPreviewRoute[]
+  error?: string
+}
+
+export async function previewPlannerRoutes(
+  payload: PlannerPreviewRequest,
+): Promise<PlannerPreviewResponse> {
+  return postJson<PlannerPreviewResponse, PlannerPreviewRequest>('/api/planner/preview', payload)
 }
 
 export interface HistoryEventItem {
@@ -282,6 +345,47 @@ export async function getMapDocument(): Promise<MapDocument> {
 
 export function saveMapDocument(payload: Record<string, unknown>) {
   return postJson<ConfigUpdateResponse>('/api/map', payload)
+}
+
+export async function exportMapGeoJson(): Promise<Blob> {
+  const response = await fetch('/api/map/geojson')
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+
+  return response.blob()
+}
+
+export function importMapGeoJson(payload: string) {
+  return postJson<ConfigUpdateResponse, unknown>('/api/map/geojson', JSON.parse(payload))
+}
+
+export async function getStoredMaps(): Promise<StoredMapsResponse> {
+  const response = await fetch('/api/maps')
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<StoredMapsResponse>
+}
+
+export function createStoredMap(payload: { name: string; activate?: boolean; map?: Record<string, unknown> }) {
+  return postJson<ConfigUpdateResponse & { id?: string; active?: boolean }, typeof payload>('/api/maps', payload)
+}
+
+export function activateStoredMap(id: string) {
+  return postJson<ConfigUpdateResponse>(`/api/maps/${encodeURIComponent(id)}/activate`, {})
+}
+
+export async function deleteStoredMap(id: string): Promise<ConfigUpdateResponse> {
+  const response = await fetch(`/api/maps/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<ConfigUpdateResponse>
 }
 
 export async function getMissions(): Promise<MissionDocument[]> {

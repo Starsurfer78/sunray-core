@@ -29,6 +29,7 @@ add_library(sunray_core STATIC
     navigation/Costmap.cpp
     navigation/Planner.cpp
     navigation/Map.cpp
+    navigation/MowRoutePlanner.cpp
     navigation/LineTracker.cpp
     navigation/GridMap.cpp
     Schedule.cpp

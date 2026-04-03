@@ -5,6 +5,8 @@
 
   export let startAllowed = true;
   export let startHint = "";
+  /** missionId der aktuell ausgewählten Mission. Wenn gesetzt, wird start mit missionId gesendet. */
+  export let missionId = "";
 
   const controls = [
     { label: "Start", cmd: "start", accent: "start" },
@@ -179,7 +181,9 @@
           !$connection.connected || (control.cmd === "start" && !startAllowed)
         }
         title={control.cmd === "start" && !startAllowed ? startHint : ""}
-        on:click={() => sendCmd(control.cmd)}
+        on:click={() => control.cmd === "start"
+          ? sendCmd("start", missionId ? { missionId } : {})
+          : sendCmd(control.cmd)}
       >
         {control.label}
       </button>
