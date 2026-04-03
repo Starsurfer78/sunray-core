@@ -11,6 +11,7 @@ CONFIG_PATH="/etc/sunray-core/config.json"
 MAP_PATH="/etc/sunray-core/map.json"
 SERVICE_NAME="sunray-core"
 WEBUI_DIR="webui-svelte"
+AVAHI_SERVICE_PATH="/etc/avahi/services/sunray.service"
 
 if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
   BUILD_USER="${SUDO_USER}"
@@ -136,6 +137,7 @@ ensure_dependencies() {
     curl \
     ca-certificates \
     openocd \
+    avahi-daemon \
     libmosquitto-dev \
     sqlite3 \
     libsqlite3-dev
@@ -369,6 +371,32 @@ setup_ota() {
   log "OTA updates enabled — use the WebUI Settings panel to update"
 }
 
+setup_mdns_service() {
+  local source_file="${ROOT_DIR}/scripts/sunray.avahi.service.xml"
+
+  if [[ ! -f "${source_file}" ]]; then
+    log "Skipping mDNS setup because ${source_file} is missing"
+    return
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log "Skipping mDNS setup because systemctl is not available"
+    return
+  fi
+
+  log "Installing Avahi mDNS service advertisement"
+  run_with_root mkdir -p "$(dirname "${AVAHI_SERVICE_PATH}")"
+  run_with_root cp "${source_file}" "${AVAHI_SERVICE_PATH}"
+
+  if run_with_root systemctl list-unit-files avahi-daemon.service >/dev/null 2>&1; then
+    run_with_root systemctl enable avahi-daemon.service >/dev/null 2>&1 || true
+    run_with_root systemctl restart avahi-daemon.service >/dev/null 2>&1 || true
+    log "mDNS advertisement installed at ${AVAHI_SERVICE_PATH}"
+  else
+    log "Avahi service file installed, but avahi-daemon.service was not found"
+  fi
+}
+
 start_foreground() {
   local exec_path
   exec_path="${ROOT_DIR}/${BUILD_DIR}/sunray-core"
@@ -396,6 +424,7 @@ main() {
   build_webui
 
   setup_ota
+  setup_mdns_service
 
   if [[ "${START_AFTER_INSTALL}" == "no" ]]; then
     log "Install/build complete. Start skipped by request."

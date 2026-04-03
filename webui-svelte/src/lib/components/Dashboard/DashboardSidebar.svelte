@@ -7,6 +7,7 @@
   import { batteryPercent, gpsQuality, telemetry } from "../../stores/telemetry";
   import { connection } from "../../stores/connection";
   import { mapStore } from "../../stores/map";
+  import { missionStore } from "../../stores/missions";
   import { getPreflightChecks } from "../../utils/robotUi";
 
   let nowMs = Date.now();
@@ -16,6 +17,10 @@
   $: preflight = getPreflightChecks($telemetry, $connection, $mapStore.map, nowMs);
   $: startAllowed = preflight.every((c) => c.ok);
   $: startHint = preflight.find((c) => !c.ok)?.hint ?? "";
+  // Laufende Mission hat Vorrang, sonst erste verfügbare Mission
+  $: activeMissionId = $telemetry.mission_id
+    || $missionStore.missions[0]?.id
+    || "";
   $: headingDeg = (((Math.round(($telemetry.heading ?? 0) * RAD_TO_DEG)) % 360) + 360) % 360;
 
   $: gpsLabel =
@@ -123,7 +128,7 @@
 
   <!-- Steuerung -->
   <div class="sr-sec">
-    <RobotControls startAllowed={startAllowed} {startHint} />
+    <RobotControls startAllowed={startAllowed} {startHint} missionId={activeMissionId} />
   </div>
 
   <MissionWidget zones={$mapStore.map.zones} />
