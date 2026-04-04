@@ -80,20 +80,9 @@ bool SerialRobotDriver::init() {
     if (!robotId_.empty() && robotId_.back() == '\n') robotId_.pop_back();
     if (logger_) logger_->info("SRD", "Robot ID: " + robotId_);
 
-    // ── IMU + Fan power via EX1 ───────────────────────────────────────────────
-    // PCA9555 EX1: IO1.6 = IMU power, IO1.7 = Fan power
-    // Ensure both are set correctly on init.
-    if (ex1_) {
-        bool ok = true;
-        if (!ex1_->setPin(1, 6, true)) ok = false;   // IMU ON
-        setFanPower(true);                            // Fan ON (default start)
-        if (ok) {
-            if (logger_) logger_->info("SRD", "EX1: IMU power enabled (IO1.6)");
-        } else {
-            if (logger_) logger_->error("SRD", "EX1: failed to enable IMU power — I2C error at 0x21?");
-        }
-    }
-
+    // ── I2C Mux (TCA9548A) ────────────────────────────────────────────────────
+    // On Alfred, we enable all required channels once and keep them open.
+    // This avoids race conditions and power-cycling of devices behind the mux.
     if (mux_) {
         uint8_t mask = 0;
         const auto addChannel = [&mask](int channel) {
@@ -116,17 +105,24 @@ bool SerialRobotDriver::init() {
         }
     }
 
+    // ── IMU + Fan power via EX1 ───────────────────────────────────────────────
+    // PCA9555 EX1: IO1.6 = IMU power, IO1.7 = Fan power
+    // Ensure both are set correctly on init.
+    if (ex1_) {
+        bool ok = true;
+        if (!ex1_->setPin(1, 6, true)) ok = false;   // IMU ON
+        setFanPower(true);                            // Fan ON (default start)
+        if (ok) {
+            if (logger_) logger_->info("SRD", "EX1: IMU power enabled (IO1.6)");
+        } else {
+            if (logger_) logger_->error("SRD", "EX1: failed to enable IMU power — I2C error at 0x21?");
+        }
+    }
+
     // ── MPU-6050 IMU ──────────────────────────────────────────────────────────
     const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
-    if (mux_) {
-        const int ch = config_->get<int>("imu_mux_channel", 4);
-        if (logger_) {
-            std::ostringstream ss;
-            ss << "selecting IMU mux channel " << ch << " (addr=" << std::hex << (int)imuAddr << std::dec << ")";
-            logger_->info("SRD", ss.str());
-        }
-        mux_->selectChannel(static_cast<uint8_t>(ch));
-    }
+    // Exclusive select is NOT used here to avoid power-cycling or address-loss
+    // for other devices on the bus (EX1/EX2/EX3).
     imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, imuAddr);
     bool imuOk = imu_->init();
     if (!imuOk && imuAddr != 0x68) {
@@ -202,16 +198,6 @@ void SerialRobotDriver::run() {
 
     // 50 Hz — IMU update
     if (imu_ && now >= nextImuMs_) {
-        if (mux_) {
-            const int ch = config_->get<int>("imu_mux_channel", 4);
-            if (!mux_->selectChannel(static_cast<uint8_t>(ch))) {
-                static uint64_t lastMuxWarn = 0;
-                if (now - lastMuxWarn > 5000) {
-                    std::cerr << "[SRD] WARN: failed to select IMU mux channel " << ch << '\n';
-                    lastMuxWarn = now;
-                }
-            }
-        }
         const float dt = (lastImuMs_ == 0) ? 0.02f : (now - lastImuMs_) / 1000.0f;
         imu_->update(dt);
         lastImuMs_ = now;
@@ -704,17 +690,6 @@ void SerialRobotDriver::setFanPower(bool on) {
 
 bool SerialRobotDriver::writeLed(LedId id, LedState state) {
     if (!ex3_) return false;
-    if (mux_) {
-        const int ch = config_->get<int>("ex3_mux_channel", 0);
-        if (!mux_->selectChannel(static_cast<uint8_t>(ch))) {
-            static uint64_t lastMuxWarn = 0;
-            if (nowMs() - lastMuxWarn > 10000) {
-                std::cerr << "[SRD] WARN: failed to select LED mux channel " << ch << '\n';
-                lastMuxWarn = nowMs();
-            }
-            return false;
-        }
-    }
     uint8_t gPin, rPin;
     switch (id) {
         case LedId::LED_1: gPin = 0; rPin = 1; break;  // WiFi  (bottom)
