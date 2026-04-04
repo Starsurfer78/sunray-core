@@ -1683,8 +1683,9 @@ nlohmann::json Robot::diagRunMotor(const std::string& motor, float pwm,
 }
 
 nlohmann::json Robot::diagImuCalib() {
-    if (activeOpName() != "Idle")
-        return {{"ok", false}, {"error", "Nur im Idle-Zustand erlaubt"}};
+    const std::string op = activeOpName();
+    if (op != "Idle" && op != "Charge")
+        return {{"ok", false}, {"error", "Nur im Idle- oder Charge-Zustand erlaubt"}};
 
     hw_->calibrateImu();
     logger_->info(TAG, "IMU-Kalibrierung gestartet — Roboter bitte nicht bewegen");
