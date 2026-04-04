@@ -198,15 +198,15 @@ class RobotMapView extends StatelessWidget {
                 )
                 .toList(growable: false),
           ),
-        if (status?.x != null && status?.y != null)
+        if (status?.gpsLat != null && status?.gpsLon != null)
           MarkerLayer(
             markers: <Marker>[
               Marker(
-                point: LatLng(status!.y!, status!.x!),
+                point: LatLng(status!.gpsLat!, status!.gpsLon!),
                 width: 34,
                 height: 34,
                 child: Transform.rotate(
-                  angle: (status!.heading ?? 0) * math.pi / 180,
+                  angle: status!.heading ?? 0,
                   child: const Icon(
                     Icons.navigation_rounded,
                     color: Color(0xFFFACC15),
@@ -240,7 +240,8 @@ class RobotMapView extends StatelessWidget {
       if (showZones) for (final zone in map.zones) ...zone.points,
       ...activePoints,
       ...segmentPoints.map((segment) => segment.point),
-      if (status?.x != null && status?.y != null) MapPoint(x: status!.x!, y: status!.y!),
+      if (status?.gpsLat != null && status?.gpsLon != null)
+        MapPoint(x: status!.gpsLon!, y: status!.gpsLat!),
       ...previewRoutePoints,
     ];
     if (allPoints.isEmpty) return null;

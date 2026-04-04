@@ -16,6 +16,8 @@ class RobotStatus {
     this.x,
     this.y,
     this.heading,
+    this.gpsLat,
+    this.gpsLon,
     this.lastError,
   });
 
@@ -27,6 +29,8 @@ class RobotStatus {
   final double? x;
   final double? y;
   final double? heading;
+  final double? gpsLat;
+  final double? gpsLon;
   final String? lastError;
 
   RobotStatus copyWith({
@@ -38,6 +42,8 @@ class RobotStatus {
     double? x,
     double? y,
     double? heading,
+    double? gpsLat,
+    double? gpsLon,
     String? lastError,
   }) {
     return RobotStatus(
@@ -49,6 +55,8 @@ class RobotStatus {
       x: x ?? this.x,
       y: y ?? this.y,
       heading: heading ?? this.heading,
+      gpsLat: gpsLat ?? this.gpsLat,
+      gpsLon: gpsLon ?? this.gpsLon,
       lastError: lastError ?? this.lastError,
     );
   }
