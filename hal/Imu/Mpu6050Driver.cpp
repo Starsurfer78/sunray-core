@@ -94,16 +94,8 @@ void Mpu6050Driver::update(float dt_s) {
         }
         std::lock_guard<std::mutex> lk(mutex_);
         data_.valid = false;
-        return;
-    }
-
-    if (!initialized_) {
-        // Auto-reinit if we are reading but internal state says we're not ready
-        if (updateCount_ % 50 == 0) { // Try every second at 50Hz
-            if (init()) {
-                if (logger_) logger_->info("MPU", "auto-initialized sensor at " + toHex(addr_));
-            }
-        }
+        // If read fails multiple times, we might need a full re-init
+        if (updateCount_ % 250 == 0) initialized_ = false;
         return;
     }
 
@@ -120,11 +112,19 @@ void Mpu6050Driver::update(float dt_s) {
     const float gy = s16(buf[10], buf[11]) / GYRO_FS_250_LSB;
     const float gz = s16(buf[12], buf[13]) / GYRO_FS_250_LSB;
 
-    if (ax == 0 && ay == 0 && az == 0 && gx == 0 && gy == 0 && gz == 0) {
-        if (updateCount_ % 500 == 0 && logger_) {
-            logger_->warn("MPU", "all sensor values are zero — sensor likely in sleep mode or not responding at " + toHex(addr_));
+    const bool allZero = (ax == 0 && ay == 0 && az == 0 && gx == 0 && gy == 0 && gz == 0);
+
+    if (!initialized_ || allZero) {
+        if (allZero && initialized_ && updateCount_ % 500 == 0 && logger_) {
+            logger_->warn("MPU", "all sensor values are zero — sensor likely reset or in sleep at " + toHex(addr_));
         }
-        return; // Avoid integrating zeros with existing biases (prevents "racing")
+        // Auto-reinit if we are reading zeros or not initialized
+        if (updateCount_ % 50 == 0) { // Try every second at 50Hz
+            if (init()) {
+                if (logger_) logger_->info("MPU", "initialized sensor at " + toHex(addr_));
+            }
+        }
+        return;
     }
 
     if (calibrating_) {
