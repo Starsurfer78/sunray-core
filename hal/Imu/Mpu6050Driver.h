@@ -36,6 +36,9 @@ public:
     /// Collects samples for ~5 seconds.
     void startCalibration();
 
+    /// Returns true if the sensor is initialized and responding.
+    bool isValid() const { std::lock_guard<std::mutex> lk(mutex_); return data_.valid; }
+
     /// Returns true if currently calibrating.
     bool isCalibrating() const { return calibrating_; }
 
@@ -50,6 +53,8 @@ private:
     mutable std::mutex mutex_;
     ImuData            data_;
 
+    bool              initialized_ = false;
+    uint32_t          updateCount_ = 0;
     // Calibration state
     std::atomic<bool> calibrating_{false};
     int               calibSamples_ = 0;

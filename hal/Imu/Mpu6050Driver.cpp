@@ -60,15 +60,24 @@ bool Mpu6050Driver::init() {
     }
 
     if (logger_) logger_->info("MPU", "successfully initialized at 0x" + std::to_string(addr_));
+    initialized_ = true;
     return true;
 }
 
 void Mpu6050Driver::update(float dt_s) {
+    updateCount_++;
     uint8_t buf[14];
     if (!readRegs(REG_ACCEL_XOUT_H, buf, 14)) {
+        if (updateCount_ % 100 == 0 && logger_) {
+            logger_->error("MPU", "I2C read failed in update() at 0x" + std::to_string(addr_));
+        }
         std::lock_guard<std::mutex> lk(mutex_);
         data_.valid = false;
         return;
+    }
+
+    if (!initialized_ && updateCount_ % 500 == 0 && logger_) {
+        logger_->warn("MPU", "update() called but sensor not initialized (staying in sleep)");
     }
 
     // Big-endian 16-bit signed
@@ -84,7 +93,18 @@ void Mpu6050Driver::update(float dt_s) {
     const float gy = s16(buf[10], buf[11]) / GYRO_FS_250_LSB;
     const float gz = s16(buf[12], buf[13]) / GYRO_FS_250_LSB;
 
+    if (ax == 0 && ay == 0 && az == 0 && gx == 0 && gy == 0 && gz == 0) {
+        if (updateCount_ % 500 == 0 && logger_) {
+            logger_->warn("MPU", "all sensor values are zero — sensor likely in sleep mode or not responding at 0x" + std::to_string(addr_));
+        }
+    }
+
     if (calibrating_) {
+        // Log sample count every 50 samples (~1s) to show progress in UI
+        if (calibSamples_ % 50 == 0 && logger_) {
+            logger_->info("MPU", "calibrating... " + std::to_string(calibSamples_) + "/250");
+        }
+        
         sumGx_ += gx;
         sumGy_ += gy;
         sumGz_ += gz;
@@ -97,6 +117,9 @@ void Mpu6050Driver::update(float dt_s) {
             if (logger_) {
                 logger_->info("MPU", "calibration done. biases: " + std::to_string(biasGx_) + ", " + 
                                      std::to_string(biasGy_) + ", " + std::to_string(biasGz_));
+                if (std::abs(biasGx_) < 1e-6f && std::abs(biasGy_) < 1e-6f && std::abs(biasGz_) < 1e-6f) {
+                    logger_->error("MPU", "WARN: all biases are exactly 0.0 — sensor likely not responding or reading zeros");
+                }
             }
         }
         return;
