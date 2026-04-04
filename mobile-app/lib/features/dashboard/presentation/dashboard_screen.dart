@@ -4,11 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../domain/map/map_geometry.dart';
 import '../../../domain/robot/robot_status.dart';
 import '../../../shared/providers/app_providers.dart';
 import '../../../shared/widgets/connection_notice.dart';
-import '../../../shared/widgets/section_card.dart';
+import '../../../shared/widgets/robot_map_view.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -19,6 +18,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _commandBusy = false;
+  bool _joystickVisible = false;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +28,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final status = ref.watch(connectionStateProvider);
     final activeRobot = ref.watch(activeRobotProvider);
     final isConnected = status.connectionState == ConnectionStateKind.connected;
+
+    final hasConnectionNotice = status.lastError != null &&
+        (status.connectionState == ConnectionStateKind.error ||
+            status.connectionState == ConnectionStateKind.connecting);
 
     return Scaffold(
       appBar: AppBar(
@@ -67,96 +71,88 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Column(
         children: <Widget>[
-          ConnectionNotice(status: status),
-          if (status.lastError != null &&
-              (status.connectionState == ConnectionStateKind.error ||
-                  status.connectionState == ConnectionStateKind.connecting))
-            const SizedBox(height: 16),
-          _StatusStrip(
-            status: status,
-            robotName: activeRobot?.name,
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'Karte',
-            child: _MiniMapCard(
-              map: map,
-              status: status,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'Schnellaktionen',
-            child: _QuickActions(
-              connected: isConnected,
-              busy: _commandBusy,
-              onStart: mission == null ? null : () => _runAction(() {
-                    ref
-                        .read(robotConnectionControllerProvider)
-                        .startMowing(missionId: mission.id);
-                  }),
-              onStop: () => _runAction(() {
-                    ref.read(robotConnectionControllerProvider).emergencyStop();
-                  }),
-              onDock: () => _runAction(() {
-                    ref.read(robotConnectionControllerProvider).startDocking();
-                  }),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'Status',
-            child: _StatusGrid(status: status),
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'Checkliste',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // Map area (takes most of the screen)
+          Expanded(
+            flex: 3,
+            child: Stack(
               children: <Widget>[
-                _ChecklistLine(
-                  done: status.connectionState == ConnectionStateKind.connected,
-                  label: 'Verbunden',
+                // The map itself
+                Positioned.fill(
+                  child: RobotMapView(
+                    map: map,
+                    status: status,
+                    interactive: true,
+                  ),
                 ),
-                _ChecklistLine(
-                  done: map.hasPerimeter,
-                  label: 'Perimeter vorhanden',
+                // Status overlay (top-left)
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: _StatusOverlay(status: status),
                 ),
-                _ChecklistLine(
-                  done: map.hasDock,
-                  label: 'Dock gesetzt',
-                ),
-                _ChecklistLine(
-                  done: mission != null,
-                  label: 'Mission vorhanden',
+                // Joystick FAB (bottom-right)
+                Positioned(
+                  bottom: 14,
+                  right: 14,
+                  child: FloatingActionButton(
+                    heroTag: 'joystick_fab',
+                    tooltip: 'Virtuelles Steuerkreuz',
+                    onPressed: isConnected ? _openJoystick : null,
+                    backgroundColor: isConnected
+                        ? const Color(0xFF1E40AF)
+                        : const Color(0xFF334155),
+                    child: const Icon(Icons.gamepad_rounded),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'Naechste Mission',
-            child: mission == null
-                ? const Text('Noch keine Mission vorhanden.')
-                : _MissionCard(
-                    missionName: mission.name,
-                    scheduleLabel: mission.scheduleLabel ?? 'Manuell',
-                    zoneNames: mission.zoneNames,
-                    connected: isConnected,
-                    busy: _commandBusy,
-                    onStart: () => _runAction(() {
+          // Connection notice (conditionally shown between map and actions)
+          if (hasConnectionNotice)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: ConnectionNotice(status: status),
+            ),
+          // Bottom action bar
+          _BottomActionBar(
+            isConnected: isConnected,
+            busy: _commandBusy,
+            missionName: mission?.name,
+            onMow: mission == null
+                ? null
+                : () => _runAction(() {
                       ref
                           .read(robotConnectionControllerProvider)
                           .startMowing(missionId: mission.id);
                     }),
-                  ),
+            onStop: () => _runAction(() {
+              ref.read(robotConnectionControllerProvider).emergencyStop();
+            }),
+            onDock: () => _runAction(() {
+              ref.read(robotConnectionControllerProvider).startDocking();
+            }),
           ),
+          // Joystick overlay
+          if (_joystickVisible)
+            _JoystickOverlay(
+              onDrive: (vx, vy) {
+                // vy = forward/backward (linear), -vx = left/right rotation (angular, negative = right)
+                ref.read(robotConnectionControllerProvider).sendDriveCommand(vy, -vx);
+              },
+              onClose: () {
+                ref.read(robotConnectionControllerProvider).sendDriveCommand(0, 0);
+                setState(() => _joystickVisible = false);
+              },
+            ),
         ],
       ),
     );
+  }
+
+  void _openJoystick() {
+    setState(() => _joystickVisible = true);
   }
 
   Future<void> _runAction(VoidCallback action) async {
@@ -185,461 +181,367 @@ enum _DashboardMenuAction {
   disconnect,
 }
 
-class _StatusStrip extends StatelessWidget {
-  const _StatusStrip({
-    required this.status,
-    required this.robotName,
-  });
+// ---------------------------------------------------------------------------
+// Status overlay chips on the map
+// ---------------------------------------------------------------------------
+
+class _StatusOverlay extends StatelessWidget {
+  const _StatusOverlay({required this.status});
 
   final RobotStatus status;
-  final String? robotName;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isConnected = status.connectionState == ConnectionStateKind.connected;
-    final effectiveName = status.robotName ?? robotName ?? 'Kein Roboter';
-    final details = <String>[
-      effectiveName,
-      isConnected ? 'verbunden' : 'nicht verbunden',
-      status.statePhase ?? 'idle',
-      status.rtkState ?? 'RTK unbekannt',
-      status.batteryPercent != null ? 'Akku ${status.batteryPercent}%' : 'Akku --',
-    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _OverlayChip(
+          icon: Icons.battery_charging_full_rounded,
+          label: status.batteryPercent != null
+              ? '${status.batteryPercent}%'
+              : '--',
+        ),
+        const SizedBox(height: 4),
+        _OverlayChip(
+          icon: Icons.gps_fixed_rounded,
+          label: status.rtkState ?? 'GPS --',
+        ),
+        const SizedBox(height: 4),
+        _OverlayChip(
+          icon: Icons.directions_walk_rounded,
+          label: status.statePhase ?? 'idle',
+        ),
+      ],
+    );
+  }
+}
 
+class _OverlayChip extends StatelessWidget {
+  const _OverlayChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: theme.cardColor,
-        border: Border.all(color: theme.dividerColor),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xCC0F172A),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0x44FFFFFF)),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(
-            Icons.circle,
-            color: isConnected ? const Color(0xFF4ADE80) : const Color(0xFFF59E0B),
-            size: 12,
+          Icon(icon, size: 13, color: const Color(0xFFCBD5E1)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFFE2E8F0),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(details.join(' · '))),
         ],
       ),
     );
   }
 }
 
-class _MiniMapCard extends StatelessWidget {
-  const _MiniMapCard({
-    required this.map,
-    required this.status,
-  });
+// ---------------------------------------------------------------------------
+// Bottom action bar
+// ---------------------------------------------------------------------------
 
-  final MapGeometry map;
-  final RobotStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1.7,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0xFF08101D),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: map.perimeter.length < 3
-            ? const Center(
-                child: Text('Noch keine Karte vorhanden'),
-              )
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: CustomPaint(
-                  painter: _MiniMapPainter(
-                    map: map,
-                    robotX: status.x,
-                    robotY: status.y,
-                    robotHeading: status.heading,
-                  ),
-                  child: const SizedBox.expand(),
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-class _MiniMapPainter extends CustomPainter {
-  const _MiniMapPainter({
-    required this.map,
-    required this.robotX,
-    required this.robotY,
-    required this.robotHeading,
-  });
-
-  final MapGeometry map;
-  final double? robotX;
-  final double? robotY;
-  final double? robotHeading;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final allPoints = <MapPoint>[
-      ...map.perimeter,
-      ...map.dock,
-      for (final polygon in map.noGoZones) ...polygon,
-      for (final zone in map.zones) ...zone.points,
-      if (robotX != null && robotY != null) MapPoint(x: robotX!, y: robotY!),
-    ];
-    if (allPoints.isEmpty) return;
-
-    final minX = allPoints.map((point) => point.x).reduce((a, b) => a < b ? a : b);
-    final maxX = allPoints.map((point) => point.x).reduce((a, b) => a > b ? a : b);
-    final minY = allPoints.map((point) => point.y).reduce((a, b) => a < b ? a : b);
-    final maxY = allPoints.map((point) => point.y).reduce((a, b) => a > b ? a : b);
-
-    final spanX = (maxX - minX).abs() < 0.001 ? 1.0 : (maxX - minX);
-    final spanY = (maxY - minY).abs() < 0.001 ? 1.0 : (maxY - minY);
-    const padding = 18.0;
-    final scale = ((size.width - padding * 2) / spanX)
-        .clamp(0.0, double.infinity)
-        .compareTo((size.height - padding * 2) / spanY) < 0
-        ? (size.width - padding * 2) / spanX
-        : (size.height - padding * 2) / spanY;
-
-    Offset project(MapPoint point) {
-      final dx = (point.x - minX) * scale + padding;
-      final dy = size.height - ((point.y - minY) * scale + padding);
-      return Offset(dx, dy);
-    }
-
-    final gridPaint = Paint()
-      ..color = const Color(0xFF17304A)
-      ..strokeWidth = 1;
-    for (double x = 0; x < size.width; x += 28) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (double y = 0; y < size.height; y += 28) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    _drawPolygon(
-      canvas,
-      map.perimeter,
-      project,
-      fillColor: const Color(0x1422C55E),
-      strokeColor: const Color(0xFF22C55E),
-      strokeWidth: 2.2,
-    );
-
-    for (final zone in map.zones) {
-      _drawPolygon(
-        canvas,
-        zone.points,
-        project,
-        fillColor: const Color(0x102563EB),
-        strokeColor: const Color(0xFF60A5FA),
-        strokeWidth: 1.6,
-      );
-    }
-
-    for (final exclusion in map.noGoZones) {
-      _drawPolygon(
-        canvas,
-        exclusion,
-        project,
-        fillColor: const Color(0x18EF4444),
-        strokeColor: const Color(0xFFF87171),
-        strokeWidth: 1.4,
-      );
-    }
-
-    if (map.dock.length >= 2) {
-      final dockPath = Path()..moveTo(project(map.dock.first).dx, project(map.dock.first).dy);
-      for (final point in map.dock.skip(1)) {
-        final projected = project(point);
-        dockPath.lineTo(projected.dx, projected.dy);
-      }
-      canvas.drawPath(
-        dockPath,
-        Paint()
-          ..color = const Color(0xFFF59E0B)
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke,
-      );
-    }
-
-    if (robotX != null && robotY != null) {
-      final robotCenter = project(MapPoint(x: robotX!, y: robotY!));
-      final markerPaint = Paint()..color = const Color(0xFFF8FAFC);
-      canvas.drawCircle(robotCenter, 6, markerPaint);
-      canvas.drawCircle(
-        robotCenter,
-        10,
-        Paint()
-          ..color = const Color(0xFF38BDF8)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-
-      final heading = robotHeading ?? 0;
-      final tip = Offset(
-        robotCenter.dx + 16 * MathHelper.cos(heading),
-        robotCenter.dy - 16 * MathHelper.sin(heading),
-      );
-      canvas.drawLine(
-        robotCenter,
-        tip,
-        Paint()
-          ..color = const Color(0xFF38BDF8)
-          ..strokeWidth = 2.4
-          ..strokeCap = StrokeCap.round,
-      );
-    }
-  }
-
-  void _drawPolygon(
-    Canvas canvas,
-    List<MapPoint> points,
-    Offset Function(MapPoint point) project, {
-    required Color fillColor,
-    required Color strokeColor,
-    required double strokeWidth,
-  }) {
-    if (points.length < 3) return;
-    final first = project(points.first);
-    final path = Path()..moveTo(first.dx, first.dy);
-    for (final point in points.skip(1)) {
-      final projected = project(point);
-      path.lineTo(projected.dx, projected.dy);
-    }
-    path.close();
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = fillColor
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = strokeColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _MiniMapPainter oldDelegate) {
-    return oldDelegate.map != map ||
-        oldDelegate.robotX != robotX ||
-        oldDelegate.robotY != robotY ||
-        oldDelegate.robotHeading != robotHeading;
-  }
-}
-
-class MathHelper {
-  static double cos(double value) => math.cos(value);
-  static double sin(double value) => math.sin(value);
-}
-
-class _QuickActions extends StatelessWidget {
-  const _QuickActions({
-    required this.connected,
+class _BottomActionBar extends StatelessWidget {
+  const _BottomActionBar({
+    required this.isConnected,
     required this.busy,
-    required this.onStart,
+    required this.missionName,
+    required this.onMow,
     required this.onStop,
     required this.onDock,
   });
 
-  final bool connected;
+  final bool isConnected;
   final bool busy;
-  final VoidCallback? onStart;
+  final String? missionName;
+  final VoidCallback? onMow;
   final VoidCallback onStop;
   final VoidCallback onDock;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: FilledButton.icon(
-            onPressed: connected && !busy ? onStart : null,
-            icon: const Icon(Icons.play_arrow_rounded),
-            label: const Text('Start'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: connected && !busy ? onStop : null,
-            icon: const Icon(Icons.pause_circle_rounded),
-            label: const Text('Stop'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: connected && !busy ? onDock : null,
-            icon: const Icon(Icons.home_rounded),
-            label: const Text('Dock'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusGrid extends StatelessWidget {
-  const _StatusGrid({
-    required this.status,
-  });
-
-  final RobotStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: <Widget>[
-        _StatusChip(
-          label: 'Phase',
-          value: status.statePhase ?? 'idle',
-        ),
-        _StatusChip(
-          label: 'GPS',
-          value: status.rtkState ?? 'unbekannt',
-        ),
-        _StatusChip(
-          label: 'Akku',
-          value: status.batteryPercent != null ? '${status.batteryPercent}%' : '--',
-        ),
-        _StatusChip(
-          label: 'Verbindung',
-          value: switch (status.connectionState) {
-            ConnectionStateKind.connected => 'online',
-            ConnectionStateKind.connecting => 'verbinde',
-            ConnectionStateKind.discovering => 'suche',
-            ConnectionStateKind.error => 'fehler',
-            ConnectionStateKind.disconnected => 'offline',
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.label,
-    required this.value,
-  });
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(label, style: theme.textTheme.labelMedium),
-          const SizedBox(height: 6),
-          Text(value, style: theme.textTheme.titleMedium),
-        ],
-      ),
-    );
-  }
-}
-
-class _MissionCard extends StatelessWidget {
-  const _MissionCard({
-    required this.missionName,
-    required this.scheduleLabel,
-    required this.zoneNames,
-    required this.connected,
-    required this.busy,
-    required this.onStart,
-  });
-
-  final String missionName;
-  final String scheduleLabel;
-  final List<String> zoneNames;
-  final bool connected;
-  final bool busy;
-  final VoidCallback onStart;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(missionName, style: theme.textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(scheduleLabel, style: theme.textTheme.bodySmall),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: zoneNames
-              .map(
-                (zone) => Chip(
-                  label: Text(zone),
-                  visualDensity: VisualDensity.compact,
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          border: Border(top: BorderSide(color: theme.dividerColor)),
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: isConnected && !busy ? onMow : null,
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: const Text('Maehen'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
                 ),
-              )
-              .toList(),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isConnected && !busy ? onStop : null,
+                    icon: const Icon(Icons.pause_circle_rounded, size: 18),
+                    label: const Text('Stop'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isConnected && !busy ? onDock : null,
+                    icon: const Icon(Icons.home_rounded, size: 18),
+                    label: const Text('Dock'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (missionName != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.route_rounded, size: 14, color: Color(0xFF94A3B8)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      missionName!,
+                      style: theme.textTheme.bodySmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: connected && !busy ? onStart : null,
-            icon: const Icon(Icons.play_arrow_rounded),
-            label: const Text('Mission starten'),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _ChecklistLine extends StatelessWidget {
-  const _ChecklistLine({
-    required this.done,
-    required this.label,
+// ---------------------------------------------------------------------------
+// Virtual joystick overlay
+// ---------------------------------------------------------------------------
+
+class _JoystickOverlay extends StatefulWidget {
+  const _JoystickOverlay({
+    required this.onDrive,
+    required this.onClose,
   });
 
-  final bool done;
-  final String label;
+  final void Function(double vx, double vy) onDrive;
+  final VoidCallback onClose;
+
+  @override
+  State<_JoystickOverlay> createState() => _JoystickOverlayState();
+}
+
+class _JoystickOverlayState extends State<_JoystickOverlay> {
+  static const double _joystickRadius = 80.0;
+  static const double _thumbRadius = 24.0;
+
+  Offset _thumbOffset = Offset.zero;
+
+  void _onPanStart(DragStartDetails details) {
+    _updateThumb(details.localPosition);
+  }
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    _updateThumb(details.localPosition);
+  }
+
+  void _onPanEnd(DragEndDetails details) {
+    setState(() => _thumbOffset = Offset.zero);
+    widget.onDrive(0, 0);
+  }
+
+  void _updateThumb(Offset localPosition) {
+    const center = Offset(_joystickRadius, _joystickRadius);
+    final delta = localPosition - center;
+    final distance = delta.distance;
+    final clamped = distance <= _joystickRadius
+        ? delta
+        : delta / distance * _joystickRadius;
+
+    setState(() => _thumbOffset = clamped);
+
+    // vx = left/right, vy = forward/backward (inverted Y because screen Y goes down)
+    widget.onDrive(
+      (clamped.dx / _joystickRadius).clamp(-1.0, 1.0),
+      (-clamped.dy / _joystickRadius).clamp(-1.0, 1.0),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          Icon(
-            done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-            size: 18,
-            color: done ? const Color(0xFF4ADE80) : const Color(0xFF94A3B8),
-          ),
-          const SizedBox(width: 8),
-          Text(label),
-        ],
+    const diameter = _joystickRadius * 2;
+    return Container(
+      color: const Color(0xCC000000),
+      child: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 32),
+              child: Column(
+                children: <Widget>[
+                  const Text(
+                    'Steuerkreuz',
+                    style: TextStyle(
+                      color: Color(0xFFCBD5E1),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  GestureDetector(
+                    onPanStart: _onPanStart,
+                    onPanUpdate: _onPanUpdate,
+                    onPanEnd: _onPanEnd,
+                    child: SizedBox(
+                      width: diameter,
+                      height: diameter,
+                      child: CustomPaint(
+                        painter: _JoystickPainter(
+                          thumbOffset: _thumbOffset,
+                          joystickRadius: _joystickRadius,
+                          thumbRadius: _thumbRadius,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton.icon(
+                    onPressed: widget.onClose,
+                    icon: const Icon(Icons.close_rounded, color: Color(0xFF94A3B8)),
+                    label: const Text(
+                      'Schliessen',
+                      style: TextStyle(color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _JoystickPainter extends CustomPainter {
+  const _JoystickPainter({
+    required this.thumbOffset,
+    required this.joystickRadius,
+    required this.thumbRadius,
+  });
+
+  final Offset thumbOffset;
+  final double joystickRadius;
+  final double thumbRadius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+
+    // Outer ring
+    canvas.drawCircle(
+      center,
+      joystickRadius,
+      Paint()
+        ..color = const Color(0x441E40AF)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(
+      center,
+      joystickRadius,
+      Paint()
+        ..color = const Color(0xFF3B82F6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+
+    // Center dot
+    canvas.drawCircle(
+      center,
+      6,
+      Paint()..color = const Color(0x664ADE80),
+    );
+
+    // Crosshair lines
+    final linePaint = Paint()
+      ..color = const Color(0x443B82F6)
+      ..strokeWidth = 1;
+    canvas.drawLine(
+      Offset(center.dx - joystickRadius, center.dy),
+      Offset(center.dx + joystickRadius, center.dy),
+      linePaint,
+    );
+    canvas.drawLine(
+      Offset(center.dx, center.dy - joystickRadius),
+      Offset(center.dx, center.dy + joystickRadius),
+      linePaint,
+    );
+
+    // Thumb
+    final thumbCenter = center + thumbOffset;
+    canvas.drawCircle(
+      thumbCenter,
+      thumbRadius,
+      Paint()..color = const Color(0xFF2563EB),
+    );
+    canvas.drawCircle(
+      thumbCenter,
+      thumbRadius,
+      Paint()
+        ..color = const Color(0xFF93C5FD)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+    // Inner highlight dot
+    canvas.drawCircle(
+      thumbCenter,
+      thumbRadius * 0.35,
+      Paint()..color = const Color(0xAABAE6FD),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _JoystickPainter oldDelegate) {
+    return oldDelegate.thumbOffset != thumbOffset;
+  }
+}
+
+// Cross-platform math helper kept for any future use
+class MathHelper {
+  static double cos(double value) => math.cos(value);
+  static double sin(double value) => math.sin(value);
 }

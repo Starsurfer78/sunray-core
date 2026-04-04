@@ -86,7 +86,7 @@
       const angular =
         Math.abs(nx) > deadzone ? parseFloat((-nx * speed).toFixed(2)) : 0;
       if (linear !== 0 || angular !== 0) {
-        sendCmd("move", { linear, angular });
+        sendCmd("drive", { linear, angular });
       }
     }, sendInterval);
   }
@@ -96,7 +96,7 @@
       clearInterval(intervalId);
       intervalId = null;
     }
-    sendCmd("move", { linear: 0, angular: 0 });
+    sendCmd("drive", { linear: 0, angular: 0 });
     knobX = 0;
     knobY = 0;
   }

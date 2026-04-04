@@ -209,6 +209,12 @@ class RobotConnectionController {
     _ws.sendCommand('dock');
   }
 
+  /// [linear] = forward/back (-1..1), [angular] = left/right turn (-1..1, negative = right).
+  void sendDriveCommand(double linear, double angular) {
+    if (!_ws.isConnected) return;
+    _ws.sendCommand('drive', <String, dynamic>{'linear': linear, 'angular': angular});
+  }
+
   Future<List<Mission>> _loadMissions(SavedRobot robot) async {
     _ref.read(missionsLoadingProvider.notifier).state = true;
     try {
@@ -279,6 +285,8 @@ class RobotConnectionController {
       final x = decoded['x'] as num?;
       final y = decoded['y'] as num?;
       final heading = decoded['heading'] as num?;
+      final gpsLat = decoded['gps_lat'] as num?;
+      final gpsLon = decoded['gps_lon'] as num?;
 
       _ref.read(connectionStateProvider.notifier).state = RobotStatus(
         connectionState: ConnectionStateKind.connected,
@@ -289,6 +297,8 @@ class RobotConnectionController {
         x: x?.toDouble(),
         y: y?.toDouble(),
         heading: heading?.toDouble(),
+        gpsLat: gpsLat?.toDouble(),
+        gpsLon: gpsLon?.toDouble(),
       );
       _reconnectAttempt = 0;
     } catch (_) {
