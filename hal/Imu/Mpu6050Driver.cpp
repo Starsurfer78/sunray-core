@@ -1,9 +1,18 @@
 #include "Mpu6050Driver.h"
 
 #include <cmath>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 namespace sunray {
+
+// Helper for hex strings
+static std::string toHex(uint8_t v) {
+    std::ostringstream ss;
+    ss << "0x" << std::hex << std::setw(2) << std::setfill('0') << (int)v;
+    return ss.str();
+}
 
 // ── MPU-6050 Registers ────────────────────────────────────────────────────────
 static constexpr uint8_t REG_WHO_AM_I      = 0x75;
@@ -24,42 +33,43 @@ Mpu6050Driver::Mpu6050Driver(platform::I2C& i2c, std::shared_ptr<Logger> logger,
 {}
 
 bool Mpu6050Driver::init() {
+    initialized_ = false;
     // 1. Check WHO_AM_I
     uint8_t who = 0;
     if (!readRegs(REG_WHO_AM_I, &who, 1)) {
-        if (logger_) logger_->error("MPU", "I2C read failed during WHO_AM_I at 0x" + std::to_string(addr_));
+        if (logger_) logger_->error("MPU", "I2C read failed during WHO_AM_I at " + toHex(addr_));
         return false;
     }
     if (who != 0x68) {
-        if (logger_) logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got 0x" + std::to_string(who) + ") at 0x" + std::to_string(addr_));
+        if (logger_) logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got " + toHex(who) + ") at " + toHex(addr_));
         return false;
     }
 
     // 2. Wake up sensor, set clock source to X gyro (0x01)
     if (!writeReg(REG_PWR_MGMT_1, 0x01)) {
-        if (logger_) logger_->error("MPU", "failed to wake up sensor");
+        if (logger_) logger_->error("MPU", "failed to wake up sensor at " + toHex(addr_));
         return false;
     }
 
     // 3. Set DLPF to ~44 Hz (0x03)
     if (!writeReg(REG_CONFIG, 0x03)) {
-        if (logger_) logger_->error("MPU", "failed to set DLPF");
+        if (logger_) logger_->error("MPU", "failed to set DLPF at " + toHex(addr_));
         return false;
     }
 
     // 4. Set Gyro Range to ±250 °/s (0x00)
     if (!writeReg(REG_GYRO_CONFIG, 0x00)) {
-        if (logger_) logger_->error("MPU", "failed to set gyro range");
+        if (logger_) logger_->error("MPU", "failed to set gyro range at " + toHex(addr_));
         return false;
     }
 
     // 5. Set Accel Range to ±2 g (0x00)
     if (!writeReg(REG_ACCEL_CONFIG, 0x00)) {
-        if (logger_) logger_->error("MPU", "failed to set accel range");
+        if (logger_) logger_->error("MPU", "failed to set accel range at " + toHex(addr_));
         return false;
     }
 
-    if (logger_) logger_->info("MPU", "successfully initialized at 0x" + std::to_string(addr_));
+    if (logger_) logger_->info("MPU", "successfully initialized at " + toHex(addr_));
     initialized_ = true;
     return true;
 }
@@ -69,7 +79,7 @@ void Mpu6050Driver::update(float dt_s) {
     uint8_t buf[14];
     if (!readRegs(REG_ACCEL_XOUT_H, buf, 14)) {
         if (updateCount_ % 100 == 0 && logger_) {
-            logger_->error("MPU", "I2C read failed in update() at 0x" + std::to_string(addr_));
+            logger_->error("MPU", "I2C read failed in update() at " + toHex(addr_));
         }
         std::lock_guard<std::mutex> lk(mutex_);
         data_.valid = false;
@@ -77,7 +87,7 @@ void Mpu6050Driver::update(float dt_s) {
     }
 
     if (!initialized_ && updateCount_ % 500 == 0 && logger_) {
-        logger_->warn("MPU", "update() called but sensor not initialized (staying in sleep)");
+        logger_->warn("MPU", "update() called but sensor not initialized (staying in sleep) at " + toHex(addr_));
     }
 
     // Big-endian 16-bit signed
@@ -95,7 +105,7 @@ void Mpu6050Driver::update(float dt_s) {
 
     if (ax == 0 && ay == 0 && az == 0 && gx == 0 && gy == 0 && gz == 0) {
         if (updateCount_ % 500 == 0 && logger_) {
-            logger_->warn("MPU", "all sensor values are zero — sensor likely in sleep mode or not responding at 0x" + std::to_string(addr_));
+            logger_->warn("MPU", "all sensor values are zero — sensor likely in sleep mode or not responding at " + toHex(addr_));
         }
     }
 
