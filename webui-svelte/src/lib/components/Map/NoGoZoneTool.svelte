@@ -26,14 +26,14 @@
 <section class="panel">
   <header>
     <h2>NoGo-Zonen</h2>
-    <p>NoGo-Zonen werden auf Basis der vorhandenen Karte als eigene Ausschlussflaechen angelegt.</p>
+    <p>NoGo-Zonen werden auf Basis der vorhandenen Karte als eigene Ausschlussflächen angelegt.</p>
   </header>
 
   <div class="actions">
     <button type="button" on:click={() => mapStore.createExclusion()}>Neue NoGo-Zone</button>
     <button type="button" class:active={$mapStore.selectedTool === 'nogo'} on:click={activateTool}>NoGo-Werkzeug aktivieren</button>
-    <button type="button" on:click={removeLastPoint}>Letzten Punkt loeschen</button>
-    <button type="button" on:click={clearActiveExclusion}>Aktive NoGo-Zone loeschen</button>
+    <button type="button" on:click={removeLastPoint}>Letzten Punkt löschen</button>
+    <button type="button" on:click={clearActiveExclusion}>Aktive NoGo-Zone löschen</button>
   </div>
 
   <label>

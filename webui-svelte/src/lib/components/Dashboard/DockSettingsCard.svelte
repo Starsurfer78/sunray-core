@@ -61,7 +61,7 @@
       on:change={onToggleDockAutoStart}
     />
     <div class="dock-copy">
-      <strong>Nach Laden automatisch weiter maehen</strong>
+      <strong>Nach Laden automatisch weiter mähen</strong>
       <span>Wenn deaktiviert, bleibt der Roboter nach erfolgreichem Laden an der Station.</span>
     </div>
   </label>

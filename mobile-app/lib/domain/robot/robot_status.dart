@@ -20,6 +20,14 @@ class RobotStatus {
     this.gpsLon,
     this.piVersion,
     this.lastError,
+    // Diagnose fields
+    this.batteryVoltage,
+    this.chargerConnected,
+    this.mcuConnected,
+    this.mcuVersion,
+    this.runtimeHealth,
+    this.uptimeSeconds,
+    this.mowFaultActive,
   });
 
   final ConnectionStateKind connectionState;
@@ -35,6 +43,15 @@ class RobotStatus {
   final String? piVersion;
   final String? lastError;
 
+  // Diagnose
+  final double? batteryVoltage;
+  final bool? chargerConnected;
+  final bool? mcuConnected;
+  final double? mcuVersion;
+  final bool? runtimeHealth;
+  final int? uptimeSeconds;
+  final bool? mowFaultActive;
+
   RobotStatus copyWith({
     ConnectionStateKind? connectionState,
     String? robotName,
@@ -48,6 +65,13 @@ class RobotStatus {
     double? gpsLon,
     String? piVersion,
     String? lastError,
+    double? batteryVoltage,
+    bool? chargerConnected,
+    bool? mcuConnected,
+    double? mcuVersion,
+    bool? runtimeHealth,
+    int? uptimeSeconds,
+    bool? mowFaultActive,
   }) {
     return RobotStatus(
       connectionState: connectionState ?? this.connectionState,
@@ -62,6 +86,13 @@ class RobotStatus {
       gpsLon: gpsLon ?? this.gpsLon,
       piVersion: piVersion ?? this.piVersion,
       lastError: lastError ?? this.lastError,
+      batteryVoltage: batteryVoltage ?? this.batteryVoltage,
+      chargerConnected: chargerConnected ?? this.chargerConnected,
+      mcuConnected: mcuConnected ?? this.mcuConnected,
+      mcuVersion: mcuVersion ?? this.mcuVersion,
+      runtimeHealth: runtimeHealth ?? this.runtimeHealth,
+      uptimeSeconds: uptimeSeconds ?? this.uptimeSeconds,
+      mowFaultActive: mowFaultActive ?? this.mowFaultActive,
     );
   }
 }

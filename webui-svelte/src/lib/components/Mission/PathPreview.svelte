@@ -241,7 +241,7 @@
   {/if}
 
   {#if plannerLoading}
-    <div class="planner-status">Planner wird geprueft...</div>
+    <div class="planner-status">Planner wird geprüft...</div>
   {:else if plannerError}
     <div class="planner-status error">{plannerError}</div>
   {:else if missionZones.length > 0 && !hasPreviewRoute}
@@ -288,7 +288,7 @@
       />
     {/if}
 
-    <!-- NoGo-Ausschlussflaechen -->
+    <!-- NoGo-Ausschlussflächen -->
     {#if exclusions.length > 0}
       {#each exclusions as exclusion}
         {#if exclusion.length >= 3}

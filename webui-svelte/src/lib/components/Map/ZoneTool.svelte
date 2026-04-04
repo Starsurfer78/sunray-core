@@ -45,8 +45,8 @@
   <div class="actions">
     <button type="button" on:click={() => mapStore.createZone()}>Neue Zone</button>
     <button type="button" class:active={$mapStore.selectedTool === 'zone'} on:click={activateTool}>Zonenwerkzeug aktivieren</button>
-    <button type="button" on:click={removeLastPoint}>Letzten Punkt loeschen</button>
-    <button type="button" on:click={clearActiveZone}>Aktive Zone loeschen</button>
+    <button type="button" on:click={removeLastPoint}>Letzten Punkt löschen</button>
+    <button type="button" on:click={clearActiveZone}>Aktive Zone löschen</button>
   </div>
 
   <label>
@@ -121,7 +121,7 @@
           checked={zone.settings.edgeMowing}
           on:change={(event) => updateSelectedZone('edgeMowing', (event.currentTarget as HTMLInputElement).checked)}
         />
-        <span>Randmaehen aktiv</span>
+        <span>Randmähen aktiv</span>
       </label>
 
       <label>

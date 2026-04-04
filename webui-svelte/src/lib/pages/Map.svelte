@@ -282,14 +282,14 @@
     if (!mapHistory || !mapHistory.canUndo()) return;
     mapHistory.undo();
     restoreHistoryState(mapHistory.getCurrentState());
-    toast.info(`Rueckgaengig: ${undoLabel || "Letzte Aenderung"}`);
+    toast.info(`Rückgängig: ${undoLabel || "Letzte Änderung"}`);
   }
 
   function redoMapEdit() {
     if (!mapHistory || !mapHistory.canRedo()) return;
     mapHistory.redo();
     restoreHistoryState(mapHistory.getCurrentState());
-    toast.info(`Wiederhergestellt: ${redoLabel || "Naechste Aenderung"}`);
+    toast.info(`Wiederhergestellt: ${redoLabel || "Nächste Änderung"}`);
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -366,7 +366,7 @@
 
   async function activateMap() {
     if (!selectedMapId) {
-      showInfo("Keine Karte ausgewaehlt", "warning");
+      showInfo("Keine Karte ausgewählt", "warning");
       return;
     }
     if (selectedMapId === activeMapId) {
@@ -419,26 +419,26 @@
 
   async function removeMap() {
     if (!selectedMapId) {
-      showInfo("Keine Karte ausgewaehlt", "warning");
+      showInfo("Keine Karte ausgewählt", "warning");
       return;
     }
     if (selectedMapId === activeMapId) {
-      showInfo("Aktive Karte kann nicht geloescht werden", "warning");
+      showInfo("Aktive Karte kann nicht gelöscht werden", "warning");
       return;
     }
     const mapName = storedMaps.find((m) => m.id === selectedMapId)?.name ?? selectedMapId;
-    if (!confirm(`Karte "${mapName}" wirklich loeschen?`)) return;
+    if (!confirm(`Karte "${mapName}" wirklich löschen?`)) return;
     busy = true;
     try {
       const result = await deleteStoredMap(selectedMapId);
       if (!result.ok) {
-        showInfo(result.error ?? "Loeschen fehlgeschlagen", "error");
+        showInfo(result.error ?? "Löschen fehlgeschlagen", "error");
         return;
       }
       await refreshStoredMaps();
-      showInfo("Karte geloescht");
+      showInfo("Karte gelöscht");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Loeschen fehlgeschlagen", "error");
+      showInfo(err instanceof Error ? err.message : "Löschen fehlgeschlagen", "error");
     } finally {
       busy = false;
     }
@@ -575,7 +575,7 @@
   function removeLastPoint() {
     if (activeTool === "move") {
       if (mapCanvas?.deleteSelectedPoint()) {
-        showInfo("Punkt geloescht", "success");
+        showInfo("Punkt gelöscht", "success");
         return;
       }
       mapStore.setTool(layer);
@@ -586,7 +586,7 @@
         $mapStore.map.exclusions[$mapStore.selectedExclusionIndex] ?? [];
       if (exclusion.length === 0) {
         mapStore.deleteSelectedExclusion();
-        showInfo("Leere NoGo-Zone geloescht", "success");
+        showInfo("Leere NoGo-Zone gelöscht", "success");
         return;
       }
     }
@@ -596,7 +596,7 @@
 
   function addCurrentRobotPoint() {
     if (moveActive) {
-      showInfo("Im Verschieben-Modus koennen keine neuen Punkte gesetzt werden", "warning");
+      showInfo("Im Verschieben-Modus können keine neuen Punkte gesetzt werden", "warning");
       return;
     }
 
@@ -664,14 +664,14 @@
 
   function deleteActiveZone() {
     if (!$mapStore.selectedZoneId) {
-      showInfo("Bitte zuerst eine Zone auswaehlen", "warning");
+      showInfo("Bitte zuerst eine Zone auswählen", "warning");
       return;
     }
     const zoneLabel =
       $mapStore.map.zones.find((zone) => zone.id === $mapStore.selectedZoneId)
         ?.settings.name ?? "Zone";
     mapStore.deleteSelectedZone();
-    showInfo(`${zoneLabel} geloescht`);
+    showInfo(`${zoneLabel} gelöscht`);
   }
 
   function finishNoGoStep() {
@@ -707,7 +707,7 @@
 
   function editActiveNoGo() {
     if ($mapStore.selectedExclusionIndex === null) {
-      showInfo("Bitte zuerst einen NoGo-Bereich auswaehlen", "warning");
+      showInfo("Bitte zuerst einen NoGo-Bereich auswählen", "warning");
       return;
     }
     mapStore.setTool("nogo");
@@ -716,12 +716,12 @@
 
   function deleteActiveNoGo() {
     if ($mapStore.selectedExclusionIndex === null) {
-      showInfo("Bitte zuerst einen NoGo-Bereich auswaehlen", "warning");
+      showInfo("Bitte zuerst einen NoGo-Bereich auswählen", "warning");
       return;
     }
     const label = activeNoGoLabel;
     mapStore.deleteSelectedExclusion();
-    showInfo(`${label} geloescht`);
+    showInfo(`${label} gelöscht`);
   }
 
   function removeLastPerimeterPoint() {
@@ -740,7 +740,7 @@
       return;
     }
     mapStore.setTool("move");
-    showInfo("Docking-Pfad abgeschlossen. Jetzt Validierung und Speichern pruefen");
+    showInfo("Docking-Pfad abgeschlossen. Jetzt Validierung und Speichern prüfen");
   }
 
   function handlePointRejected(event: CustomEvent<{ tool: string; reason?: string }>) {
@@ -748,7 +748,7 @@
   }
 
   $: addBtnTitle = moveActive
-    ? "Im Verschieben-Modus nicht verfuegbar"
+    ? "Im Verschieben-Modus nicht verfügbar"
     : dockActive
       ? "Aktuelle Roboterposition als Docking-Pfadpunkt speichern"
       : activeTool === "nogo"
@@ -772,9 +772,9 @@
         ? "RTK Fix stabil"
         : rtkFloat && acceptableAccuracy
           ? "RTK Float mit guter Genauigkeit"
-          : "Kein stabiles RTK fuer neue Punkte";
+          : "Kein stabiles RTK für neue Punkte";
   $: effectivePreflightHint = $mappingTestMode
-    ? "Testmodus aktiv: Punktaufnahme und Freigabe sind ohne RTK fuer UI-Tests erlaubt"
+    ? "Testmodus aktiv: Punktaufnahme und Freigabe sind ohne RTK für UI-Tests erlaubt"
     : preflightHint;
 
   $: hasNogo = $mapStore.map.exclusions.length > 0;
@@ -818,7 +818,7 @@
           : "Docking-Pfad muss am Perimeter beginnen oder in seiner Naehe"
       : "",
     !mappingSignalReady && !$mappingTestMode
-      ? "Fuer Aufnahme und Freigabe wird frische RTK-Telemetrie benoetigt"
+      ? "Für Aufnahme und Freigabe wird frische RTK-Telemetrie benoetigt"
       : "",
   ].filter(Boolean);
   $: saveHint = validationIssues[0] ?? "";
@@ -851,7 +851,7 @@
     },
     {
       id: "rtk",
-      label: "RTK pruefen",
+      label: "RTK prüfen",
       status: mappingSignalReady ? "done" : "active",
       detail: effectivePreflightHint,
     },
@@ -1015,7 +1015,7 @@
       <div class="mt-actions">
         <button
           type="button"
-          title={undoLabel ? `Rueckgaengig: ${undoLabel}` : "Rueckgaengig (Strg/Cmd+Z)"}
+          title={undoLabel ? `Rückgängig: ${undoLabel}` : "Rückgängig (Strg/Cmd+Z)"}
           disabled={!mapHistory || !mapHistory.canUndo()}
           on:click={undoMapEdit}>↶ Undo{#if undoLabel}<span class="mt-sub-label">{undoLabel}</span>{/if}</button>
         <button
@@ -1033,9 +1033,9 @@
             <option value={map.id}>{map.name}{map.id === activeMapId ? " (aktiv)" : ""}</option>
           {/each}
         </select>
-        <button type="button" title="Ausgewaehlte Karte aktivieren" disabled={busy} on:click={activateMap}>Aktivieren</button>
+        <button type="button" title="Ausgewählte Karte aktivieren" disabled={busy} on:click={activateMap}>Aktivieren</button>
         <button type="button" title="Aktuelle Bearbeitung als neue Karte speichern" disabled={busy} on:click={saveAsNewMap}>Speichern als</button>
-        <button type="button" title="Ausgewaehlte Karte loeschen" disabled={busy || selectedMapId === activeMapId} on:click={removeMap}>Loeschen</button>
+        <button type="button" title="Ausgewählte Karte löschen" disabled={busy || selectedMapId === activeMapId} on:click={removeMap}>Löschen</button>
         <button type="button" title="GeoJSON exportieren" on:click={exportMap}>↑ GeoJSON</button>
         <button type="button" title="GeoJSON importieren" on:click={importMap}>↓ GeoJSON</button>
         <button type="button" disabled={busy} on:click={loadMap}>Laden</button>
@@ -1117,7 +1117,7 @@
           <strong>{currentStep.label}</strong>
           <span>{currentStep.detail}</span>
           {#if nextStep}
-            <span>Als naechstes: {nextStep.label}</span>
+            <span>Als nächstes: {nextStep.label}</span>
           {/if}
           {#if primaryBlocker}
             <span class="warn-copy">Blocker: {primaryBlocker}</span>
@@ -1134,7 +1134,7 @@
           <button
             type="button"
             class="sb-btn"
-            title={undoLabel ? `Rueckgaengig: ${undoLabel}` : "Rueckgaengig"}
+            title={undoLabel ? `Rückgängig: ${undoLabel}` : "Rückgängig"}
             disabled={!mapHistory || !mapHistory.canUndo()}
             on:click={undoMapEdit}>Undo</button
           >
@@ -1186,7 +1186,7 @@
         <span class="sb-label">3. NoGo optional</span>
         <div class="assistant-card" class:active={activeTool === "nogo"}>
           <strong>{$mapStore.map.exclusions.length} Bereiche</strong>
-          <span>Optional fuer Beete, Inseln oder andere Sperrflaechen.</span>
+          <span>Optional für Beete, Inseln oder andere Sperrflächen.</span>
           <span>{activeNoGoLabel}</span>
           <div class="assistant-actions">
             <button
@@ -1224,7 +1224,7 @@
           <span class="sb-label">NoGo-Regeln</span>
           <div class="assistant-card">
             <strong>Interne Planner-Regeln</strong>
-            <span>NoGo-Typen und Clearance werden im Standardmodus intern ueber Defaults und Diagnose-/Servicewerte gesteuert.</span>
+            <span>NoGo-Typen und Clearance werden im Standardmodus intern über Defaults und Diagnose-/Servicewerte gesteuert.</span>
           </div>
         </div>
       {/if}
@@ -1270,7 +1270,7 @@
           <span class="sb-label">Docking-Logik</span>
           <div class="assistant-card">
             <strong>Service-Tuning</strong>
-            <span>Docking-Tuning und lokale Planner-Parameter sind im Standardmodus ausgeblendet und werden ueber interne Defaults beziehungsweise Config geregelt.</span>
+            <span>Docking-Tuning und lokale Planner-Parameter sind im Standardmodus ausgeblendet und werden über interne Defaults beziehungsweise Config geregelt.</span>
           </div>
         </div>
       {/if}
@@ -1286,7 +1286,7 @@
               {/each}
             </ul>
           {:else}
-            <span>Perimeter, Docking-Pfad und RTK-Pruefung sind plausibel.</span>
+            <span>Perimeter, Docking-Pfad und RTK-Prüfung sind plausibel.</span>
           {/if}
           <div class="assistant-actions assistant-actions--stacked">
             <button

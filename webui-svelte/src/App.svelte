@@ -140,7 +140,7 @@
         disabled={currentView !== 'dashboard'}
         title={
           currentView !== 'dashboard'
-            ? 'Joystick ist im Dashboard verfuegbar'
+            ? 'Joystick ist im Dashboard verfügbar'
             : !$connection.connected
               ? 'Joystick ohne Live-Verbindung nur als UI-Vorschau'
               : $joystickOpen

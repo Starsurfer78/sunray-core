@@ -36,7 +36,7 @@ class ServiceScreen extends ConsumerWidget {
                   connectionState.connectionState == ConnectionStateKind.connecting))
             const SizedBox(height: 16),
           SectionCard(
-            title: 'Verbundenes Geraet',
+            title: 'Verbundenes Gerät',
             child: activeRobot == null
                 ? const Text('Aktuell ist kein Roboter aktiv verbunden.')
                 : Column(
@@ -73,7 +73,7 @@ class ServiceScreen extends ConsumerWidget {
                       : () => _installDownloaded(context, ref, otaState.downloadedFilePath!),
                 ),
                 error: (error, _) => Text('Release-Check fehlgeschlagen: $error'),
-                loading: () => const Text('Pruefe GitHub Releases...'),
+                loading: () => const Text('Prüfe GitHub Releases...'),
               ),
               error: (error, _) => Text('App-Version konnte nicht gelesen werden: $error'),
               loading: () => const Text('Lese installierte App-Version...'),
@@ -84,6 +84,10 @@ class ServiceScreen extends ConsumerWidget {
             activeRobot: activeRobot,
             connectionState: connectionState,
           ),
+          const SizedBox(height: 16),
+          _DiagnoseCard(status: connectionState),
+          const SizedBox(height: 16),
+          _LogsCard(activeRobot: activeRobot),
         ],
       ),
     );
@@ -487,7 +491,7 @@ class _AppUpdateCard extends StatelessWidget {
       children: <Widget>[
         Text('Aktuelle App-Version: $installedVersion'),
         const SizedBox(height: 8),
-        const Text('App-OTA fuer den Start ueber GitHub Releases.'),
+        const Text('App-OTA für den Start über GitHub Releases.'),
         const SizedBox(height: 8),
         const Text(
           'Release-Quelle: https://github.com/Starsurfer78/sunray-core/releases',
@@ -583,5 +587,224 @@ class _StatusLine extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnose card
+// ---------------------------------------------------------------------------
+
+class _DiagnoseCard extends StatelessWidget {
+  const _DiagnoseCard({required this.status});
+
+  final RobotStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final isConnected = status.connectionState == ConnectionStateKind.connected;
+
+    String _uptime(int? seconds) {
+      if (seconds == null) return '—';
+      final h = seconds ~/ 3600;
+      final m = (seconds % 3600) ~/ 60;
+      final s = seconds % 60;
+      if (h > 0) return '${h}h ${m.toString().padLeft(2, '0')}m';
+      return '${m}m ${s.toString().padLeft(2, '0')}s';
+    }
+
+    return SectionCard(
+      title: 'Diagnose',
+      child: !isConnected
+          ? const Text('Nicht verbunden.')
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _StatusLine(
+                  label: 'Akku',
+                  value: status.batteryVoltage != null
+                      ? '${status.batteryVoltage!.toStringAsFixed(1)} V'
+                          '${status.batteryPercent != null ? ' (${status.batteryPercent}%)' : ''}'
+                          '${status.chargerConnected == true ? ' · Laedt' : ''}'
+                      : '—',
+                ),
+                _StatusLine(
+                  label: 'MCU',
+                  value: status.mcuConnected == null
+                      ? '—'
+                      : status.mcuConnected!
+                          ? 'Verbunden${status.mcuVersion != null ? ' v${status.mcuVersion!.toStringAsFixed(1)}' : ''}'
+                          : 'Nicht verbunden',
+                ),
+                _StatusLine(
+                  label: 'GPS',
+                  value: status.rtkState ?? '—',
+                ),
+                _StatusLine(
+                  label: 'Runtime-Health',
+                  value: status.runtimeHealth == null
+                      ? '—'
+                      : status.runtimeHealth!
+                          ? 'OK'
+                          : 'Fehler',
+                ),
+                _StatusLine(
+                  label: 'Betriebszeit',
+                  value: _uptime(status.uptimeSeconds),
+                ),
+                _StatusLine(
+                  label: 'Mähfehler',
+                  value: status.mowFaultActive == null
+                      ? '—'
+                      : status.mowFaultActive!
+                          ? 'Aktiv'
+                          : 'Kein Fehler',
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Logs card
+// ---------------------------------------------------------------------------
+
+class _LogsCard extends ConsumerStatefulWidget {
+  const _LogsCard({required this.activeRobot});
+
+  final SavedRobot? activeRobot;
+
+  @override
+  ConsumerState<_LogsCard> createState() => _LogsCardState();
+}
+
+class _LogsCardState extends ConsumerState<_LogsCard> {
+  List<Map<String, dynamic>> _events = const <Map<String, dynamic>>[];
+  bool _loading = false;
+  String? _error;
+
+  Future<void> _loadEvents() async {
+    final robot = widget.activeRobot;
+    if (robot == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final raw = await ref.read(robotApiProvider).getHistoryEvents(
+            host: robot.lastHost,
+            port: robot.port,
+          );
+      setState(() {
+        _events = raw
+            .whereType<Map<String, dynamic>>()
+            .toList(growable: false);
+      });
+    } catch (e) {
+      setState(() => _error = 'Fehler: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionCard(
+      title: 'Logs',
+      trailing: IconButton(
+        icon: _loading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.refresh_rounded, size: 20),
+        tooltip: 'Neu laden',
+        onPressed: widget.activeRobot == null || _loading ? null : _loadEvents,
+      ),
+      child: widget.activeRobot == null
+          ? const Text('Nicht verbunden.')
+          : _error != null
+              ? Text(
+                  _error!,
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.error),
+                )
+              : _events.isEmpty
+                  ? TextButton.icon(
+                      onPressed: _loading ? null : _loadEvents,
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('Logs laden'),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _events.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final event = _events[_events.length - 1 - index];
+                        final phase = event['phase'] as String?;
+                        final msg = event['message'] as String?
+                            ?? event['msg'] as String?;
+                        final ts = event['timestamp'] as num?
+                            ?? event['time'] as num?;
+                        final timeStr = ts != null
+                            ? _formatTimestamp(ts.toInt())
+                            : '';
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              if (timeStr.isNotEmpty)
+                                Text(
+                                  timeStr,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                          fontFamily: 'monospace'),
+                                ),
+                              if (timeStr.isNotEmpty)
+                                const SizedBox(width: 8),
+                              if (phase != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1E3A5F),
+                                    borderRadius:
+                                        BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    phase,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ),
+                              if (phase != null) const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  msg ?? event.toString(),
+                                  style:
+                                      Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+    );
+  }
+
+  String _formatTimestamp(int epochSeconds) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    final s = dt.second.toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 }

@@ -1,94 +1,146 @@
-# sunray-core
+# sunray-core — Alfred, der smarte Rasenroboter
 
-`sunray-core` ist ein Linux-basierter Robot-Controller fuer einen RTK-GPS-Rasenmaehroboter auf Raspberry Pi.
+**sunray-core** ist ein vollständiger, Linux-nativer Controller für RTK-GPS-Rasenroboter auf Raspberry Pi-Basis.
+Er ersetzt das originale Arduino/Sunray-Backend durch eine moderne C++17-Laufzeit mit WebUI und nativer Android-App.
 
-Das Projekt umfasst:
+> Basiert auf [Ardumower/Sunray](https://github.com/Ardumower/Sunray) — weiterentwickelt für Linux, Raspberry Pi 4 und echten Feldeinsatz.
 
-- einen C++17-Core fuer Hardware, Navigation, Missionslogik und Telemetrie
-- eine aktive WebUI auf Basis von Svelte 5 + TypeScript
-- einen Simulationsmodus fuer Entwicklung ohne reale Hardware
-- native Tests fuer Core-, Navigation- und Op-Verhalten
+---
 
-GitHub-Repository:
-<https://github.com/Starsurfer78/sunray-core>
+## Was ist sunray-core?
 
-## Herkunft
+Alfred ist ein selbstfahrender Rasenmähroboter, der mit RTK-GPS millimetergenau navigiert.
+sunray-core ist sein Gehirn: C++17-Core auf dem Pi, gesteuert über Browser oder Smartphone — ohne Cloud, ohne Abo.
 
-Dieses Projekt baut auf dem Ardumower-Sunray-Projekt auf:
-<https://github.com/Ardumower/Sunray>
-
-`sunray-core` ist eine Linux-/Pi-orientierte Weiterentwicklung und Neuordnung dieser Basis.
-
-## Status
-
-- Architektur- und Navigationsumbau ist im Code abgeschlossen und in [docs/NAVIGATION_UPGRADE.md](docs/NAVIGATION_UPGRADE.md) dokumentiert.
-- Aktive Frontend-Basis ist `webui-svelte/`.
-- Der groesste offene Block ist jetzt reale Linux-/Pi-/Hardware-Validierung.
-- Aktive Priorisierung und Ausfuehrung laufen ueber [TASK.md](TASK.md), [BUG_REPORT.md](BUG_REPORT.md), [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) und [PRIORITY_MATRIX.md](PRIORITY_MATRIX.md).
-
-## Einstieg Im Repo
-
-Wenn du das Projekt neu aufmachst, starte hier:
-
-- [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)
-- [PROJECT_MAP.md](PROJECT_MAP.md)
-- [TASK.md](TASK.md)
-- [BUG_REPORT.md](BUG_REPORT.md)
-- [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md)
-- [PRIORITY_MATRIX.md](PRIORITY_MATRIX.md)
-
-Wichtige Fachdokumente:
-
-- [docs/NAVIGATION_UPGRADE.md](docs/NAVIGATION_UPGRADE.md)
-- [docs/OP_STATE_MACHINE.md](docs/OP_STATE_MACHINE.md)
-- [docs/TELEMETRY_CONTRACT.md](docs/TELEMETRY_CONTRACT.md)
-- [docs/ROBOT_RUN_BASELINE.md](docs/ROBOT_RUN_BASELINE.md)
-- [docs/ALFRED_TEST_RUN_GUIDE.md](docs/ALFRED_TEST_RUN_GUIDE.md)
-- [docs/ALFRED_PRODUCTION_SWITCHOVER.md](docs/ALFRED_PRODUCTION_SWITCHOVER.md)
-- [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md)
-- [docs/ROBOT_BUTTON_BUZZER_ERROR.md](docs/ROBOT_BUTTON_BUZZER_ERROR.md)
-
-## Kernfunktionen
-
-- Hardware-Abstraktion fuer echten Roboter und Simulation
-- Op-State-Machine mit `Idle`, `Undock`, `NavToStart`, `Mow`, `Dock`, `Charge`, `WaitRain`, `GpsWait`, `EscapeReverse`, `EscapeForward`, `Error`
-- Navigation mit Odometrie, GPS, IMU, State Estimation, Planner, Costmap und Route-Segmenten
-- Kartenverwaltung fuer Perimeter, No-Go-Zonen, Dock-Pfad, Zonen und Hindernisse
-- Telemetrie ueber WebSocket und optional MQTT
-- WebUI fuer Dashboard, Karte, Mission, Diagnose und Historie
-- API-/WebSocket-Auth ueber `api_token`
-
-## Repository-Struktur
-
-```text
-sunray-core/
-├── core/                  C++-Core: Robot, Ops, Navigation, API, MQTT
-├── hal/                   Hardware-Treiber und Simulation
-├── platform/              Linux-nahe Hilfsbibliotheken
-├── tests/                 Catch2-Test-Suite
-├── webui-svelte/          aktive Svelte-WebUI
-├── docs/                  aktuelle Fachdokumentation
-├── config.example.json    Beispielkonfiguration
-├── main.cpp               Einstiegspunkt
-└── CMakeLists.txt         Top-Level-Build
+```
+┌─────────────────────────────────────────────────────┐
+│                   Raspberry Pi 4                    │
+│                                                     │
+│   sunray-core (C++17)                               │
+│   ├── Navigation + RTK-GPS                          │
+│   ├── Op-State-Machine                              │
+│   ├── Crow HTTP/WebSocket-Server                    │
+│   └── WebUI (Svelte) ─────► Browser                │
+│                │                                    │
+│                └──────────► Alfred App (Android)    │
+│                                                     │
+│   STM32 (UART) ────────────► Motoren, Sensoren      │
+└─────────────────────────────────────────────────────┘
 ```
 
-## Voraussetzungen
+---
 
-Fuer den Linux-Build:
+## Features
 
-- Linux
-- CMake >= 3.20
-- C++17-Compiler
-- Node.js >= 20 fuer die WebUI
+### Navigation & Betrieb
 
-Fuer echten Robot-Betrieb zusaetzlich:
+- **RTK-GPS-Navigation** — cm-genaue Positionierung mit NTRIP/RTK-Float/Fix
+- **State Machine** — Idle → Undock → NavToStart → Mähen → Dock → Laden, automatische Fehlerbehandlung
+- **Hindernisvermeidung** — Erkennung und automatische Umfahrung
+- **Missionsplanung** — mehrere Mähzonen pro Mission, Planer-Vorschau vor dem Start
+- **Perimeter & No-Go-Zonen** — flexibles Kartenformat mit Zonen, Hindernissen und Dock-Pfad
+- **Wetterpause** — automatisches Warten bei Regen
+- **Simulationsmodus** — volle Entwicklung und Tests ohne reale Hardware
 
-- Raspberry Pi
-- STM32-/Motorcontroller ueber UART
-- GPS-Empfaenger
-- passende `config.json`
-- passende `map.json`
+### Konnektivität & Update
+
+- **WebSocket-Telemetrie** — Echtzeit-Statusstream für Browser und App
+- **REST-API** — Karte, Missionen, Diagnose, History, OTA vollständig über HTTP
+- **OTA-Update** — sunray-core via App oder WebUI aktualisieren, kein SSH nötig
+- **Systemd-Integration** — Autostart, Watchdog, automatischer Neustart
+- **API-Token-Auth** — sichere Verbindung im Heimnetz
+
+---
+
+## WebUI — Alfred im Browser
+
+Die Svelte-WebUI läuft direkt auf dem Pi und ist über jeden Browser im Heimnetz erreichbar.
+
+### Seiten
+
+| Seite | Inhalt |
+|---|---|
+| **Dashboard** | Live-Telemetrie, Roboterstatus, Steuerung, aktuelle Mission |
+| **Karte** | Interaktiver Editor für Perimeter, Zonen, No-Go und Dock-Pfad |
+| **Missionen** | Mähzonen auswählen, Route-Vorschau, Start/Stop |
+| **Diagnose** | IMU-Panel, Motortest, Tick-Kalibrierung, Richtungsvalidierung, Sensorwerte |
+| **Verlauf** | Ereignishistorie, Mähstatistik |
+| **Einstellungen** | Konfiguration, OTA-Update |
+
+### Karteneditor
+
+- Perimeter, Zonen, No-Go-Zonen und Dock-Pfad direkt auf OpenStreetMap zeichnen
+- Punkte verschieben, einfügen, löschen
+- Sofortige Vorschau der Mähroute vor dem ersten Einsatz
+
+### Schnellstart WebUI
+
+```bash
+cd webui-svelte
+npm install
+npm run dev        # Entwicklung (Vite-Dev-Server mit Proxy)
+npm run build      # Produktions-Build → dist/
+```
+
+---
+
+## Alfred App — Android-Companion
+
+Die native Android-App (Flutter) verbindet sich per **mDNS-Discovery** automatisch mit Alfred im Heimnetz — kein IP-Konfigurieren nötig.
+
+### Features
+
+**Dashboard**
+- Verbindungsstatus, Akku, GPS-Qualität, aktiver Mähzustand
+- Checkliste: Verbunden / Perimeter vorhanden / Dock gesetzt / Mission bereit
+- Laufender Betrieb: Fortschrittsbalken, Phase, Missionname, Akku
+- Direktstart einer Mission mit einem Tap
+
+**Karte**
+- Live-Roboterposition auf OpenStreetMap — zentriert automatisch beim ersten GPS-Fix
+- "Roboter zentrieren"-Button jederzeit verfügbar
+- Perimeter, Zonen, No-Go und Dock-Pfad in der Übersicht
+
+**Karteneditor**
+- Perimeter, Zonen, No-Go-Zonen und Dock-Pfad anlegen und bearbeiten
+- **GPS-Recording**: aktuelle Roboterposition per Button als Punkt speichern — kein manuelles Tippen
+- Punkt-Counter und Echtzeit-Koordinatenanzeige während der Aufzeichnung
+
+**Missionen**
+- Missionen anlegen, benennen, Zonen zuweisen
+- **Zone-Tap**: Mähzone direkt auf der Karte antippen zum Hinzufügen/Entfernen
+- Mährouten-Vorschau vor dem Start
+- Wiederkehrende Missionen, Nur-Trocken, Akku-Schwellwert
+
+**Service**
+- **App-OTA**: Update direkt aus GitHub Releases laden und installieren
+- **Pi-OTA**: sunray-core-Update ohne SSH aufspielen und Neustart überwachen
+- **Diagnose**: Akkuspannung, Ladestatus, MCU-Verbindung, GPS-Qualität, Runtime-Health, Betriebszeit
+- **Logs**: Ereignishistorie live vom Roboter laden
+
+**Verbindung**
+- mDNS-Discovery — Alfred wird automatisch gefunden
+- Aktive Verbindungsüberwachung (Watchdog): erkennt stille TCP-Drops innerhalb von 10 Sekunden
+- Automatischer Wiederverbindungsversuch mit exponentiellem Backoff
+
+### App installieren
+
+Releases mit APK sind unter [GitHub Releases](https://github.com/Starsurfer78/sunray-core/releases) verfügbar.
+Die App prüft beim Start selbst auf neue Versionen und bietet direktes Update an.
+
+---
+
+## Hardware
+
+| Komponente | Details |
+|---|---|
+| Rechner | Raspberry Pi 4B |
+| Motorcontroller | STM32F103 (Alfred-Board) via UART |
+| GPS | RTK-fähiger Empfänger (z.B. u-blox) |
+| IMU | I2C (BNO055 o.ä.) |
+| Stromversorgung | LiPo 6S, Ladekontakt am Dock |
+
+---
 
 ## Schnellstart
 
@@ -99,164 +151,88 @@ git clone https://github.com/Starsurfer78/sunray-core.git
 cd sunray-core
 ```
 
-### Native bauen
+### Bauen (Linux / Raspberry Pi)
 
 ```bash
-cmake -S . -B build_pi
-cmake --build build_pi -j2
-ctest --test-dir build_pi --output-on-failure
-```
-
-### WebUI pruefen
-
-```bash
-cd webui-svelte
-npm install
-npm run check
-npm run build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure
 ```
 
 ### Simulation starten
 
 ```bash
-./build_pi/sunray-core --sim config.example.json
+./build/sunray-core --sim config.example.json
 ```
+
+WebUI dann unter `http://localhost:8765` erreichbar.
 
 ### Echter Roboter
 
 ```bash
-./build_pi/sunray-core /etc/sunray-core/config.json
+./build/sunray-core /etc/sunray-core/config.json
 ```
 
-## Installations- Und Hilfsskripte
-
-### `scripts/install_sunray.sh`
-
-Installiert Linux-Abhaengigkeiten, baut Core und WebUI, legt bei Bedarf Laufzeitdateien an und kann `systemd`-Autostart einrichten.
-
-Beispiele:
+### Installations-Skript (Pi)
 
 ```bash
-bash scripts/install_sunray.sh
-bash scripts/install_sunray.sh --sim
-bash scripts/install_sunray.sh --autostart yes
-bash scripts/install_sunray.sh --no-start
+bash scripts/install_sunray.sh              # Build + Start
+bash scripts/install_sunray.sh --autostart yes  # + Systemd-Autostart
 ```
 
-### `scripts/check_deploy_state.sh`
-
-Prueft read-only, ob Build-Artefakte, Runtime-Dateien, `sunray-core.service` und der dokumentierte `sunray`-Rollback-Anker sichtbar sind.
-
-Beispiel:
-
-```bash
-bash scripts/check_deploy_state.sh
-```
-
-Fuer den finalen Alfred-Umstieg ohne staendiges Zurueckwechseln:
-
-- [docs/ALFRED_PRODUCTION_SWITCHOVER.md](docs/ALFRED_PRODUCTION_SWITCHOVER.md)
-
-### `scripts/flash_alfred.sh`
-
-Baut und flasht die Alfred-STM32-Firmware ueber SWD/OpenOCD.
-
-Beispiele:
-
-```bash
-sudo bash scripts/flash_alfred.sh probe
-bash scripts/flash_alfred.sh build
-sudo bash scripts/flash_alfred.sh build-flash
-```
-
-Details stehen in [docs/ALFRED_FLASHING.md](docs/ALFRED_FLASHING.md).
+---
 
 ## Konfiguration
 
-Ausgangspunkt ist [config.example.json](config.example.json).
-Die Datei deckt jetzt die aktiven Alfred-Defaults fuer UART, I2C, Docking und Planner-Basisparameter explizit ab und ist damit die kanonische Repo-Basis fuer neue Runtime-Konfigurationen.
+Ausgangspunkt: [`config.example.json`](config.example.json)
 
-Wichtige Schluessel:
+Wichtigste Parameter:
 
-- `driver`
-- `driver_port`
-- `gps_port`
-- `api_token`
-- `map_path`
-- `mqtt_enabled`
-- `enable_mow_motor`
+| Key | Bedeutung |
+|---|---|
+| `driver` | `alfred` für echten Roboter, `sim` für Simulation |
+| `driver_port` | UART-Gerät des STM32 |
+| `gps_port` | UART-Gerät des GPS-Empfängers |
+| `api_token` | Zugangstoken für WebUI und App |
+| `map_path` | Pfad zur Karten-JSON-Datei |
+| `enable_mow_motor` | Mähmotor aktivieren (false für Tests) |
 
-Freigaberelevante Hinweise stehen in [docs/RELEASE_CONFIGURATION.md](docs/RELEASE_CONFIGURATION.md).
+---
 
-## Karte Und Mission
+## Repository-Struktur
 
-Der Core arbeitet mit einer JSON-Karte. Typische Inhalte:
-
-- `perimeter`
-- `mow`
-- `dock`
-- `exclusions`
-- `zones`
-- `captureMeta`
-
-Die Karte wird ueber die WebUI und `/api/map` bearbeitet.
-
-## WebUI
-
-Die aktive WebUI bietet:
-
-- Dashboard mit Live-Telemetrie
-- Karteneditor fuer Perimeter, Zonen, Docking und Hindernisse
-- Missionsansicht
-- Diagnose
-- Historie und Statistik
-- Simulator-Steuerung
-
-Weitere Frontend-Details stehen in [webui-svelte/README.md](webui-svelte/README.md).
-
-## API Und Telemetrie
-
-Der C++-Server liefert:
-
-- statische WebUI-Dateien
-- REST-Endpunkte fuer Config, Map, Missions, Schedule, Diagnose, History
-- WebSocket-Telemetrie
-- WebSocket-Kommandos wie `start`, `stop`, `dock`, `drive`, `startZones`
-
-Die wichtigsten Telemetriedaten umfassen unter anderem:
-
-- aktiven Op
-- Pose (`x`, `y`, `heading`)
-- GPS-Qualitaet
-- Akku
-- IMU
-- `ekf_health`
-- `state_phase`
-- `event_reason`
-- `error_code`
-
-## Entwicklungsworkflow
-
-Typischer lokaler Ablauf:
-
-```bash
-cmake -S . -B build_pi
-cmake --build build_pi -j2
-ctest --test-dir build_pi --output-on-failure
-
-cd webui-svelte
-npm install
-npm run check
-npm run build
+```
+sunray-core/
+├── core/            C++-Core: Robot, Ops, Navigation, API, WebSocket
+├── hal/             Hardware-Treiber (Alfred, Simulation, GPS)
+├── platform/        Linux-Plattformschicht (Serial, I2C)
+├── tests/           Catch2-Unit-Tests
+├── webui-svelte/    Svelte-WebUI (Dashboard, Karte, Diagnose, …)
+├── mobile-app/      Flutter Android-App
+├── scripts/         Install-, Deploy- und Flash-Skripte
+├── docs/            Technische Dokumentation
+├── config.example.json
+└── CMakeLists.txt
 ```
 
-## Bekannte Grenzen
+---
 
-- Belastbare Aussagen zu Hardwareverhalten brauchen echte Linux-/Pi-/Feldtests.
-- Bestehende Build-Artefakte im Repo sind nicht portabel und nicht autoritativ.
-- Themen wie RTK-Float-Grenzen und Watchdog-Koordination muessen am echten System verifiziert werden.
+## Voraussetzungen
 
-## Lizenz / Hinweise
+**Build (Linux/Pi):**
+- CMake ≥ 3.20
+- C++17-Compiler (GCC oder Clang)
+- Node.js ≥ 20 (für WebUI)
 
-Im Repository gibt es aktuell keine separat gepflegte Top-Level-Lizenzdatei.
-Vor breiterem Einsatz sollte die Lizenzlage explizit geklaert und dokumentiert werden.
+**App:**
+- Android 8.0+ (API 26)
+- APK aus Releases oder selbst mit Flutter bauen
+
+---
+
+## Herkunft & Lizenz
+
+Dieses Projekt baut auf [Ardumower/Sunray](https://github.com/Ardumower/Sunray) auf.
+sunray-core ist eine vollständige Linux-orientierte Neuarchitektur dieser Basis.
+
+Lizenzlage: vor breitem Einsatz bitte prüfen — aktuell keine separate Top-Level-Lizenzdatei gepflegt.

@@ -28,9 +28,12 @@ class RobotConnectionController {
 
   StreamSubscription<dynamic>? _telemetrySubscription;
   Timer? _reconnectTimer;
+  Timer? _telemetryWatchdog;
   SavedRobot? _connectedRobot;
   bool _manualDisconnect = false;
   int _reconnectAttempt = 0;
+
+  static const Duration _watchdogTimeout = Duration(seconds: 10);
 
   Future<RobotStatus> connect(
     SavedRobot robot, {
@@ -168,6 +171,8 @@ class RobotConnectionController {
   Future<void> disconnect() async {
     _manualDisconnect = true;
     _reconnectTimer?.cancel();
+    _telemetryWatchdog?.cancel();
+    _telemetryWatchdog = null;
     await _telemetrySubscription?.cancel();
     _telemetrySubscription = null;
     await _ws.disconnect();
@@ -235,6 +240,8 @@ class RobotConnectionController {
     SavedRobot robot,
     RobotStatus baseStatus,
   ) async {
+    _telemetryWatchdog?.cancel();
+    _telemetryWatchdog = null;
     await _telemetrySubscription?.cancel();
     await _ws.disconnect();
 
@@ -273,6 +280,20 @@ class RobotConnectionController {
     RobotStatus baseStatus,
     SavedRobot robot,
   ) {
+    // Reset watchdog on every packet received.
+    _telemetryWatchdog?.cancel();
+    _telemetryWatchdog = Timer(_watchdogTimeout, () {
+      if (_manualDisconnect) return;
+      final current = _ref.read(connectionStateProvider);
+      if (current.connectionState != ConnectionStateKind.connected) return;
+      _ref.read(connectionStateProvider.notifier).state = RobotStatus(
+        connectionState: ConnectionStateKind.disconnected,
+        robotName: robot.name,
+        lastError: 'Keine Daten seit ${_watchdogTimeout.inSeconds}s',
+      );
+      _scheduleReconnect();
+    });
+
     try {
       final dynamic decoded = event is String ? jsonDecode(event) : event;
       if (decoded is! Map<String, dynamic>) return;
@@ -288,6 +309,13 @@ class RobotConnectionController {
       final gpsLat = decoded['gps_lat'] as num?;
       final gpsLon = decoded['gps_lon'] as num?;
       final piVersion = decoded['pi_v'] as String?;
+      // Diagnose fields
+      final chargerConnected = decoded['charger_connected'] as bool?;
+      final mcuConnected = decoded['mcu_connected'] as bool?;
+      final mcuVersion = decoded['mcu_v'] as num?;
+      final runtimeHealth = decoded['runtime_health'] as bool?;
+      final uptimeSeconds = decoded['uptime_s'] as num?;
+      final mowFaultPin = decoded['mow_fault_pin'] as bool?;
 
       _ref.read(connectionStateProvider.notifier).state = RobotStatus(
         connectionState: ConnectionStateKind.connected,
@@ -301,6 +329,13 @@ class RobotConnectionController {
         gpsLat: gpsLat?.toDouble(),
         gpsLon: gpsLon?.toDouble(),
         piVersion: piVersion ?? baseStatus.piVersion,
+        batteryVoltage: batteryVoltage?.toDouble(),
+        chargerConnected: chargerConnected,
+        mcuConnected: mcuConnected,
+        mcuVersion: mcuVersion?.toDouble(),
+        runtimeHealth: runtimeHealth,
+        uptimeSeconds: uptimeSeconds?.toInt(),
+        mowFaultActive: mowFaultPin,
       );
       _reconnectAttempt = 0;
     } catch (_) {

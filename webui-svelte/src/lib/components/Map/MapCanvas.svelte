@@ -677,7 +677,7 @@
             stroke-linejoin="round"
             role="button"
             tabindex="-1"
-            aria-label={`NoGo ${exclusionIndex + 1} auswaehlen`}
+            aria-label={`NoGo ${exclusionIndex + 1} auswählen`}
             on:click|stopPropagation={() => selectExclusionArea(exclusionIndex)}
           />
         {/if}
@@ -694,7 +694,7 @@
           <g
             role="button"
             tabindex="-1"
-            aria-label={`NoGo ${exclusionIndex + 1} auswaehlen`}
+            aria-label={`NoGo ${exclusionIndex + 1} auswählen`}
             on:click|stopPropagation={() => selectExclusionArea(exclusionIndex)}
           >
             <rect

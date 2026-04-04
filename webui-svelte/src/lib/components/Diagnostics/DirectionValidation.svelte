@@ -22,20 +22,20 @@
       })
 
       if (!result.ok) {
-        diagnostics.fail(result.error ?? 'Richtungspruefung fehlgeschlagen')
+        diagnostics.fail(result.error ?? 'Richtungsprüfung fehlgeschlagen')
         return
       }
 
       hasPulseResult = true
       diagnostics.success(result)
     } catch (error) {
-      diagnostics.fail(error instanceof Error ? error.message : 'Richtungspruefung fehlgeschlagen')
+      diagnostics.fail(error instanceof Error ? error.message : 'Richtungsprüfung fehlgeschlagen')
     }
   }
 
   async function saveDirection(isCorrectForward: boolean) {
     if (!hasPulseResult) {
-      diagnostics.fail('Erst einen Vorwaertsimpuls ausfuehren und die Richtung beobachten')
+      diagnostics.fail('Erst einen Vorwärtsimpuls ausführen und die Richtung beobachten')
       return
     }
     diagnostics.start(`config:invert:${selectedWheel}`)
@@ -52,7 +52,7 @@
       }
 
       lastDecision = isCorrectForward
-        ? `${selectedWheel} vorwaerts ist korrekt`
+        ? `${selectedWheel} vorwärts ist korrekt`
         : `${selectedWheel} wird invertiert`
       hasPulseResult = false
       diagnostics.success({ ok: true, message: lastDecision })
@@ -66,7 +66,7 @@
   <header>
     <h2>Richtungsvalidierung</h2>
     <p>
-      Ein kurzer Vorwaertsimpuls prueft die Drehrichtung. Falls das Rad falsch
+      Ein kurzer Vorwärtsimpuls prüft die Drehrichtung. Falls das Rad falsch
       herum laeuft, wird der passende Invert-Wert gespeichert.
     </p>
   </header>
@@ -91,7 +91,7 @@
     </label>
 
     <button type="button" class="pulse-button" disabled={$diagnostics.busy} on:click={pulseForward}>
-      {$diagnostics.activeAction?.startsWith('direction:') ? 'Teste ...' : 'Vorwaertsimpuls geben'}
+      {$diagnostics.activeAction?.startsWith('direction:') ? 'Teste ...' : 'Vorwärtsimpuls geben'}
     </button>
   </div>
 
@@ -108,7 +108,7 @@
     {#if lastDecision}
       <strong>{lastDecision}</strong>
     {:else}
-      <span>Nach dem kurzen Vorwaertsimpuls manuell bestaetigen, ob die Richtung stimmt.</span>
+      <span>Nach dem kurzen Vorwärtsimpuls manuell bestätigen, ob die Richtung stimmt.</span>
     {/if}
   </div>
 </section>

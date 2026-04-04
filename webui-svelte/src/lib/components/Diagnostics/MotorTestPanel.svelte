@@ -74,12 +74,12 @@
     try {
       const result = await setMowMotor(on)
       if (!result.ok) {
-        diagnostics.fail(result.error ?? 'Maehmotor-Test fehlgeschlagen')
+        diagnostics.fail(result.error ?? 'Mähmotor-Test fehlgeschlagen')
         return
       }
       diagnostics.success(result)
     } catch (error) {
-      diagnostics.fail(error instanceof Error ? error.message : 'Maehmotor-Test fehlgeschlagen')
+      diagnostics.fail(error instanceof Error ? error.message : 'Mähmotor-Test fehlgeschlagen')
     }
   }
 </script>
@@ -87,13 +87,13 @@
 <section class="panel">
   <header>
     <h2>Motor- und Fahrtests</h2>
-    <p>Direkte Service-Tests fuer Einzelmotoren, 3-Meter-Fahrt und definierte Drehungen.</p>
+    <p>Direkte Service-Tests für Einzelmotoren, 3-Meter-Fahrt und definierte Drehungen.</p>
   </header>
 
   <div class="block">
     <div class="block-header">
       <strong>Einzelmotor</strong>
-      <span>Radmotoren und Maehmotor separat pruefen.</span>
+      <span>Radmotoren und Mähmotor separat prüfen.</span>
     </div>
 
     <div class="settings">
@@ -114,16 +114,16 @@
     <div class="actions">
       <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('left')}>Linkes Rad</button>
       <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('right')}>Rechtes Rad</button>
-      <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('mow')}>Maehmotor PWM</button>
-      <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(true)}>Maehmotor EIN</button>
-      <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(false)}>Maehmotor AUS</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => runMotor('mow')}>Mähmotor PWM</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(true)}>Mähmotor EIN</button>
+      <button type="button" disabled={$diagnostics.busy} on:click={() => toggleMowMotor(false)}>Mähmotor AUS</button>
     </div>
   </div>
 
   <div class="block">
     <div class="block-header">
       <strong>Streckentest</strong>
-      <span>Geradeausfahrt ueber Tick-Ziel, um Strecke und Ticks gegenzupruefen.</span>
+      <span>Geradeausfahrt über Tick-Ziel, um Strecke und Ticks gegenzuprüfen.</span>
     </div>
 
     <div class="settings">
@@ -147,7 +147,7 @@
   <div class="block">
     <div class="block-header">
       <strong>Drehtest</strong>
-      <span>In-Place-Drehung fuer 90 / 180 / 360 Grad.</span>
+      <span>In-Place-Drehung für 90 / 180 / 360 Grad.</span>
     </div>
 
     <div class="settings">

@@ -18,7 +18,7 @@
 <section class="panel">
   <header>
     <h2>Sensoren live</h2>
-    <p>Direkte Rueckmeldung fuer Bumper, Lift, Motorstatus und Diagnosebetrieb.</p>
+    <p>Direkte Rückmeldung für Bumper, Lift, Motorstatus und Diagnosebetrieb.</p>
   </header>
 
   <div class="grid">

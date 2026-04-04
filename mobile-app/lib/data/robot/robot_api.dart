@@ -117,4 +117,17 @@ class RobotApi {
     );
     return response.data ?? <String, dynamic>{};
   }
+
+  Future<List<dynamic>> getHistoryEvents({
+    required String host,
+    int port = AppConstants.defaultRobotPort,
+    int limit = 30,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '${baseUrl(host: host, port: port)}/api/history/events',
+      queryParameters: <String, dynamic>{'limit': limit},
+    );
+    final data = response.data ?? <String, dynamic>{};
+    return data['events'] as List<dynamic>? ?? <dynamic>[];
+  }
 }

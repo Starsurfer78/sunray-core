@@ -24,7 +24,7 @@
 <section class="panel">
   <header>
     <h2>Zonenwahl</h2>
-    <p>Waehl aus, welche Zonen der Roboter als naechstes maehen soll.</p>
+    <p>Wähl aus, welche Zonen der Roboter als nächstes mähen soll.</p>
   </header>
 
   <div class="toolbar">

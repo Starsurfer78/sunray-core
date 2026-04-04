@@ -34,7 +34,7 @@
 <section class="panel">
   <header>
     <h2>Mission</h2>
-    <p>Startet eine Vollflaeche oder nur die aktuell gewaehlten Zonen.</p>
+    <p>Startet eine Vollflaeche oder nur die aktuell gewählten Zonen.</p>
   </header>
 
   <div class="actions">
@@ -42,7 +42,7 @@
       Mission starten
     </button>
     <button type="button" on:click={startSelected} disabled={!$connection.connected || selectedZoneIds.length === 0}>
-      Gewaehlte Zonen maehen
+      Gewählte Zonen mähen
     </button>
     <button type="button" on:click={startAll} disabled={!$connection.connected || zones.length === 0}>
       Alle Zonen / Standardstart

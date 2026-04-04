@@ -24,7 +24,7 @@
 
   <div class="actions">
     <button type="button" class:active={$mapStore.selectedTool === 'perimeter'} on:click={activateTool}>Perimeter aktivieren</button>
-    <button type="button" on:click={removeLastPoint}>Letzten Punkt loeschen</button>
+    <button type="button" on:click={removeLastPoint}>Letzten Punkt löschen</button>
     <button type="button" on:click={clearPerimeter}>Perimeter leeren</button>
   </div>
 

@@ -453,7 +453,7 @@
             disabled={selectedMissionZones.length === 0}
           >
             <option value="" disabled={selectedMissionZones.length > 0}>
-              {selectedMissionZones.length > 0 ? "Zone auswaehlen" : "Keine Zone in dieser Mission"}
+              {selectedMissionZones.length > 0 ? "Zone auswählen" : "Keine Zone in dieser Mission"}
             </option>
             {#each selectedMissionZones as zone}
               <option value={zone.id}>{zone.settings.name}</option>
@@ -475,7 +475,7 @@
             />
           {:else}
             <div class="ms-zone-empty">
-              Waehle oben eine Zone aus, um Bahnen und Parameter zu bearbeiten.
+              Wähle oben eine Zone aus, um Bahnen und Parameter zu bearbeiten.
             </div>
           {/if}
         {/if}

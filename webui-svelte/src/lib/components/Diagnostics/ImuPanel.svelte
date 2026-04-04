@@ -21,7 +21,7 @@
 <section class="panel">
   <header>
     <h2>IMU</h2>
-    <p>Heading, Roll und Pitch sowie ein direkter Kalibrier-Start fuer V1.</p>
+    <p>Heading, Roll und Pitch sowie ein direkter Kalibrier-Start für V1.</p>
   </header>
 
   <div class="values">

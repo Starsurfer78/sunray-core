@@ -95,8 +95,8 @@
   <header>
     <h2>Tick-Kalibrierung</h2>
     <p>
-      Das gewaehlte Rad dreht sich genau 1x. Die gemessenen Encoder-Ticks werden
-      angezeigt und koennen als <code>ticks_per_revolution</code> gespeichert werden.
+      Das gewählte Rad dreht sich genau 1x. Die gemessenen Encoder-Ticks werden
+      angezeigt und können als <code>ticks_per_revolution</code> gespeichert werden.
     </p>
   </header>
 

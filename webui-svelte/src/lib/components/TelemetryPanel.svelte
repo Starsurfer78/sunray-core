@@ -7,7 +7,7 @@
 <section class="panel">
   <header>
     <h2>Live-Telemetrie</h2>
-    <p>Kompakte Betriebsdaten fuer Status, Sensoren und Lage.</p>
+    <p>Kompakte Betriebsdaten für Status, Sensoren und Lage.</p>
   </header>
 
   <div class="grid">

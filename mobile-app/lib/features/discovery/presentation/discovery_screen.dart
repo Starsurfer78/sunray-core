@@ -332,7 +332,7 @@ class _ActiveRobotCard extends StatelessWidget {
             ),
             FilledButton.tonal(
               onPressed: onSwitchRobot,
-              child: const Text('Anderen waehlen'),
+              child: const Text('Anderen wählen'),
             ),
           ],
         ),

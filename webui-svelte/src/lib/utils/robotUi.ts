@@ -84,7 +84,7 @@ export function getPreflightChecks(
       ok: fresh,
       value: fresh ? "Stabil" : connection.connected ? "Veraltet" : "Getrennt",
       hint: fresh
-        ? "Live-Telemetrie ist verfuegbar"
+        ? "Live-Telemetrie ist verfügbar"
         : "Verbindung oder frische Telemetrie fehlt",
     },
     {
@@ -159,7 +159,7 @@ export function getPrimaryNotice(
       tone: "warning",
       title: "Verbindung unterbrochen",
       detail: "Der Roboter sendet gerade keine Live-Daten.",
-      action: "WLAN und Stromversorgung pruefen, dann Telemetrie abwarten.",
+      action: "WLAN und Stromversorgung prüfen, dann Telemetrie abwarten.",
     };
   }
 
@@ -178,7 +178,7 @@ export function getPrimaryNotice(
       tone: "error",
       title: "Sicherheitsblocker aktiv",
       detail: "Lift, Bumper oder Mähmotorfehler verhindern den normalen Betrieb.",
-      action: "Roboter freistellen, Sensoren pruefen und erst danach neu starten.",
+      action: "Roboter freistellen, Sensoren prüfen und erst danach neu starten.",
     };
   }
 
@@ -196,7 +196,7 @@ export function getPrimaryNotice(
       tone: "warning",
       title: "Wetterpause",
       detail: "Der Betrieb ist wegen Regen oder Regenlogik pausiert.",
-      action: "Abtrocknen lassen oder spaeter erneut starten.",
+      action: "Abtrocknen lassen oder später erneut starten.",
     };
   }
 
@@ -214,7 +214,7 @@ export function getPrimaryNotice(
       tone: "info",
       title: "Roboter laedt",
       detail: "Der Roboter steht an der Station und laedt.",
-      action: "Fuer einen Mähstart erst abdocken oder Start ausloesen.",
+      action: "Für einen Mähstart erst abdocken oder Start auslösen.",
     };
   }
 
@@ -231,7 +231,7 @@ export function getPrimaryNotice(
     tone: "success",
     title: "Startfreigabe erteilt",
     detail: "GPS, Akku, Karte, Dock und Verbindung wirken betriebsbereit.",
-    action: "Mission starten oder per Knopfdruck am Roboter ausloesen.",
+    action: "Mission starten oder per Knopfdruck am Roboter auslösen.",
   };
 }
 
@@ -249,7 +249,7 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
       tone: "warning",
       title: "GpsWait",
       detail: "RTK-/GPS-Signal fehlt oder ist unbrauchbar.",
-      action: "Standort nicht veraendern und auf stabiles Signal warten.",
+      action: "Standort nicht verändern und auf stabiles Signal warten.",
     };
   }
   if (telemetry.op === "WaitRain" || telemetry.state_phase === "waiting_rain") {
@@ -257,14 +257,14 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
       tone: "warning",
       title: "WaitRain",
       detail: "Regen oder Regenlogik blockiert den Mähbetrieb.",
-      action: "Trockenphase abwarten oder spaeter erneut starten.",
+      action: "Trockenphase abwarten oder später erneut starten.",
     };
   }
   if (telemetry.op === "Dock") {
     return {
       tone: "info",
       title: "Dock",
-      detail: "Der Roboter kehrt zur Ladestation zurueck.",
+      detail: "Der Roboter kehrt zur Ladestation zurück.",
       action: "Fahrweg freihalten und Docking beobachten.",
     };
   }
@@ -273,7 +273,7 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
       tone: "info",
       title: "Charge",
       detail: "Der Roboter ist an der Ladestation und laedt.",
-      action: "Fuer neue Aufgaben Akku und Plan pruefen.",
+      action: "Für neue Aufgaben Akku und Plan prüfen.",
     };
   }
   return {

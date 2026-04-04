@@ -19,7 +19,7 @@
 
   <div class="actions">
     <button type="button" class:active={$mapStore.selectedTool === 'dock'} on:click={activateTool}>Dock aktivieren</button>
-    <button type="button" on:click={clearDock}>Dock loeschen</button>
+    <button type="button" on:click={clearDock}>Dock löschen</button>
   </div>
 
   <div class="meta">

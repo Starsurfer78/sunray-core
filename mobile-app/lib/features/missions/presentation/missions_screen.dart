@@ -76,6 +76,31 @@ class MissionsScreen extends ConsumerWidget {
                           selectedZoneIds: selectedMission?.zoneIds ?? const <String>[],
                           interactive: true,
                           previewRoutePoints: previewPoints,
+                          onZoneTap: selectedMission == null
+                              ? null
+                              : (zoneId) {
+                                  final mission = selectedMission!;
+                                  final nextZoneIds = <String>[...mission.zoneIds];
+                                  if (nextZoneIds.contains(zoneId)) {
+                                    nextZoneIds.remove(zoneId);
+                                  } else {
+                                    nextZoneIds.add(zoneId);
+                                  }
+                                  final nextZoneNames = map.zones
+                                      .where((z) => nextZoneIds.contains(z.id))
+                                      .map((z) => z.name)
+                                      .toList(growable: false);
+                                  final updated = mission.copyWith(
+                                    zoneIds: nextZoneIds,
+                                    zoneNames: nextZoneNames,
+                                  );
+                                  final missions = ref.read(missionsProvider);
+                                  final next = missions
+                                      .map((m) => m.id == updated.id ? updated : m)
+                                      .toList(growable: false);
+                                  ref.read(missionsProvider.notifier).state = next;
+                                  ref.read(appStateStorageProvider).saveMissions(next);
+                                },
                         ),
                 ),
               ),

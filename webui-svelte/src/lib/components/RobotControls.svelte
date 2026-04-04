@@ -191,7 +191,7 @@
   </div>
 
   {#if !$connection.connected}
-    <div class="hint hint-warning">Steuerung erst nach Verbindungsaufbau verfuegbar.</div>
+    <div class="hint hint-warning">Steuerung erst nach Verbindungsaufbau verfügbar.</div>
   {:else if !startAllowed && startHint}
     <div class="hint hint-warning">{startHint}</div>
   {/if}

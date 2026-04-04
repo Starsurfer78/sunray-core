@@ -8,7 +8,7 @@ import '../../domain/map/map_geometry.dart';
 import '../../domain/robot/robot_status.dart';
 import '../../features/map_editor/models/map_editor_state.dart';
 
-class RobotMapView extends StatelessWidget {
+class RobotMapView extends StatefulWidget {
   const RobotMapView({
     required this.map,
     this.status,
@@ -26,6 +26,8 @@ class RobotMapView extends StatelessWidget {
     this.showDock = true,
     this.highlightActiveZoneId,
     this.previewRoutePoints = const <MapPoint>[],
+    this.showCenterButton = false,
+    this.onZoneTap,
     super.key,
   });
 
@@ -45,6 +47,64 @@ class RobotMapView extends StatelessWidget {
   final bool showDock;
   final String? highlightActiveZoneId;
   final List<MapPoint> previewRoutePoints;
+  final bool showCenterButton;
+  final void Function(String zoneId)? onZoneTap;
+
+  @override
+  State<RobotMapView> createState() => _RobotMapViewState();
+}
+
+class _RobotMapViewState extends State<RobotMapView> {
+  late final MapController _mapController;
+  bool _hasAutoCentered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    // Auto-center if GPS is already available when widget is first shown.
+    if (widget.status?.gpsLat != null && widget.status?.gpsLon != null) {
+      _hasAutoCentered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _mapController.move(
+          LatLng(widget.status!.gpsLat!, widget.status!.gpsLon!),
+          19,
+        );
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(RobotMapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // First time GPS arrives: auto-center the camera.
+    if (!_hasAutoCentered &&
+        widget.status?.gpsLat != null &&
+        widget.status?.gpsLon != null) {
+      _hasAutoCentered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _mapController.move(
+          LatLng(widget.status!.gpsLat!, widget.status!.gpsLon!),
+          19,
+        );
+      });
+    }
+  }
+
+  void _centerOnRobot() {
+    final lat = widget.status?.gpsLat;
+    final lon = widget.status?.gpsLon;
+    if (lat == null || lon == null) return;
+    _mapController.move(LatLng(lat, lon), 19);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,190 +119,251 @@ class RobotMapView extends StatelessWidget {
             initialZoom: _zoomForBounds(bounds),
           );
 
-    return FlutterMap(
-      options: MapOptions(
-        initialCenter: camera.initialCenter,
-        initialZoom: camera.initialZoom,
-        interactionOptions: InteractionOptions(
-          flags: interactive
-              ? InteractiveFlag.all
-              : InteractiveFlag.none,
-        ),
-        onTap: onMapTap == null
-            ? null
-            : (tapPosition, latLng) {
-                onMapTap!.call(MapPoint(x: latLng.longitude, y: latLng.latitude));
-              },
-      ),
+    final hasRobot = widget.status?.gpsLat != null && widget.status?.gpsLon != null;
+
+    return Stack(
       children: <Widget>[
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'sunray.mobile',
-          maxZoom: 21,
-        ),
-        if (showPerimeter && map.perimeter.length >= 2)
-          PolylineLayer(
-            polylines: <Polyline<Object>>[
-              Polyline<Object>(
-                points: _closed(map.perimeter),
-                color: const Color(0xFF22C55E),
-                strokeWidth: 3,
-              ),
-            ],
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: camera.initialCenter,
+            initialZoom: camera.initialZoom,
+            interactionOptions: InteractionOptions(
+              flags: widget.interactive
+                  ? InteractiveFlag.all
+                  : InteractiveFlag.none,
+            ),
+            onTap: (widget.onMapTap == null && widget.onZoneTap == null)
+                ? null
+                : (tapPosition, latLng) {
+                    if (widget.onZoneTap != null) {
+                      final zoneId = _findZoneAtPoint(latLng);
+                      if (zoneId != null) {
+                        widget.onZoneTap!.call(zoneId);
+                        return;
+                      }
+                    }
+                    widget.onMapTap
+                        ?.call(MapPoint(x: latLng.longitude, y: latLng.latitude));
+                  },
           ),
-        if (showPerimeter && map.perimeter.length >= 3)
-          PolygonLayer(
-            polygons: <Polygon<Object>>[
-              Polygon<Object>(
-                points: _points(map.perimeter),
-                color: const Color(0x1F22C55E),
-                borderColor: const Color(0xFF22C55E),
-                borderStrokeWidth: 2,
-              ),
-            ],
-          ),
-        if (showZones)
-          PolygonLayer(
-            polygons: map.zones
-                .where((zone) => zone.points.length >= 3)
-                .map(
-                  (zone) => Polygon<Object>(
-                    points: _points(zone.points),
-                    color: _zoneFill(zone.id),
-                    borderColor: _zoneBorder(zone.id),
-                    borderStrokeWidth: zone.id == highlightActiveZoneId ? 3 : 2,
+          children: <Widget>[
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'sunray.mobile',
+              maxZoom: 21,
+            ),
+            if (widget.showPerimeter && widget.map.perimeter.length >= 2)
+              PolylineLayer(
+                polylines: <Polyline<Object>>[
+                  Polyline<Object>(
+                    points: _closed(widget.map.perimeter),
+                    color: const Color(0xFF22C55E),
+                    strokeWidth: 3,
                   ),
-                )
-                .toList(growable: false),
-          ),
-        if (showNoGo)
-          PolygonLayer(
-            polygons: map.noGoZones
-                .where((polygon) => polygon.length >= 3)
-                .map(
-                  (polygon) => Polygon<Object>(
-                    points: _points(polygon),
-                    color: const Color(0x22EF4444),
-                    borderColor: const Color(0xFFF87171),
+                ],
+              ),
+            if (widget.showPerimeter && widget.map.perimeter.length >= 3)
+              PolygonLayer(
+                polygons: <Polygon<Object>>[
+                  Polygon<Object>(
+                    points: _points(widget.map.perimeter),
+                    color: const Color(0x1F22C55E),
+                    borderColor: const Color(0xFF22C55E),
                     borderStrokeWidth: 2,
                   ),
-                )
-                .toList(growable: false),
-          ),
-        if (showDock && map.dock.length >= 2)
-          PolylineLayer(
-            polylines: <Polyline<Object>>[
-              Polyline<Object>(
-                points: _points(map.dock),
-                color: const Color(0xFFF59E0B),
-                strokeWidth: 3,
+                ],
               ),
-            ],
-          ),
-        if (previewRoutePoints.length >= 2)
-          PolylineLayer(
-            polylines: <Polyline<Object>>[
-              Polyline<Object>(
-                points: _points(previewRoutePoints),
-                color: const Color(0xFFFACC15),
-                strokeWidth: 3.5,
+            if (widget.showZones)
+              PolygonLayer(
+                polygons: widget.map.zones
+                    .where((zone) => zone.points.length >= 3)
+                    .map(
+                      (zone) => Polygon<Object>(
+                        points: _points(zone.points),
+                        color: _zoneFill(zone.id),
+                        borderColor: _zoneBorder(zone.id),
+                        borderStrokeWidth:
+                            zone.id == widget.highlightActiveZoneId ? 3 : 2,
+                      ),
+                    )
+                    .toList(growable: false),
               ),
-            ],
-          ),
-        if (segmentPoints.isNotEmpty)
-          MarkerLayer(
-            markers: segmentPoints
-                .map(
-                  (segment) => Marker(
-                    point: _latLng(segment.point),
-                    width: 20,
-                    height: 20,
-                    child: GestureDetector(
-                      onTap: () => onSegmentTap?.call(segment.insertIndex),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF93C5FD)),
+            if (widget.showNoGo)
+              PolygonLayer(
+                polygons: widget.map.noGoZones
+                    .where((polygon) => polygon.length >= 3)
+                    .map(
+                      (polygon) => Polygon<Object>(
+                        points: _points(polygon),
+                        color: const Color(0x22EF4444),
+                        borderColor: const Color(0xFFF87171),
+                        borderStrokeWidth: 2,
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            if (widget.showDock && widget.map.dock.length >= 2)
+              PolylineLayer(
+                polylines: <Polyline<Object>>[
+                  Polyline<Object>(
+                    points: _points(widget.map.dock),
+                    color: const Color(0xFFF59E0B),
+                    strokeWidth: 3,
+                  ),
+                ],
+              ),
+            if (widget.previewRoutePoints.length >= 2)
+              PolylineLayer(
+                polylines: <Polyline<Object>>[
+                  Polyline<Object>(
+                    points: _points(widget.previewRoutePoints),
+                    color: const Color(0xFFFACC15),
+                    strokeWidth: 3.5,
+                  ),
+                ],
+              ),
+            if (widget.segmentPoints.isNotEmpty)
+              MarkerLayer(
+                markers: widget.segmentPoints
+                    .map(
+                      (segment) => Marker(
+                        point: _latLng(segment.point),
+                        width: 20,
+                        height: 20,
+                        child: GestureDetector(
+                          onTap: () =>
+                              widget.onSegmentTap?.call(segment.insertIndex),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF93C5FD)),
+                            ),
+                            child: const Icon(Icons.add,
+                                size: 14, color: Color(0xFF93C5FD)),
+                          ),
                         ),
-                        child: const Icon(Icons.add, size: 14, color: Color(0xFF93C5FD)),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            if (widget.activePoints.isNotEmpty)
+              MarkerLayer(
+                markers: widget.activePoints
+                    .asMap()
+                    .entries
+                    .map(
+                      (entry) => Marker(
+                        point: _latLng(entry.value),
+                        width: 24,
+                        height: 24,
+                        child: GestureDetector(
+                          onTap: () => widget.onPointTap?.call(entry.key),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: entry.key == widget.selectedPointIndex
+                                  ? const Color(0xFFF59E0B)
+                                  : const Color(0xFF2563EB),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            if (hasRobot)
+              MarkerLayer(
+                markers: <Marker>[
+                  Marker(
+                    point: LatLng(
+                        widget.status!.gpsLat!, widget.status!.gpsLon!),
+                    width: 34,
+                    height: 34,
+                    child: Transform.rotate(
+                      angle: widget.status!.heading ?? 0,
+                      child: const Icon(
+                        Icons.navigation_rounded,
+                        color: Color(0xFFFACC15),
+                        size: 28,
                       ),
                     ),
                   ),
-                )
-                .toList(growable: false),
-          ),
-        if (activePoints.isNotEmpty)
-          MarkerLayer(
-            markers: activePoints
-                .asMap()
-                .entries
-                .map(
-                  (entry) => Marker(
-                    point: _latLng(entry.value),
-                    width: 24,
-                    height: 24,
-                    child: GestureDetector(
-                      onTap: () => onPointTap?.call(entry.key),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: entry.key == selectedPointIndex
-                              ? const Color(0xFFF59E0B)
-                              : const Color(0xFF2563EB),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        if (status?.gpsLat != null && status?.gpsLon != null)
-          MarkerLayer(
-            markers: <Marker>[
-              Marker(
-                point: LatLng(status!.gpsLat!, status!.gpsLon!),
-                width: 34,
-                height: 34,
-                child: Transform.rotate(
-                  angle: status!.heading ?? 0,
-                  child: const Icon(
-                    Icons.navigation_rounded,
-                    color: Color(0xFFFACC15),
-                    size: 28,
-                  ),
-                ),
+                ],
               ),
-            ],
+          ],
+        ),
+        if (widget.showCenterButton && hasRobot)
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton.small(
+              heroTag: 'center_robot',
+              onPressed: _centerOnRobot,
+              tooltip: 'Roboter zentrieren',
+              backgroundColor: const Color(0xFF1E3A5F),
+              child: const Icon(Icons.my_location_rounded),
+            ),
           ),
       ],
     );
   }
 
+  String? _findZoneAtPoint(LatLng latLng) {
+    for (final zone in widget.map.zones) {
+      if (zone.points.length >= 3 &&
+          _pointInPolygon(latLng, zone.points)) {
+        return zone.id;
+      }
+    }
+    return null;
+  }
+
+  bool _pointInPolygon(LatLng point, List<MapPoint> polygon) {
+    bool inside = false;
+    final px = point.longitude;
+    final py = point.latitude;
+    final n = polygon.length;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+      final xi = polygon[i].x;
+      final yi = polygon[i].y;
+      final xj = polygon[j].x;
+      final yj = polygon[j].y;
+      if (((yi > py) != (yj > py)) &&
+          (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
   Color _zoneFill(String zoneId) {
-    if (zoneId == highlightActiveZoneId) return const Color(0x3B8B5CF6);
-    if (selectedZoneIds.contains(zoneId)) return const Color(0x268B5CF6);
+    if (zoneId == widget.highlightActiveZoneId) return const Color(0x3B8B5CF6);
+    if (widget.selectedZoneIds.contains(zoneId)) return const Color(0x268B5CF6);
     return const Color(0x182563EB);
   }
 
   Color _zoneBorder(String zoneId) {
-    if (zoneId == highlightActiveZoneId) return const Color(0xFFA78BFA);
-    if (selectedZoneIds.contains(zoneId)) return const Color(0xFF60A5FA);
+    if (zoneId == widget.highlightActiveZoneId) return const Color(0xFFA78BFA);
+    if (widget.selectedZoneIds.contains(zoneId)) return const Color(0xFF60A5FA);
     return const Color(0xFF3B82F6);
   }
 
   LatLngBounds? _computeBounds() {
     final allPoints = <MapPoint>[
-      if (showPerimeter) ...map.perimeter,
-      if (showDock) ...map.dock,
-      if (showNoGo) for (final polygon in map.noGoZones) ...polygon,
-      if (showZones) for (final zone in map.zones) ...zone.points,
-      ...activePoints,
-      ...segmentPoints.map((segment) => segment.point),
-      if (status?.gpsLat != null && status?.gpsLon != null)
-        MapPoint(x: status!.gpsLon!, y: status!.gpsLat!),
-      ...previewRoutePoints,
+      if (widget.showPerimeter) ...widget.map.perimeter,
+      if (widget.showDock) ...widget.map.dock,
+      if (widget.showNoGo)
+        for (final polygon in widget.map.noGoZones) ...polygon,
+      if (widget.showZones)
+        for (final zone in widget.map.zones) ...zone.points,
+      ...widget.activePoints,
+      ...widget.segmentPoints.map((segment) => segment.point),
+      if (widget.status?.gpsLat != null && widget.status?.gpsLon != null)
+        MapPoint(x: widget.status!.gpsLon!, y: widget.status!.gpsLat!),
+      ...widget.previewRoutePoints,
     ];
     if (allPoints.isEmpty) return null;
     final lats = allPoints.map((point) => point.y);

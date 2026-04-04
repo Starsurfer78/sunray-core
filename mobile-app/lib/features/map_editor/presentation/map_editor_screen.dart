@@ -159,6 +159,7 @@ class MapEditorScreen extends ConsumerWidget {
                         highlightActiveZoneId: editorState.activeObject == EditableMapObjectType.zone
                             ? editorState.activeZoneId
                             : null,
+                        showCenterButton: editorState.mode == MapEditorMode.view,
                       ),
                     ),
                   ),

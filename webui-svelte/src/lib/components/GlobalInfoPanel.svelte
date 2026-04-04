@@ -146,7 +146,7 @@
             class:active={$mappingTestMode}
             on:click={() => mappingTestMode.update((v) => !v)}
           >
-            {$mappingTestMode ? "Testmodus aktiv" : "Testmodus fuer Mauspunkte"}
+            {$mappingTestMode ? "Testmodus aktiv" : "Testmodus für Mauspunkte"}
           </button>
         {/if}
       </div>
