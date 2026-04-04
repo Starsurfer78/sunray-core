@@ -111,19 +111,26 @@ bool SerialRobotDriver::init() {
     const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
     if (mux_) {
         const int ch = config_->get<int>("imu_mux_channel", 4);
-        if (logger_) logger_->info("SRD", "selecting IMU mux channel " + std::to_string(ch));
+        if (logger_) {
+            std::ostringstream ss;
+            ss << "selecting IMU mux channel " << ch << " (addr=" << std::hex << (int)imuAddr << std::dec << ")";
+            logger_->info("SRD", ss.str());
+        }
         mux_->selectChannel(static_cast<uint8_t>(ch));
     }
     imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, imuAddr);
     bool imuOk = imu_->init();
     if (!imuOk && imuAddr != 0x68) {
-        if (logger_) logger_->warn("SRD", "IMU at 0x" + std::to_string(imuAddr) + " failed, trying 0x68");
+        if (logger_) {
+            std::ostringstream ss;
+            ss << "IMU at 0x" << std::hex << (int)imuAddr << std::dec << " failed, trying 0x68";
+            logger_->warn("SRD", ss.str());
+        }
         imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, 0x68);
         imuOk = imu_->init();
     }
     if (!imuOk) {
-        if (logger_) logger_->error("SRD", "IMU init failed (maybe not connected to /dev/i2c-1 or mux channel wrong?)");
-        // Do not return false — robot can drive without IMU (GPS+Odo only)
+        if (logger_) logger_->error("SRD", "IMU init failed (check wiring/mux channel/config)");
     }
 
     // ── Panel LEDs — startup sequence ─────────────────────────────────────────
@@ -307,9 +314,10 @@ OdometryData SerialRobotDriver::readOdometry() {
     const long dMow   = static_cast<long>(rawTicksMow_)   - static_cast<long>(lastTicksMow_);
 
     // Sanity clamp: >1000 ticks in one cycle (20 ms) is physically impossible
-    data.leftTicks  = (dLeft  >= 0 && dLeft  <= 1000) ? static_cast<int>(dLeft)  : 0;
-    data.rightTicks = (dRight >= 0 && dRight <= 1000) ? static_cast<int>(dRight) : 0;
-    data.mowTicks   = (dMow   >= 0 && dMow   <= 1000) ? static_cast<int>(dMow)   : 0;
+    // Allow negative deltas for backward/inverted motion.
+    data.leftTicks  = (std::abs(dLeft)  <= 1000) ? static_cast<int>(dLeft)  : 0;
+    data.rightTicks = (std::abs(dRight) <= 1000) ? static_cast<int>(dRight) : 0;
+    data.mowTicks   = (std::abs(dMow)   <= 1000) ? static_cast<int>(dMow)   : 0;
 
     lastTicksLeft_  = rawTicksLeft_;
     lastTicksRight_ = rawTicksRight_;

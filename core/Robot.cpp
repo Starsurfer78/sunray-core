@@ -431,7 +431,7 @@ bool Robot::tickDiag() {
     if (timeDone || tickDone || safeTimeout) {
         hw_->setMotorPwm(0.0f, 0.0f, 0.0f);
         const int cfgTpr = config_->get<int>("ticks_per_revolution",
-                         config_->get<int>("ticks_per_rev", 120));
+                         config_->get<int>("ticks_per_rev", 324));
         const float dx = stateEst_.x() - diagReq_.startX;
         const float dy = stateEst_.y() - diagReq_.startY;
         const float distance = std::sqrt(dx * dx + dy * dy);
@@ -1711,7 +1711,7 @@ nlohmann::json Robot::diagDriveStraight(float distance_m, float pwm) {
         return {{"ok", false}, {"error", "Strecke muss groesser als 0 sein"}};
 
     const int ticksPerRev = config_->get<int>("ticks_per_revolution",
-                        config_->get<int>("ticks_per_rev", 320));
+                        config_->get<int>("ticks_per_rev", 324));
     const float wheelDiameter = config_->get<float>("wheel_diameter_m", 0.205f);
     const float wheelCircumference = std::max(0.001f, wheelDiameter * static_cast<float>(M_PI));
     const int ticksTarget = std::max(1, static_cast<int>(std::lround(distance_m / wheelCircumference * ticksPerRev)));
@@ -1752,7 +1752,7 @@ nlohmann::json Robot::diagTurnInPlace(float angle_deg, float pwm) {
         return {{"ok", false}, {"error", "Winkel muss mindestens 1 Grad betragen"}};
 
     const int ticksPerRev = config_->get<int>("ticks_per_revolution",
-                        config_->get<int>("ticks_per_rev", 320));
+                        config_->get<int>("ticks_per_rev", 324));
     const float wheelDiameter = config_->get<float>("wheel_diameter_m", 0.205f);
     const float wheelBase = config_->get<float>("wheel_base_m", 0.390f);
     const float wheelCircumference = std::max(0.001f, wheelDiameter * static_cast<float>(M_PI));
