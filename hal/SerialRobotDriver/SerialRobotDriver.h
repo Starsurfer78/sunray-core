@@ -23,6 +23,7 @@
 
 #include "../HardwareInterface.h"
 #include "../../core/Config.h"
+#include "../../core/Logger.h"
 #include "../../platform/Serial.h"
 #include "../../platform/I2C.h"
 #include "../../platform/I2cMux.h"
@@ -34,7 +35,7 @@ namespace sunray {
 class SerialRobotDriver final : public HardwareInterface {
 public:
     /// Construct without touching hardware. Config is read in init().
-    explicit SerialRobotDriver(std::shared_ptr<Config> config);
+    explicit SerialRobotDriver(std::shared_ptr<Config> config, std::shared_ptr<Logger> logger);
     ~SerialRobotDriver() override;
 
     // Non-copyable, non-movable (owns hardware resources)
@@ -102,6 +103,7 @@ public:
 
 private:
     std::shared_ptr<Config> config_;
+    std::shared_ptr<Logger> logger_;
 
     // Platform objects — constructed in init(), null until then
     std::unique_ptr<platform::Serial>       uart_;

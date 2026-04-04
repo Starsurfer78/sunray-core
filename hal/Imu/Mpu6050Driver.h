@@ -10,6 +10,7 @@
 
 #include "platform/I2C.h"
 #include "hal/HardwareInterface.h"
+#include "core/Logger.h"
 
 #include <mutex>
 #include <atomic>
@@ -20,7 +21,7 @@ class Mpu6050Driver {
 public:
     /// Construct with reference to an existing I2C bus.
     /// addr: 7-bit I2C address (default: 0x68, AD0 = GND).
-    explicit Mpu6050Driver(platform::I2C& i2c, uint8_t addr = 0x68);
+    explicit Mpu6050Driver(platform::I2C& i2c, std::shared_ptr<Logger> logger, uint8_t addr = 0x68);
 
     /// Initialize the sensor: wake up, set ranges, enable DLPF.
     /// Returns true if the sensor is responding (WHO_AM_I check).
@@ -43,6 +44,7 @@ public:
 
 private:
     platform::I2C& i2c_;
+    std::shared_ptr<Logger> logger_;
     uint8_t        addr_;
 
     mutable std::mutex mutex_;

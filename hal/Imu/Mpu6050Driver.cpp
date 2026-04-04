@@ -19,47 +19,47 @@ static constexpr float ACCEL_FS_2_LSB  = 16384.0f; // LSB per g
 static constexpr float DEG_TO_RAD       = M_PI / 180.0f;
 static constexpr float RAD_TO_DEG       = 180.0f / M_PI;
 
-Mpu6050Driver::Mpu6050Driver(platform::I2C& i2c, uint8_t addr)
-    : i2c_(i2c), addr_(addr)
+Mpu6050Driver::Mpu6050Driver(platform::I2C& i2c, std::shared_ptr<Logger> logger, uint8_t addr)
+    : i2c_(i2c), logger_(std::move(logger)), addr_(addr)
 {}
 
 bool Mpu6050Driver::init() {
     // 1. Check WHO_AM_I
     uint8_t who = 0;
     if (!readRegs(REG_WHO_AM_I, &who, 1)) {
-        std::cerr << "[MPU] I2C read failed during WHO_AM_I at 0x" << std::hex << (int)addr_ << std::dec << '\n';
+        if (logger_) logger_->error("MPU", "I2C read failed during WHO_AM_I at 0x" + std::to_string(addr_));
         return false;
     }
     if (who != 0x68) {
-        std::cerr << "[MPU] sensor WHO_AM_I mismatch (expected 0x68, got 0x" << std::hex << (int)who << ") at 0x" << (int)addr_ << std::dec << '\n';
+        if (logger_) logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got 0x" + std::to_string(who) + ") at 0x" + std::to_string(addr_));
         return false;
     }
 
     // 2. Wake up sensor, set clock source to X gyro (0x01)
     if (!writeReg(REG_PWR_MGMT_1, 0x01)) {
-        std::cerr << "[MPU] failed to wake up sensor\n";
+        if (logger_) logger_->error("MPU", "failed to wake up sensor");
         return false;
     }
 
     // 3. Set DLPF to ~44 Hz (0x03)
     if (!writeReg(REG_CONFIG, 0x03)) {
-        std::cerr << "[MPU] failed to set DLPF\n";
+        if (logger_) logger_->error("MPU", "failed to set DLPF");
         return false;
     }
 
     // 4. Set Gyro Range to ±250 °/s (0x00)
     if (!writeReg(REG_GYRO_CONFIG, 0x00)) {
-        std::cerr << "[MPU] failed to set gyro range\n";
+        if (logger_) logger_->error("MPU", "failed to set gyro range");
         return false;
     }
 
     // 5. Set Accel Range to ±2 g (0x00)
     if (!writeReg(REG_ACCEL_CONFIG, 0x00)) {
-        std::cerr << "[MPU] failed to set accel range\n";
+        if (logger_) logger_->error("MPU", "failed to set accel range");
         return false;
     }
 
-    std::cerr << "[MPU] successfully initialized at 0x" << std::hex << (int)addr_ << std::dec << '\n';
+    if (logger_) logger_->info("MPU", "successfully initialized at 0x" + std::to_string(addr_));
     return true;
 }
 
@@ -94,7 +94,10 @@ void Mpu6050Driver::update(float dt_s) {
             biasGy_ = sumGy_ / 250.0f;
             biasGz_ = sumGz_ / 250.0f;
             calibrating_ = false;
-            std::cerr << "[MPU] calibration done. biases: " << biasGx_ << ", " << biasGy_ << ", " << biasGz_ << '\n';
+            if (logger_) {
+                logger_->info("MPU", "calibration done. biases: " + std::to_string(biasGx_) + ", " + 
+                                     std::to_string(biasGy_) + ", " + std::to_string(biasGz_));
+            }
         }
         return;
     }
@@ -133,10 +136,11 @@ void Mpu6050Driver::update(float dt_s) {
 
 void Mpu6050Driver::startCalibration() {
     std::lock_guard<std::mutex> lk(mutex_);
-    calibSamples_ = 0;
+    if (calibrating_) return;
+    if (logger_) logger_->info("MPU", "starting calibration (5s)... keep robot still");
     sumGx_ = sumGy_ = sumGz_ = 0;
+    calibSamples_ = 0;
     calibrating_ = true;
-    std::cerr << "[MPU] starting calibration (5s)... keep robot still\n";
 }
 
 ImuData Mpu6050Driver::getData() const {

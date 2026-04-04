@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
         simDrv   = drv.get();
         hw       = std::move(drv);
     } else {
-        hw = std::make_unique<sunray::SerialRobotDriver>(config);
+        hw = std::make_unique<sunray::SerialRobotDriver>(config, logger);
     }
 
     // ── 4. Robot ───────────────────────────────────────────────────────────────

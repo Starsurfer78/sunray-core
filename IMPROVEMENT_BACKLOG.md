@@ -646,6 +646,7 @@ No production code was changed while preparing this backlog.
   - Allowed `manualDrive` in `Charge` state.
   - `emergencyStop` now cancels active diagnostics.
   - Added logging for blocked joystick (STOP button) and active drive sessions.
+  - Redirected hardware diagnostics (I2C, MUX, MPU, LEDs) to `Logger` for WebUI visibility.
 
 ## Recommended Execution Order
 

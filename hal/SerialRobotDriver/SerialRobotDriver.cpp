@@ -32,8 +32,9 @@ bool chargerConnectedFromVoltage(float chargeVoltage, float threshold) {
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
-SerialRobotDriver::SerialRobotDriver(std::shared_ptr<Config> config)
+SerialRobotDriver::SerialRobotDriver(std::shared_ptr<Config> config, std::shared_ptr<Logger> logger)
     : config_(std::move(config))
+    , logger_(std::move(logger))
 {}
 
 SerialRobotDriver::~SerialRobotDriver() {
@@ -54,7 +55,7 @@ bool SerialRobotDriver::init() {
     try {
         uart_ = std::make_unique<platform::Serial>(port, static_cast<unsigned>(baud));
     } catch (const std::runtime_error& e) {
-        std::cerr << "[SRD] UART open failed: " << e.what() << '\n';
+        if (logger_) logger_->error("SRD", "UART open failed: " + std::string(e.what()));
         return false;
     }
 
@@ -70,14 +71,14 @@ bool SerialRobotDriver::init() {
         ex2_ = std::make_unique<platform::PortExpander>(*i2c_, 0x20); // Buzzer
         ex3_ = std::make_unique<platform::PortExpander>(*i2c_, 0x22); // Panel LEDs
     } catch (const std::runtime_error& e) {
-        std::cerr << "[SRD] I2C open failed: " << e.what() << '\n';
+        if (logger_) logger_->error("SRD", "I2C open failed: " + std::string(e.what()));
         return false;
     }
 
     // ── Robot ID (eth0 MAC address) ───────────────────────────────────────────
     robotId_ = shellRead("ip link show eth0 | grep link/ether | awk '{print $2}'");
     if (!robotId_.empty() && robotId_.back() == '\n') robotId_.pop_back();
-    std::cerr << "[SRD] Robot ID: " << robotId_ << '\n';
+    if (logger_) logger_->info("SRD", "Robot ID: " + robotId_);
 
     // ── IMU + Fan power via EX1 ───────────────────────────────────────────────
     // PCA9555 EX1: IO1.6 = IMU power, IO1.7 = Fan power
@@ -96,9 +97,13 @@ bool SerialRobotDriver::init() {
         addChannel(config_->get<int>("imu_mux_channel", 4));
         addChannel(config_->get<int>("eeprom_mux_channel", 5));
         addChannel(config_->get<int>("adc_mux_channel", 6));
-        std::cerr << "[SRD] TCA9548A mux mask: 0x" << std::hex << (int)mask << std::dec << '\n';
+        if (logger_) {
+            std::ostringstream ss;
+            ss << "TCA9548A mux mask: 0x" << std::hex << (int)mask;
+            logger_->info("SRD", ss.str());
+        }
         if (!mux_->setEnabledMask(mask)) {
-            std::cerr << "[SRD] WARN: failed to configure TCA9548A mux\n";
+            if (logger_) logger_->warn("SRD", "failed to configure TCA9548A mux");
         }
     }
 
@@ -106,18 +111,18 @@ bool SerialRobotDriver::init() {
     const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
     if (mux_) {
         const int ch = config_->get<int>("imu_mux_channel", 4);
-        std::cerr << "[SRD] selecting IMU mux channel " << ch << '\n';
+        if (logger_) logger_->info("SRD", "selecting IMU mux channel " + std::to_string(ch));
         mux_->selectChannel(static_cast<uint8_t>(ch));
     }
-    imu_ = std::make_unique<Mpu6050Driver>(*i2c_, imuAddr);
+    imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, imuAddr);
     bool imuOk = imu_->init();
     if (!imuOk && imuAddr != 0x68) {
-        std::cerr << "[SRD] IMU at 0x" << std::hex << (int)imuAddr << " failed, trying 0x68\n" << std::dec;
-        imu_ = std::make_unique<Mpu6050Driver>(*i2c_, 0x68);
+        if (logger_) logger_->warn("SRD", "IMU at 0x" + std::to_string(imuAddr) + " failed, trying 0x68");
+        imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, 0x68);
         imuOk = imu_->init();
     }
     if (!imuOk) {
-        std::cerr << "[SRD] IMU init failed (maybe not connected to /dev/i2c-1 or mux channel wrong?)\n";
+        if (logger_) logger_->error("SRD", "IMU init failed (maybe not connected to /dev/i2c-1 or mux channel wrong?)");
         // Do not return false — robot can drive without IMU (GPS+Odo only)
     }
 
@@ -134,7 +139,7 @@ bool SerialRobotDriver::init() {
     writeLed(LedId::LED_3, LedState::RED);
     
     if (!ledOk) {
-        std::cerr << "[SRD] LED panel not responding — assuming not installed\n";
+        if (logger_) logger_->warn("SRD", "LED panel not responding — assuming not installed");
     }
 
     if (config_->get<bool>("buzzer_enabled", true)) {
@@ -163,8 +168,10 @@ bool SerialRobotDriver::init() {
     nextTempMs_    = now + 59000;
     nextWifiMs_    = now + 7000;
 
-    std::cerr << "[SRD] init complete — UART=" << port
-              << " @" << baud << " I2C=" << i2cBus << '\n';
+    if (logger_) {
+        logger_->info("SRD", "init complete — UART=" + port + " @" + std::to_string(baud) +
+                             " I2C=" + i2cBus);
+    }
     return true;
 }
 
