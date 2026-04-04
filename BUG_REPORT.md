@@ -82,7 +82,8 @@ Runtime observability was also expanded on 2026-04-02 with a compact health tele
 - Verification:
   - Test stop-button interruption during active diagnostics.
 - Resolution note:
-  - `tickDiag()` now aborts an active diagnostic immediately when the stop button is pressed, zeros motor PWM, completes the diagnostic request with an error result, and returns control to the normal button-handling path in the same loop cycle.
+  - `tickDiag()` now aborts an active diagnostic immediately when the stop button is pressed.
+  - `emergencyStop()` (triggered by stop button or remote `stop`/`reset` commands) now explicitly cancels `diagReq_` under lock, ensuring any diagnostic motion stops and the handler is notified.
 
 ### BUG-HIGH-003
 

@@ -290,6 +290,9 @@ int main(int argc, char* argv[]) {
     // WebSocket commands → Robot
     wsServer->onCommand([&robot, logger, missionPath](const std::string& cmd,
                                   const nlohmann::json& params) {
+        if (cmd != "drive") {
+            logger->info("main", "WS command received: " + cmd);
+        }
         if      (cmd == "start")  {
             const std::string missionId = params.value("missionId", std::string());
             if (!missionId.empty()) {
@@ -315,6 +318,9 @@ int main(int argc, char* argv[]) {
             const float lin = static_cast<float>(params.value("linear",  0.0));
             const float ang = static_cast<float>(params.value("angular", 0.0));
             robot.manualDrive(lin, ang);
+        }
+        else if (cmd == "reset") {
+            robot.requestEmergencyStop();
         }
         else if (cmd == "startZones") {  // C.12: zone-filtered mowing
             std::vector<std::string> ids;
@@ -434,8 +440,14 @@ int main(int argc, char* argv[]) {
             }
         }
         else if (cmd == "stop")   { robot.requestEmergencyStop(); }
+        else if (cmd == "reset")  { robot.requestEmergencyStop(); }
         else if (cmd == "dock")   { robot.requestStartDocking(); }
         else if (cmd == "charge") { robot.requestStartDocking(); }
+        else if (cmd == "drive") {
+            const float lin = static_cast<float>(params.value("linear",  0.0));
+            const float ang = static_cast<float>(params.value("angular", 0.0));
+            robot.manualDrive(lin, ang);
+        }
         else {
             logger->warn("main", "Unknown MQTT command ignored: " + cmd);
         }

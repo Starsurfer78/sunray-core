@@ -5,8 +5,9 @@
 ### Backend (C++ / Raspberry Pi)
 - ✅ Runtime stabil, 237/237 Tests grün
 - ✅ Safety-Pfade: Stop, Watchdog, MCU-Verlust, Dock-Recovery, Stuck-Detection
-- ✅ WebSocket-API: Commands serialisiert auf Control-Loop-Thread
-- ✅ MQTT: Reconnect + Subscription-Recovery
+- ✅ WebSocket-API: Commands serialisiert auf Control-Loop-Thread, inkl. `reset` Support
+- ✅ Joystick: Unterstützung für manuelle Steuerung in `Idle` und `Charge` (Alfred-Hardware-getestet)
+- ✅ MQTT: Reconnect + Subscription-Recovery, inkl. `drive` und `reset` Befehle
 - ✅ History-DB mit Wanduhr-Timestamps
 - ✅ STM32-OTA: Upload + Flash via WebUI
 - ✅ Pi-OTA: `POST /api/ota/check` + `POST /api/ota/update` + `POST /api/restart`
@@ -33,7 +34,6 @@
 |---|---|---|
 | MQTT 30min-Disconnect | H | Broker-Keepalive oder Session-Expiry — noch nicht reproduziert |
 | HA-Integration | M | MQTT-Discovery vorhanden, App-Seite fehlt noch |
-| Joystick auf Alfred | M | Noch nicht live getestet |
 | STM-OTA aus App | L | WebUI hat es, App noch nicht |
 | avahi-daemon Neustart auf Pi | L | Port 8765 in sunray.service.xml, braucht einmaligen `sudo systemctl restart avahi-daemon` |
 

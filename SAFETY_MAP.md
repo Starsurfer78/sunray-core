@@ -73,8 +73,16 @@ This means some guards run before op execution, while bumper/lift/motor-fault st
 | Firmware comments state two normally-closed e-stop switches in series and HIGH means stop | `rm18.ino` comment in `setup()` | `FACT` | Critical |
 | Stop button state is returned to Pi in `AT+M` field 7 | firmware `cmdMotor()`, Pi `parseMotorFrame()` | `FACT` | Critical |
 | Pi short-press outside Idle/Charge triggers `emergencyStop()` immediately | `Robot::tickButtonControl()` | `FACT` | High |
-| `emergencyStop()` resets drive controller, zeros motors, moves op state to `Idle` | `Robot::emergencyStop()` | `FACT` | High |
+| `emergencyStop()` resets drive controller, zeros motors, moves op state to `Idle`, and cancels active diagnostics | `Robot.cpp` | `FACT` | High |
 | Physical e-stop electrically cuts motor power independently of firmware and Pi | not proven from current repo evidence | `UNKNOWN` | Critical unknown |
+
+## Manual Drive (Joystick)
+
+| Path | Evidence | Classification | Risk |
+| --- | --- | --- | --- |
+| Manual drive commands (`drive`) are applied in `Idle` and `Charge` states | `Robot::tickManualDrive()` | `FACT` | Medium |
+| Motion is suppressed if the STOP button is active | `Robot::tickManualDrive()` | `FACT` | High |
+| Manual drive is only allowed if command is fresh (< 500 ms) | `Robot::tickManualDrive()` | `FACT` | High |
 
 ### Assessment
 

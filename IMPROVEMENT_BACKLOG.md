@@ -621,6 +621,32 @@ No production code was changed while preparing this backlog.
 - Execution note:
   - Implemented by adding `dock_retry_lateral_offset_m` and letting `DockOp` use a positive offset on retry 3 and a negative offset on retry 4 through `Map::retryDocking(..., lateralOffsetM)`, with fallback to the original retry path if the offset route cannot be planned.
 
+### IB-021
+
+- Title: Restore manual joystick control on Alfred and add remote reset support
+- Status: Done on 2026-04-04
+- Category: reliability and recovery, remote control
+- Problem:
+  - Joystick commands were ignored in `Charge` state and missing from MQTT.
+  - No remote `reset` command existed to clear error states or diagnostics.
+  - Missing logging for remote command troubleshooting.
+- Evidence / source:
+  - User report: joystick not working in WebUI/App.
+  - Code inspection: `tickManualDrive` only allowed `Idle`.
+- Expected benefit:
+  - Full manual control from dock/charge.
+  - Ability to recover from faults remotely via `reset`.
+  - Improved backend observability for control commands.
+- Affected modules:
+  - `main.cpp` (WS/MQTT handlers)
+  - `core/Robot.cpp` (manual drive, emergency stop)
+- Resolution note:
+  - Added `reset` and `drive` handlers to MQTT.
+  - Added `reset` handler to WebSocket.
+  - Allowed `manualDrive` in `Charge` state.
+  - `emergencyStop` now cancels active diagnostics.
+  - Added logging for blocked joystick (STOP button) and active drive sessions.
+
 ## Recommended Execution Order
 
 1. `IB-001` Serialize external commands onto the control-loop thread

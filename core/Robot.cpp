@@ -526,21 +526,41 @@ void Robot::tickUserFeedback() {
 
 void Robot::tickManualDrive() {
     const uint64_t driveTs = manualDriveTs_ms_.load();
-    const bool     inIdle  = (activeOpName() == "Idle");
+    const std::string op   = activeOpName();
+    const bool     inIdle  = (op == "Idle" || op == "Charge");
     const bool     fresh   = (now_ms_ - driveTs < 500UL);
-    if (!(inIdle && fresh && driveTs > 0) || sensors_.stopButton) return;
 
-    driveController_.reset();
+    if (inIdle && fresh && driveTs > 0) {
+        if (sensors_.stopButton) {
+            static uint64_t lastStopLogTs = 0;
+            if (now_ms_ - lastStopLogTs > 5000UL) {
+                logger_->warn(TAG, "Joystick blocked: STOP button is active");
+                lastStopLogTs = now_ms_;
+            }
+            return;
+        }
 
-    const float lin = manualLinear1000_.load()  / 1000.f;
-    const float ang = manualAngular1000_.load() / 1000.f;
-    constexpr float MAX_PWM = 0.35f;
-    float left  = (lin - ang * 0.5f) * MAX_PWM;
-    float right = (lin + ang * 0.5f) * MAX_PWM;
-    left  = left  < -1.f ? -1.f : left  > 1.f ? 1.f : left;
-    right = right < -1.f ? -1.f : right > 1.f ? 1.f : right;
-    hw_->setMotorPwm(static_cast<int>(left * 255.0f),
-                     static_cast<int>(right * 255.0f), 0);
+        if (now_ms_ - driveTs < 50UL) {
+            // Log once when a new fresh manual command stream starts.
+            static uint64_t lastLogTs = 0;
+            if (now_ms_ - lastLogTs > 2000UL) {
+                logger_->info(TAG, "Manual drive active (op=" + op + ")");
+                lastLogTs = now_ms_;
+            }
+        }
+
+        driveController_.reset();
+
+        const float lin = manualLinear1000_.load()  / 1000.f;
+        const float ang = manualAngular1000_.load() / 1000.f;
+        constexpr float MAX_PWM = 0.35f;
+        float left  = (lin - ang * 0.5f) * MAX_PWM;
+        float right = (lin + ang * 0.5f) * MAX_PWM;
+        left  = left  < -1.f ? -1.f : left  > 1.f ? 1.f : left;
+        right = right < -1.f ? -1.f : right > 1.f ? 1.f : right;
+        hw_->setMotorPwm(static_cast<int>(left * 255.0f),
+                         static_cast<int>(right * 255.0f), 0);
+    }
 }
 
 void Robot::tickSafetyStop(OpContext& ctx) {
@@ -928,6 +948,17 @@ void Robot::emergencyStop() {
     opMgr_.changeOperationTypeByOperator(ctx, "Idle");
     resumeBlockedByMapChange_ = false;
     activeMissionMapFingerprint_.clear();
+
+    {
+        std::lock_guard<std::mutex> lk(diagMutex_);
+        if (diagReq_.active) {
+            diagReq_.active = false;
+            diagReq_.done = true;
+            diagCv_.notify_all();
+            logger_->info(TAG, "Active diagnostic cancelled by emergency stop");
+        }
+    }
+
     logger_->warn(TAG, "Emergency stop");
 }
 
