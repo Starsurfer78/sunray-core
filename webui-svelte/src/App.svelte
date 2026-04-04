@@ -192,6 +192,23 @@
       <Settings />
     {/if}
   </section>
+
+  <nav class="bottom-nav" aria-label="Hauptnavigation Mobile">
+    {#each navItems.filter(i => i.id !== null) as item}
+      <button
+        type="button"
+        class:active={item.id !== null && currentView === item.id}
+        class:future={!item.enabled}
+        disabled={!item.enabled}
+        on:click={() => {
+          if (item.id) currentView = item.id
+        }}
+      >
+        {item.label}
+      </button>
+    {/each}
+  </nav>
+
   <NotificationDisplay />
 </main>
 
@@ -398,6 +415,97 @@
 
     .emergency {
       margin-left: 0;
+    }
+  }
+
+  /* ── Mobile (≤640px) ── */
+  .bottom-nav {
+    display: none;
+  }
+
+  @media (max-width: 640px) {
+    /* Topbar: hide tabs, divider, joystick */
+    .topbar-div {
+      display: none;
+    }
+
+    .tabs {
+      display: none;
+    }
+
+    .topbar-joystick {
+      display: none;
+    }
+
+    /* Reset column direction forced by 900px breakpoint */
+    .topbar-main {
+      flex-direction: row;
+      align-items: center;
+      flex-wrap: nowrap;
+    }
+
+    .emergency {
+      margin-left: auto;
+      min-height: 44px;
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+    }
+
+    /* Ensure tool buttons are tap-friendly */
+    .topbar-tool-btn,
+    .topbar-info-btn {
+      width: 2.75rem;
+      height: 2.75rem;
+      min-height: 44px;
+    }
+
+    /* Give the view padding so content isn't hidden behind bottom nav */
+    .view {
+      padding-bottom: 56px;
+    }
+
+    /* Bottom nav bar */
+    .bottom-nav {
+      display: flex;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 30;
+      background: #0a0f1a;
+      border-top: 1px solid #1e3a5f;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .bottom-nav button {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      color: #7a8da8;
+      font-size: 0.78rem;
+      font-family: inherit;
+      min-height: 44px;
+      padding: 0.5rem 0.25rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bottom-nav button.active {
+      color: #93c5fd;
+      background: #10213b;
+      font-weight: 600;
+    }
+
+    .bottom-nav button.future {
+      color: #3d5166;
+      cursor: default;
+    }
+
+    .bottom-nav button:disabled {
+      opacity: 0.5;
     }
   }
 </style>
