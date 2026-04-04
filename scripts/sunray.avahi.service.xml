@@ -4,7 +4,7 @@
   <name replace-wildcards="yes">Alfred (%h)</name>
   <service>
     <type>_sunray._tcp</type>
-    <port>8080</port>
+    <port>8765</port>
     <txt-record>version=1</txt-record>
     <txt-record>model=sunray-core</txt-record>
   </service>
