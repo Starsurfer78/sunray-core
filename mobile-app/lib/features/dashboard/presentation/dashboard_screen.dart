@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -367,11 +368,20 @@ class _JoystickOverlay extends StatefulWidget {
 class _JoystickOverlayState extends State<_JoystickOverlay> {
   static const double _joystickRadius = 80.0;
   static const double _thumbRadius = 24.0;
+  static const Duration _sendInterval = Duration(milliseconds: 80);
 
   Offset _thumbOffset = Offset.zero;
+  Timer? _sendTimer;
+
+  @override
+  void dispose() {
+    _sendTimer?.cancel();
+    super.dispose();
+  }
 
   void _onPanStart(DragStartDetails details) {
     _updateThumb(details.localPosition);
+    _sendTimer ??= Timer.periodic(_sendInterval, (_) => _emitCurrent());
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
@@ -379,8 +389,16 @@ class _JoystickOverlayState extends State<_JoystickOverlay> {
   }
 
   void _onPanEnd(DragEndDetails details) {
+    _sendTimer?.cancel();
+    _sendTimer = null;
     setState(() => _thumbOffset = Offset.zero);
     widget.onDrive(0, 0);
+  }
+
+  void _emitCurrent() {
+    final vx = (_thumbOffset.dx / _joystickRadius).clamp(-1.0, 1.0);
+    final vy = (-_thumbOffset.dy / _joystickRadius).clamp(-1.0, 1.0);
+    widget.onDrive(vx, vy);
   }
 
   void _updateThumb(Offset localPosition) {
@@ -390,14 +408,8 @@ class _JoystickOverlayState extends State<_JoystickOverlay> {
     final clamped = distance <= _joystickRadius
         ? delta
         : delta / distance * _joystickRadius;
-
     setState(() => _thumbOffset = clamped);
-
-    // vx = left/right, vy = forward/backward (inverted Y because screen Y goes down)
-    widget.onDrive(
-      (clamped.dx / _joystickRadius).clamp(-1.0, 1.0),
-      (-clamped.dy / _joystickRadius).clamp(-1.0, 1.0),
-    );
+    _emitCurrent();
   }
 
   @override
