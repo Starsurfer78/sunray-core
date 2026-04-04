@@ -318,8 +318,10 @@ Classification: `FACT`
 
 ### OTA / update capability
 
-- `FACT`: no OTA/update subsystem was found in active repo code or scripts.
-- `UNKNOWN`: any external fleet or imaging mechanism outside this repo.
+- `FACT`: Pi-OTA via `POST /api/ota/check` und `POST /api/ota/update` ist aktiv (`WebSocketServer.cpp`).
+- `FACT`: Service-Neustart via `POST /api/restart` ist aktiv.
+- `FACT`: App-OTA via GitHub Releases ist aktiv (siehe unten).
+- `UNKNOWN`: externes Fleet-Management oder Image-basiertes Deployment außerhalb dieses Repos.
 
 ## Rollback & Recovery
 
@@ -390,6 +392,41 @@ Classification: `FACT` for commands and script behavior, `INFERENCE` for recomme
 - `UNKNOWN`: standardized safe rollback if `sunray-core.service` replaces the original service in the field
 - `FACT`: no active PlatformIO config or target was found in this repo snapshot
 - `FACT`: repo now contains a read-only deployment verifier in `scripts/check_deploy_state.sh`, but it does not perform rollback automatically
+
+## Mobile App Build und Release
+
+### Debug-APK bauen
+
+```bash
+cd mobile-app
+export ANDROID_HOME=/mnt/LappiDaten/Projekte/android-sdk
+export ANDROID_SDK_ROOT=/mnt/LappiDaten/Projekte/android-sdk
+export JAVA_HOME=/mnt/LappiDaten/Projekte/jdk
+export PATH=$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH
+/mnt/LappiDaten/Projekte/flutter-sdk/bin/flutter build apk --debug
+```
+
+Output: `mobile-app/build/app/outputs/flutter-apk/app-debug.apk`
+
+### GitHub Release erstellen
+
+```bash
+gh release create v1.x.x \
+  mobile-app/build/app/outputs/flutter-apk/app-debug.apk#sunray-alfred-1.x.x.apk \
+  --title "Sunray Alfred 1.x.x" \
+  --notes "Beschreibung"
+```
+
+Voraussetzungen:
+- Tag im Format `v1.x.x` (wird von App zu `1.x.x` normalisiert)
+- APK-Datei als Asset mit `.apk`-Endung anhängen
+- Version in `mobile-app/pubspec.yaml` (`version:`) muss kleiner sein als der neue Tag
+
+### App-OTA-Mechanismus
+
+Die App prüft beim Öffnen der Service-Seite `https://api.github.com/repos/Starsurfer78/sunray-core/releases`.
+Sie vergleicht den Tag des neuesten Release mit der installierten `pubspec.yaml`-Version.
+Ist der Tag neuer, erscheint ein Download-Button. Die APK wird heruntergeladen und der Android-Installer geöffnet.
 
 ## FACT / INFERENCE / UNKNOWN Summary
 

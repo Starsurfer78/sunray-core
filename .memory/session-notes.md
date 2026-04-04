@@ -1,57 +1,16 @@
 # Session Notes
 
-## Zweck
+## Stand 2026-04-04
 
-Laufendes Arbeitslog fuer `sunray-core`. Diese Datei ist bewusst pragmatisch und wird nach jeder Session fortgeschrieben.
+### Abgeschlossen
+- Backend Phase 1–3 vollständig (Safety, Reliability, Telemetrie, History, STM-OTA)
+- WebUI responsiv, Joystick, OTA/Restart, STM-Flash, Verlauf
+- Mobile App V1: Discovery, Dashboard (GPS-Karte, Joystick), Missionen, Karte, Service
+- Pi-OTA in App: Check/Install/Restart mit Reconnect-Erkennung
+- App-OTA: GitHub Release v1.0.0 erstellt mit APK-Asset
 
-## Aktueller Stand
-
-- ✅ Repo-Bereinigung durchgefuehrt
-- ✅ Legacy-Dokumente und Altdateien entfernt
-- ✅ Backend-Build verifiziert
-- ✅ Frontend-Build verifiziert
-- ✅ Backend-Testsuite auf `217/217` gruen gebracht
-- ✅ Neue Bootstrap-Dokumentation gestartet
-
-## Last Session Log
-
-### 2026-04-02
-
-- ✅ Build-Verzeichnisse und alte Doku/Altordner bereinigt
-- ✅ Runtime- und Testprobleme analysiert
-- ✅ Watchdog-, Dock-, Diag- und StateEstimator-Themen stabilisiert
-- ✅ Voller Testlauf erfolgreich
-- ✅ GitHub `master` aktualisiert
-- ⚠️ Hardware-Mapping bleibt in Teilen unbewiesen
-
-## TODO
-
-- 🟡 Produktions-`systemd`-Services dokumentieren
-- 🟡 MQTT-Topic-Vertrag zentralisieren
-- 🟡 Alfred-Hardware-Mapping mit echten Evidenzen absichern
-- 🟡 Deployment- und Rollback-Prozedur dokumentieren
-
-## Kritisch / Offen
-
-- 🔴 Motor-enable-Leitung nicht hinreichend belegt
-- 🔴 Vollstaendige Pi/STM32-Signalzuordnung fehlt
-- ⚠️ Produktionspfade fuer Config, Logs und Services fehlen als harte Fakten
-
-## Tracking
-
-### Completed Features
-
-- Safety- und Regressionstest-Stabilisierung
-- Repo-Aufraeumung
-- Dokumentations-Neustart
-
-### Blockers
-
-- Fehlende Hardware-Beweise
-- Fehlende Service- und Deployment-Inventur
-
-## Update Rules
-
-- Neue Session oben einfuegen
-- Status mit `✅ ⚠️ 🔴 🟡 🟢` markieren
-- Keine Behauptung ohne Code-, Test- oder Hardwarebeleg
+### Noch offen
+- MQTT 30min-Disconnect: Hypothesen dokumentiert, nicht reproduziert
+- HA-Integration: MQTT-Discovery läuft, App-Seite fehlt
+- Joystick auf echtem Alfred noch nicht getestet
+- avahi-daemon auf Pi braucht einmaligen Neustart wegen Port-Fix (8080→8765)
