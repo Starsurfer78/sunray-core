@@ -82,8 +82,12 @@ bool SerialRobotDriver::init() {
 
     // ── IMU + Fan power via EX1 ───────────────────────────────────────────────
     // PCA9555 EX1: IO1.6 = IMU power, IO1.7 = Fan power
-    ex1_->setPin(1, 6, true);   // IMU ON
-    setFanPower(true);           // Fan ON
+    // Ensure both are set correctly on init.
+    if (ex1_) {
+        ex1_->setPin(1, 6, true);   // IMU ON
+        setFanPower(true);           // Fan ON (default start)
+        if (logger_) logger_->info("SRD", "EX1: IMU power enabled (IO1.6)");
+    }
 
     if (mux_) {
         uint8_t mask = 0;
