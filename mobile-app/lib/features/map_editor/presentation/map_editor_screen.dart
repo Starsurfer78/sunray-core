@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/map/map_geometry.dart';
+import '../../../domain/robot/robot_status.dart';
 import '../../../domain/robot/saved_robot.dart';
 import '../../../shared/providers/app_providers.dart';
 import '../../../shared/widgets/connection_notice.dart';
@@ -120,42 +121,66 @@ class MapEditorScreen extends ConsumerWidget {
                 16,
                 0,
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF08101D),
+              child: Stack(
+                children: <Widget>[
+                  ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Theme.of(context).dividerColor),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF08101D),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: RobotMapView(
+                        map: geometry,
+                        status: status.connectionState == ConnectionStateKind.connected ? status : null,
+                        interactive: true,
+                        onMapTap: (point) => _handleMapTap(ref, geometry, editorState, point),
+                        activePoints: activePoints,
+                        segmentPoints: editorState.mode == MapEditorMode.edit ? segmentPoints : const <EditableSegmentTarget>[],
+                        onPointTap: (index) {
+                          final current = ref.read(mapEditorStateProvider);
+                          ref.read(mapEditorStateProvider.notifier).state = current.copyWith(
+                                selectedPointIndex: index,
+                              );
+                        },
+                        onSegmentTap: (insertIndex) {
+                          final current = ref.read(mapEditorStateProvider);
+                          final target = segmentPoints.firstWhere((segment) => segment.insertIndex == insertIndex);
+                          final nextGeometry = controller.insertPoint(geometry, current, insertIndex, target.point);
+                          ref.read(mapGeometryProvider.notifier).state = nextGeometry;
+                        },
+                        selectedPointIndex: editorState.selectedPointIndex,
+                        showPerimeter: editorState.showPerimeter,
+                        showNoGo: editorState.showNoGo,
+                        showZones: editorState.showZones,
+                        showDock: editorState.showDock,
+                        highlightActiveZoneId: editorState.activeObject == EditableMapObjectType.zone
+                            ? editorState.activeZoneId
+                            : null,
+                      ),
+                    ),
                   ),
-                  child: RobotMapView(
-                    map: geometry,
-                    interactive: true,
-                    onMapTap: (point) => _handleMapTap(ref, geometry, editorState, point),
-                    activePoints: activePoints,
-                    segmentPoints: editorState.mode == MapEditorMode.edit ? segmentPoints : const <EditableSegmentTarget>[],
-                    onPointTap: (index) {
-                      final current = ref.read(mapEditorStateProvider);
-                      ref.read(mapEditorStateProvider.notifier).state = current.copyWith(
-                            selectedPointIndex: index,
+                  if (editorState.mode == MapEditorMode.record)
+                    Positioned(
+                      bottom: 14,
+                      right: 14,
+                      child: _RecordGpsFab(
+                        status: status,
+                        onRecord: () {
+                          final lat = status.gpsLat;
+                          final lon = status.gpsLon;
+                          if (lat == null || lon == null) return;
+                          _handleMapTap(
+                            ref,
+                            geometry,
+                            editorState,
+                            MapPoint(x: lon, y: lat),
                           );
-                    },
-                    onSegmentTap: (insertIndex) {
-                      final current = ref.read(mapEditorStateProvider);
-                      final target = segmentPoints.firstWhere((segment) => segment.insertIndex == insertIndex);
-                      final nextGeometry = controller.insertPoint(geometry, current, insertIndex, target.point);
-                      ref.read(mapGeometryProvider.notifier).state = nextGeometry;
-                    },
-                    selectedPointIndex: editorState.selectedPointIndex,
-                    showPerimeter: editorState.showPerimeter,
-                    showNoGo: editorState.showNoGo,
-                    showZones: editorState.showZones,
-                    showDock: editorState.showDock,
-                    highlightActiveZoneId: editorState.activeObject == EditableMapObjectType.zone
-                        ? editorState.activeZoneId
-                        : null,
-                  ),
-                ),
+                        },
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -464,6 +489,28 @@ class MapEditorScreen extends ConsumerWidget {
       );
     }
     return targets;
+  }
+}
+
+class _RecordGpsFab extends StatelessWidget {
+  const _RecordGpsFab({required this.status, required this.onRecord});
+
+  final RobotStatus status;
+  final VoidCallback onRecord;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasGps = status.connectionState == ConnectionStateKind.connected &&
+        status.gpsLat != null &&
+        status.gpsLon != null;
+
+    return FloatingActionButton.extended(
+      heroTag: 'record_gps_fab',
+      onPressed: hasGps ? onRecord : null,
+      backgroundColor: hasGps ? const Color(0xFF16A34A) : const Color(0xFF334155),
+      icon: const Icon(Icons.my_location_rounded, size: 18),
+      label: const Text('GPS aufzeichnen'),
+    );
   }
 }
 
