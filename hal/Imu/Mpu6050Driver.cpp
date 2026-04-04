@@ -107,6 +107,7 @@ void Mpu6050Driver::update(float dt_s) {
         if (updateCount_ % 500 == 0 && logger_) {
             logger_->warn("MPU", "all sensor values are zero — sensor likely in sleep mode or not responding at " + toHex(addr_));
         }
+        return; // Avoid integrating zeros with existing biases (prevents "racing")
     }
 
     if (calibrating_) {
