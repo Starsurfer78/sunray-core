@@ -130,4 +130,18 @@
     .collapse-icon {
         display: inline-block;
     }
+
+    @media (max-width: 640px) {
+        .main-column {
+            margin-right: 0 !important;
+        }
+
+        .sidebar {
+            display: none;
+        }
+
+        .collapse-btn {
+            display: none;
+        }
+    }
 </style>
