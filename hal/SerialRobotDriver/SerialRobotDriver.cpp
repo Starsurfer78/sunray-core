@@ -96,6 +96,7 @@ bool SerialRobotDriver::init() {
         addChannel(config_->get<int>("imu_mux_channel", 4));
         addChannel(config_->get<int>("eeprom_mux_channel", 5));
         addChannel(config_->get<int>("adc_mux_channel", 6));
+        std::cerr << "[SRD] TCA9548A mux mask: 0x" << std::hex << (int)mask << std::dec << '\n';
         if (!mux_->setEnabledMask(mask)) {
             std::cerr << "[SRD] WARN: failed to configure TCA9548A mux\n";
         }
@@ -103,30 +104,52 @@ bool SerialRobotDriver::init() {
 
     // ── MPU-6050 IMU ──────────────────────────────────────────────────────────
     const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
+    if (mux_) {
+        const int ch = config_->get<int>("imu_mux_channel", 4);
+        std::cerr << "[SRD] selecting IMU mux channel " << ch << '\n';
+        mux_->selectChannel(static_cast<uint8_t>(ch));
+    }
     imu_ = std::make_unique<Mpu6050Driver>(*i2c_, imuAddr);
     bool imuOk = imu_->init();
     if (!imuOk && imuAddr != 0x68) {
+        std::cerr << "[SRD] IMU at 0x" << std::hex << (int)imuAddr << " failed, trying 0x68\n" << std::dec;
         imu_ = std::make_unique<Mpu6050Driver>(*i2c_, 0x68);
         imuOk = imu_->init();
     }
     if (!imuOk) {
-        std::cerr << "[SRD] IMU init failed (maybe not connected to /dev/i2c-1?)\n";
+        std::cerr << "[SRD] IMU init failed (maybe not connected to /dev/i2c-1 or mux channel wrong?)\n";
         // Do not return false — robot can drive without IMU (GPS+Odo only)
     }
 
-    // ── Panel LEDs — startup green ────────────────────────────────────────────
-    bool ledOk = writeLed(LedId::LED_1, LedState::GREEN);
-    writeLed(LedId::LED_2, LedState::GREEN);
-    writeLed(LedId::LED_3, LedState::GREEN);
+    // ── Panel LEDs — startup sequence ─────────────────────────────────────────
+    // 1. All OFF
+    writeLed(LedId::LED_1, LedState::OFF);
+    writeLed(LedId::LED_2, LedState::OFF);
+    writeLed(LedId::LED_3, LedState::OFF);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // 2. All RED for 2 seconds
+    bool ledOk = writeLed(LedId::LED_1, LedState::RED);
+    writeLed(LedId::LED_2, LedState::RED);
+    writeLed(LedId::LED_3, LedState::RED);
+    
     if (!ledOk) {
         std::cerr << "[SRD] LED panel not responding — assuming not installed\n";
     }
+
     if (config_->get<bool>("buzzer_enabled", true)) {
         setBuzzer(true);
         std::this_thread::sleep_for(kStartupBuzzerPulse);
         setBuzzer(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000) - kStartupBuzzerPulse);
+    } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     }
-    std::this_thread::sleep_for(kStartupLedHold);
+
+    // 3. Transition to green (initial state)
+    writeLed(LedId::LED_1, LedState::GREEN);
+    writeLed(LedId::LED_2, LedState::GREEN);
+    writeLed(LedId::LED_3, LedState::GREEN);
 
     // ── Initial battery data default (safe fallback if MCU not yet connected) ─
     battery_.voltage = 28.0f;  // prevents immediate shutdown on startup
@@ -158,7 +181,13 @@ void SerialRobotDriver::run() {
     if (imu_ && now >= nextImuMs_) {
         if (mux_) {
             const int ch = config_->get<int>("imu_mux_channel", 4);
-            mux_->selectChannel(static_cast<uint8_t>(ch));
+            if (!mux_->selectChannel(static_cast<uint8_t>(ch))) {
+                static uint64_t lastMuxWarn = 0;
+                if (now - lastMuxWarn > 5000) {
+                    std::cerr << "[SRD] WARN: failed to select IMU mux channel " << ch << '\n';
+                    lastMuxWarn = now;
+                }
+            }
         }
         const float dt = (lastImuMs_ == 0) ? 0.02f : (now - lastImuMs_) / 1000.0f;
         imu_->update(dt);
@@ -302,7 +331,15 @@ void SerialRobotDriver::calibrateImu() {
 // ── HardwareInterface: actuators ──────────────────────────────────────────────
 
 void SerialRobotDriver::setBuzzer(bool on) {
-    if (ex2_) ex2_->setPin(1, 1, on);   // EX2 IO1.1 = Buzzer
+    if (ex2_) {
+        if (!ex2_->setPin(1, 1, on)) {
+            static uint64_t lastBuzzerWarn = 0;
+            if (nowMs() - lastBuzzerWarn > 10000) {
+                std::cerr << "[SRD] WARN: buzzer update failed (I2C error on EX2)\n";
+                lastBuzzerWarn = nowMs();
+            }
+        }
+    }
 }
 
 void SerialRobotDriver::setLed(LedId id, LedState state) {
@@ -645,7 +682,14 @@ bool SerialRobotDriver::writeLed(LedId id, LedState state) {
     if (!ex3_) return false;
     if (mux_) {
         const int ch = config_->get<int>("ex3_mux_channel", 0);
-        mux_->selectChannel(static_cast<uint8_t>(ch));
+        if (!mux_->selectChannel(static_cast<uint8_t>(ch))) {
+            static uint64_t lastMuxWarn = 0;
+            if (nowMs() - lastMuxWarn > 10000) {
+                std::cerr << "[SRD] WARN: failed to select LED mux channel " << ch << '\n';
+                lastMuxWarn = nowMs();
+            }
+            return false;
+        }
     }
     uint8_t gPin, rPin;
     switch (id) {
@@ -654,8 +698,19 @@ bool SerialRobotDriver::writeLed(LedId id, LedState state) {
         case LedId::LED_3: gPin = 4; rPin = 5; break;  // GPS   (middle)
         default: return false;
     }
-    ex3_->setPin(0, gPin, state == LedState::GREEN);
-    return ex3_->setPin(0, rPin, state == LedState::RED);
+    
+    bool ok = true;
+    if (!ex3_->setPin(0, gPin, state == LedState::GREEN)) ok = false;
+    if (!ex3_->setPin(0, rPin, state == LedState::RED)) ok = false;
+    
+    if (!ok) {
+        static uint64_t lastLedWarn = 0;
+        if (nowMs() - lastLedWarn > 10000) {
+            std::cerr << "[SRD] WARN: LED update failed (I2C error on EX3)\n";
+            lastLedWarn = nowMs();
+        }
+    }
+    return ok;
 }
 
 void SerialRobotDriver::updateCpuTemp() {

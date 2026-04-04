@@ -26,24 +26,40 @@ Mpu6050Driver::Mpu6050Driver(platform::I2C& i2c, uint8_t addr)
 bool Mpu6050Driver::init() {
     // 1. Check WHO_AM_I
     uint8_t who = 0;
-    if (!readRegs(REG_WHO_AM_I, &who, 1) || who != 0x68) {
-        std::cerr << "[MPU] sensor not found at 0x" << std::hex << (int)addr_ << std::dec << '\n';
+    if (!readRegs(REG_WHO_AM_I, &who, 1)) {
+        std::cerr << "[MPU] I2C read failed during WHO_AM_I at 0x" << std::hex << (int)addr_ << std::dec << '\n';
+        return false;
+    }
+    if (who != 0x68) {
+        std::cerr << "[MPU] sensor WHO_AM_I mismatch (expected 0x68, got 0x" << std::hex << (int)who << ") at 0x" << (int)addr_ << std::dec << '\n';
         return false;
     }
 
     // 2. Wake up sensor, set clock source to X gyro (0x01)
-    if (!writeReg(REG_PWR_MGMT_1, 0x01)) return false;
+    if (!writeReg(REG_PWR_MGMT_1, 0x01)) {
+        std::cerr << "[MPU] failed to wake up sensor\n";
+        return false;
+    }
 
     // 3. Set DLPF to ~44 Hz (0x03)
-    if (!writeReg(REG_CONFIG, 0x03)) return false;
+    if (!writeReg(REG_CONFIG, 0x03)) {
+        std::cerr << "[MPU] failed to set DLPF\n";
+        return false;
+    }
 
     // 4. Set Gyro Range to ±250 °/s (0x00)
-    if (!writeReg(REG_GYRO_CONFIG, 0x00)) return false;
+    if (!writeReg(REG_GYRO_CONFIG, 0x00)) {
+        std::cerr << "[MPU] failed to set gyro range\n";
+        return false;
+    }
 
     // 5. Set Accel Range to ±2 g (0x00)
-    if (!writeReg(REG_ACCEL_CONFIG, 0x00)) return false;
+    if (!writeReg(REG_ACCEL_CONFIG, 0x00)) {
+        std::cerr << "[MPU] failed to set accel range\n";
+        return false;
+    }
 
-    std::cerr << "[MPU] initialized at 0x" << std::hex << (int)addr_ << std::dec << '\n';
+    std::cerr << "[MPU] successfully initialized at 0x" << std::hex << (int)addr_ << std::dec << '\n';
     return true;
 }
 
