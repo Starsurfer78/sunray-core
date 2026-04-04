@@ -87,4 +87,34 @@ class RobotApi {
     );
     return response.data ?? <String, dynamic>{};
   }
+
+  Future<Map<String, dynamic>> otaCheck({
+    required String host,
+    int port = AppConstants.defaultRobotPort,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '${baseUrl(host: host, port: port)}/api/ota/check',
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> otaUpdate({
+    required String host,
+    int port = AppConstants.defaultRobotPort,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '${baseUrl(host: host, port: port)}/api/ota/update',
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> restartService({
+    required String host,
+    int port = AppConstants.defaultRobotPort,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '${baseUrl(host: host, port: port)}/api/restart',
+    );
+    return response.data ?? <String, dynamic>{};
+  }
 }

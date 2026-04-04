@@ -18,6 +18,7 @@ class RobotStatus {
     this.heading,
     this.gpsLat,
     this.gpsLon,
+    this.piVersion,
     this.lastError,
   });
 
@@ -31,6 +32,7 @@ class RobotStatus {
   final double? heading;
   final double? gpsLat;
   final double? gpsLon;
+  final String? piVersion;
   final String? lastError;
 
   RobotStatus copyWith({
@@ -44,6 +46,7 @@ class RobotStatus {
     double? heading,
     double? gpsLat,
     double? gpsLon,
+    String? piVersion,
     String? lastError,
   }) {
     return RobotStatus(
@@ -57,6 +60,7 @@ class RobotStatus {
       heading: heading ?? this.heading,
       gpsLat: gpsLat ?? this.gpsLat,
       gpsLon: gpsLon ?? this.gpsLon,
+      piVersion: piVersion ?? this.piVersion,
       lastError: lastError ?? this.lastError,
     );
   }

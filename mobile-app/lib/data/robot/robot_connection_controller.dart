@@ -287,6 +287,7 @@ class RobotConnectionController {
       final heading = decoded['heading'] as num?;
       final gpsLat = decoded['gps_lat'] as num?;
       final gpsLon = decoded['gps_lon'] as num?;
+      final piVersion = decoded['pi_v'] as String?;
 
       _ref.read(connectionStateProvider.notifier).state = RobotStatus(
         connectionState: ConnectionStateKind.connected,
@@ -299,6 +300,7 @@ class RobotConnectionController {
         heading: heading?.toDouble(),
         gpsLat: gpsLat?.toDouble(),
         gpsLon: gpsLon?.toDouble(),
+        piVersion: piVersion ?? baseStatus.piVersion,
       );
       _reconnectAttempt = 0;
     } catch (_) {
