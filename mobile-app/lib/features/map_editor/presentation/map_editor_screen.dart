@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/map/map_geometry.dart';
@@ -163,27 +164,33 @@ class MapEditorScreen extends ConsumerWidget {
                   ),
                   if (editorState.mode == MapEditorMode.record)
                     Positioned(
-                      bottom: 14,
-                      right: 14,
-                      child: _RecordGpsFab(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _RecordPanel(
                         status: status,
-                        onRecord: () {
+                        activePoints: activePoints,
+                        onSavePoint: () {
                           final lat = status.gpsLat;
                           final lon = status.gpsLon;
                           if (lat == null || lon == null) return;
-                          _handleMapTap(
-                            ref,
-                            geometry,
-                            editorState,
-                            MapPoint(x: lon, y: lat),
-                          );
+                          HapticFeedback.lightImpact();
+                          _handleMapTap(ref, geometry, editorState, MapPoint(x: lon, y: lat));
                         },
+                        onClose: activePoints.length >= 3
+                            ? () {
+                                ref.read(mapEditorStateProvider.notifier).state =
+                                    editorState.copyWith(mode: MapEditorMode.view, clearSelectedPoint: true);
+                              }
+                            : null,
+                        onCancel: () => _handleCancelRecording(context, ref, geometry, editorState, controller),
                       ),
                     ),
                 ],
               ),
             ),
           ),
+          if (editorState.mode != MapEditorMode.record)
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 280),
             child: SingleChildScrollView(
@@ -330,6 +337,41 @@ class MapEditorScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _handleCancelRecording(
+    BuildContext context,
+    WidgetRef ref,
+    MapGeometry geometry,
+    MapEditorState editorState,
+    dynamic controller,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Aufzeichnung abbrechen'),
+        content: const Text('Alle aufgezeichneten Punkte werden verworfen.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Weiter aufzeichnen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Verwerfen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    ref.read(mapGeometryProvider.notifier).state =
+        controller.deleteActiveObject(geometry, editorState);
+    ref.read(mapEditorStateProvider.notifier).state = editorState.copyWith(
+      mode: MapEditorMode.view,
+      clearSelectedPoint: true,
+      clearActiveZone: editorState.activeObject == EditableMapObjectType.zone,
+      clearActiveNoGo: editorState.activeObject == EditableMapObjectType.noGo,
     );
   }
 
@@ -492,24 +534,116 @@ class MapEditorScreen extends ConsumerWidget {
   }
 }
 
-class _RecordGpsFab extends StatelessWidget {
-  const _RecordGpsFab({required this.status, required this.onRecord});
+class _RecordPanel extends StatelessWidget {
+  const _RecordPanel({
+    required this.status,
+    required this.activePoints,
+    required this.onSavePoint,
+    required this.onClose,
+    required this.onCancel,
+  });
 
   final RobotStatus status;
-  final VoidCallback onRecord;
+  final List<MapPoint> activePoints;
+  final VoidCallback onSavePoint;
+  final VoidCallback? onClose;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
     final hasGps = status.connectionState == ConnectionStateKind.connected &&
         status.gpsLat != null &&
         status.gpsLon != null;
+    final lastPoint = activePoints.isNotEmpty ? activePoints.last : null;
 
-    return FloatingActionButton.extended(
-      heroTag: 'record_gps_fab',
-      onPressed: hasGps ? onRecord : null,
-      backgroundColor: hasGps ? const Color(0xFF16A34A) : const Color(0xFF334155),
-      icon: const Icon(Icons.my_location_rounded, size: 18),
-      label: const Text('GPS aufzeichnen'),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F1829),
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // Point counter + last coords
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Text(
+                '${activePoints.length} Punkt${activePoints.length == 1 ? '' : 'e'}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF60A5FA),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              if (lastPoint != null)
+                Text(
+                  '${lastPoint.y.toStringAsFixed(6)}, ${lastPoint.x.toStringAsFixed(6)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        color: const Color(0xFF64748B),
+                        fontSize: 11,
+                      ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Primary button
+          FilledButton.icon(
+            onPressed: hasGps ? onSavePoint : null,
+            style: FilledButton.styleFrom(
+              backgroundColor: hasGps ? const Color(0xFF16A34A) : null,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            icon: const Icon(Icons.add_location_alt_rounded),
+            label: Text(
+              hasGps ? '+ Punkt speichern' : 'Kein GPS-Signal',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Secondary actions
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onClose,
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: onClose != null
+                          ? const Color(0xFF2563EB)
+                          : const Color(0xFF334155),
+                    ),
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      const Text('Schliessen'),
+                      if (activePoints.length < 3)
+                        Text(
+                          'min. 3 Punkte',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onCancel,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF7C3AED)),
+                    foregroundColor: const Color(0xFFC4B5FD),
+                  ),
+                  child: const Text('Abbrechen'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
