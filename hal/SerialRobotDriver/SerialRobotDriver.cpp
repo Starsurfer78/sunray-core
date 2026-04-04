@@ -114,8 +114,8 @@ bool SerialRobotDriver::init() {
         setFanPower(true);                            // Fan ON (default start)
         if (ok) {
             if (logger_) logger_->info("SRD", "EX1: IMU power enabled (IO1.6)");
-            // Give sensor time to power up before I2C access
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // Give sensor time to power up before I2C access (increased to 300ms)
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
         } else {
             if (logger_) logger_->error("SRD", "EX1: failed to enable IMU power — I2C error at 0x21?");
         }

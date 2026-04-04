@@ -34,14 +34,25 @@ Mpu6050Driver::Mpu6050Driver(platform::I2C& i2c, std::shared_ptr<Logger> logger,
 
 bool Mpu6050Driver::init() {
     initialized_ = false;
-    // 1. Check WHO_AM_I
+    // 1. Check WHO_AM_I (with retries for slow power-up)
     uint8_t who = 0;
-    if (!readRegs(REG_WHO_AM_I, &who, 1)) {
-        if (logger_) logger_->error("MPU", "I2C read failed during WHO_AM_I at " + toHex(addr_));
-        return false;
+    bool found = false;
+    for (int i = 0; i < 5; ++i) {
+        if (readRegs(REG_WHO_AM_I, &who, 1) && who == 0x68) {
+            found = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    if (who != 0x68) {
-        if (logger_) logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got " + toHex(who) + ") at " + toHex(addr_));
+
+    if (!found) {
+        if (logger_) {
+            if (who == 0 || who == 0xFF) {
+                logger_->error("MPU", "sensor not responding at " + toHex(addr_) + " (WHO_AM_I=" + toHex(who) + ")");
+            } else {
+                logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got " + toHex(who) + ") at " + toHex(addr_));
+            }
+        }
         return false;
     }
 
@@ -86,8 +97,14 @@ void Mpu6050Driver::update(float dt_s) {
         return;
     }
 
-    if (!initialized_ && updateCount_ % 500 == 0 && logger_) {
-        logger_->warn("MPU", "update() called but sensor not initialized (staying in sleep) at " + toHex(addr_));
+    if (!initialized_) {
+        // Auto-reinit if we are reading but internal state says we're not ready
+        if (updateCount_ % 50 == 0) { // Try every second at 50Hz
+            if (init()) {
+                if (logger_) logger_->info("MPU", "auto-initialized sensor at " + toHex(addr_));
+            }
+        }
+        return;
     }
 
     // Big-endian 16-bit signed
