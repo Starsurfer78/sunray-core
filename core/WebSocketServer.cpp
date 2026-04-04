@@ -1618,6 +1618,23 @@ void WebSocketServer::setupHttpRoutes() {
         }
     );
 
+    // ── POST /api/restart — restart sunray-core.service immediately ─────────
+    CROW_ROUTE(app, "/api/restart").methods(crow::HTTPMethod::POST)(
+        [this, isAuthorized](const crow::request& req) -> crow::response {
+            if (!isAuthorized(req)) return crow::response(401, R"({"error":"unauthorized"})");
+
+            logger_->info(TAG, "Service restart triggered via WebUI");
+            std::thread([]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                std::system("sudo /bin/systemctl restart sunray-core.service >/dev/null 2>&1");
+            }).detach();
+
+            crow::response res(200, R"({"status":"restarting"})");
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+    );
+
     // ── POST /api/stm/probe — verify STM32 SWD flash path availability ──────
     CROW_ROUTE(app, "/api/stm/probe").methods(crow::HTTPMethod::POST)(
         [this, isAuthorized](const crow::request& req) -> crow::response {

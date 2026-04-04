@@ -540,3 +540,10 @@ export async function flashUploadedStm(): Promise<StmFlashResponse> {
 
   return JSON.parse(text) as StmFlashResponse
 }
+
+export async function restartService(): Promise<{ status: string }> {
+  const response = await fetch('/api/restart', { method: 'POST' })
+  const text = await response.text()
+  if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`)
+  return JSON.parse(text) as { status: string }
+}

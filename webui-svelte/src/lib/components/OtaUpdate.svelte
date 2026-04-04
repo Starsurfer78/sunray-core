@@ -2,11 +2,12 @@
   import { onDestroy } from "svelte";
   import { telemetry } from "../stores/telemetry";
   import { connection } from "../stores/connection";
-  import { otaCheck, otaUpdate, type OtaCheckResponse } from "../api/rest";
+  import { otaCheck, otaUpdate, restartService, type OtaCheckResponse } from "../api/rest";
 
   let checkResult: OtaCheckResponse | null = null;
   let busy = false;
   let errorMsg = "";
+  let restarting = false;
   // After update_started the service restarts — we poll until the UI reconnects.
   let waitingForRestart = false;
   let sawRestartDisconnect = false;
@@ -41,6 +42,29 @@
       errorMsg = err instanceof Error ? err.message : "Fehler beim Prüfen";
     } finally {
       busy = false;
+    }
+  }
+
+  async function handleRestart() {
+    if (!confirm("Sunray-Core-Service jetzt neu starten?")) return;
+    restarting = true;
+    errorMsg = "";
+    try {
+      await restartService();
+      waitingForRestart = true;
+      sawRestartDisconnect = false;
+      restartCountdown = 30;
+      countdownTimer = setInterval(() => {
+        restartCountdown -= 1;
+        if (restartCountdown <= 0) {
+          clearRestartState();
+          restarting = false;
+          window.location.reload();
+        }
+      }, 1000);
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : "Neustart fehlgeschlagen";
+      restarting = false;
     }
   }
 
@@ -81,7 +105,7 @@
 
   {#if waitingForRestart}
     <div class="ota-status restarting">
-      Update läuft — Roboter startet neu…
+      {restarting ? "Neustart läuft…" : "Update läuft — Roboter startet neu…"}
       <span class="ota-countdown">
         {#if sawRestartDisconnect}
           Verbindung weg, Seite lädt in {restartCountdown}s neu
@@ -92,6 +116,9 @@
     </div>
   {:else}
     <div class="ota-actions">
+      <button class="ota-btn restart" on:click={handleRestart} disabled={busy}>
+        Service neu starten
+      </button>
       <button class="ota-btn" on:click={handleCheck} disabled={busy}>
         Auf Update prüfen
       </button>
@@ -168,6 +195,11 @@
   .ota-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  .ota-btn.restart {
+    border-color: #7c3aed;
+    color: #c4b5fd;
   }
 
   .ota-btn.primary {
