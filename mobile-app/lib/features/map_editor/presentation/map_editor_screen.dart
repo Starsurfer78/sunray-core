@@ -159,10 +159,12 @@ class MapEditorScreen extends ConsumerWidget {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: <Widget>[
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 280),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: <Widget>[
                 SectionCard(
                   title: 'Bearbeitungsmodus',
                   child: Column(
@@ -297,7 +299,8 @@ class MapEditorScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
           ),
         ],

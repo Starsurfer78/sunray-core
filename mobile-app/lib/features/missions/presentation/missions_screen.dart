@@ -43,21 +43,20 @@ class MissionsScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: <Widget>[
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: ConnectionNotice(status: status),
-          ),
-          Positioned.fill(
+          if (status.lastError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: ConnectionNotice(status: status),
+            ),
+          Expanded(
             child: Padding(
               padding: EdgeInsets.fromLTRB(
                 16,
-                status.lastError == null ? 16 : 82,
+                status.lastError == null ? 16 : 8,
                 16,
-                276,
+                8,
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
@@ -82,15 +81,17 @@ class MissionsScreen extends ConsumerWidget {
               ),
             ),
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: _MissionSheet(
-                map: map,
-                missions: missions,
-                selectedMission: selectedMission,
-                status: status,
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 320),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: _MissionSheet(
+                  map: map,
+                  missions: missions,
+                  selectedMission: selectedMission,
+                  status: status,
+                ),
               ),
             ),
           ),
