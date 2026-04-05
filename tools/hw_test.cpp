@@ -355,12 +355,16 @@ static bool phase1Uart(sunray::platform::Serial& uart) {
         rep("AT+V", Result::PASS, "firmware=" + name + "  version=" + ver);
     }
 
-    // Buffer leeren — nach AT+V können noch M-Frames im RX-Puffer liegen
+    // Verbindung aktivieren: 3× AT+M,0,0,0 senden damit der STM32 im "aktiven
+    // Kommunikationsmodus" ist — ohne AT+M-Handshake antwortet er nicht auf AT+S.
     at.flush();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    for (int i = 0; i < 3; ++i) {
+        at.exchange("AT+M,0,0,0", 'M', 300);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    at.flush();
 
-    // AT+S — Summary-Telemetrie (längeres Timeout: STM32 antwortet nach AT+S meist erst
-    // nach aktuellem ADC-Zyklus, der bis zu ~500 ms dauern kann)
+    // AT+S — Summary-Telemetrie
     const std::string sFrame = at.exchange("AT+S", 'S', 1500);
     if (sFrame.empty()) {
         rep("AT+S", Result::FAIL, "keine Antwort innerhalb 1,5 s");

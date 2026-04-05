@@ -124,13 +124,19 @@ bool I2C::writeRead(uint8_t        addr,
     if (::ioctl(fd_, I2C_RDWR, &data) < 0) {
         // I2C_RDWR not supported by this kernel/driver — fall back to
         // separate write + read (works for most devices, no Repeated START).
+        // selectDevice() sets I2C_SLAVE and updates currentAddr_.
         if (!selectDevice(addr)) return false;
         if (::write(fd_, txBuf, txLen) != static_cast<ssize_t>(txLen)) return false;
         if (::read(fd_,  rxBuf, rxLen) != static_cast<ssize_t>(rxLen)) return false;
+        return true;
     }
 
-    // On success, update the cached address so selectDevice() stays consistent.
-    currentAddr_ = addr;
+    // I2C_RDWR uses address from the message struct directly — it does NOT call
+    // I2C_SLAVE ioctl, so the kernel fd's slave address remains unchanged.
+    // Invalidate the cache so the next write() / read() MUST issue I2C_SLAVE.
+    // Without this, the next write() would skip the ioctl and go to the
+    // previously selected address (e.g. the I2C mux at 0x70) instead of addr.
+    currentAddr_ = 0xFF;
     return true;
 }
 
