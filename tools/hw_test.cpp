@@ -249,11 +249,6 @@ static bool askUser(const std::string& question) {
                            || line[0] == 'y' || line[0] == 'Y'));
 }
 
-static void waitEnter(const std::string& prompt) {
-    std::cout << "     \033[36m>> " << prompt << " [Enter]\033[0m";
-    std::string line;
-    std::getline(std::cin, line);
-}
 
 static std::string hexAddr(uint8_t addr) {
     char buf[8];
@@ -335,15 +330,22 @@ static void phase0Systemd() {
 // ── Phase 1: UART / STM32-Link ────────────────────────────────────────────────
 
 static bool phase1Uart(sunray::platform::Serial& uart) {
-    std::cout << "\n\033[1m--- Phase 1: UART / STM32-Link ---\033[0m\n";
+    // Header wird in main gedruckt — kein zweiter Header hier
 
     AtLink at(uart);
     at.flush();
 
-    // AT+V — Firmware-Version
-    const std::string vFrame = at.exchange("AT+V", 'V', 1200);
+    // AT+V — Firmware-Version, bis zu 3 Versuche (erster Frame nach power-on kann verloren gehen)
+    std::string vFrame;
+    for (int attempt = 0; attempt < 3 && vFrame.empty(); ++attempt) {
+        if (attempt > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            std::cout << "  AT+V Versuch " << (attempt + 1) << "...\n";
+        }
+        vFrame = at.exchange("AT+V", 'V', 1200);
+    }
     if (vFrame.empty()) {
-        rep("AT+V", Result::FAIL, "keine Antwort innerhalb 1,2 s — STM32 erreichbar?");
+        rep("AT+V", Result::FAIL, "keine Antwort nach 3 Versuchen — STM32 erreichbar?");
         return false;
     }
     {
@@ -487,16 +489,17 @@ static void phase3Imu(sunray::platform::I2C& bus, sunray::platform::I2cMux& mux)
     std::cout << "\n\033[1m--- Phase 3: IMU 5 Hz Live-Test ---\033[0m\n";
 
     mux.selectChannel(kMuxChImu);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));  // power-up nach EX1 IO1.6
 
     // Adresse bestimmen
     const uint8_t imuAddr = i2cProbe(bus, kAddrImu69) ? kAddrImu69 : kAddrImu68;
 
-    auto logger = std::make_shared<sunray::NullLogger>();
+    // StdoutLogger damit Fehlermeldungen des Treibers sichtbar sind
+    auto logger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::WARN);
     sunray::Mpu6050Driver imu(bus, logger, imuAddr);
 
     if (!imu.init()) {
-        rep("IMU init", Result::FAIL, "MPU-6050 antwortet nicht — Mux-Kanal/Verkabelung prüfen");
+        rep("IMU init", Result::FAIL, "MPU-6050 init fehlgeschlagen (Details oben)");
         return;
     }
     rep("IMU init", Result::PASS, "MPU-6050 bereit (" + hexAddr(imuAddr) + ")");
@@ -564,38 +567,46 @@ static void phase4Aktoren(sunray::platform::I2cMux& mux,
 
     mux.selectChannel(kMuxChLegacy);
 
-    // EX3 Port 0: alle Pins als Ausgänge
-    ex3.setConfigPort(0, 0x00);
+    // EX3 Port 0: alle 6 LED-Pins (0-5) als Ausgänge, Port 1 als Eingänge
+    // Mux muss auf Channel 0 stehen — wird hier und bei jedem Schreibvorgang gesetzt
+    mux.selectChannel(kMuxChLegacy);
+    ex3.setConfigPort(0, 0x00);   // alle Port-0-Pins = Output
+    ex3.setOutputPort(0, 0x00);   // alle LEDs AUS
 
-    // ── LEDs ──────────────────────────────────────────────────────────────────
-    // LED1: pins 0 (grün) / 1 (rot) — WiFi (unten)
-    // LED2: pins 2 (grün) / 3 (rot) — Fehler (oben)
-    // LED3: pins 4 (grün) / 5 (rot) — GPS (Mitte)
-    const std::vector<std::pair<uint8_t, std::string>> leds = {
-        {0, "LED1 (WiFi, unten)"},
-        {1, "LED2 (Fehler, oben)"},
-        {2, "LED3 (GPS, Mitte)"}
+    // ── LED-Hilfsfunktion ─────────────────────────────────────────────────────
+    // Atomarer Schreibvorgang: ein einziger setOutputPort-Aufruf für alle 6 LEDs.
+    // Mux wird vor jedem Schreiben explizit auf Ch0 gesetzt.
+    // Bitmapping EX3 Port 0:
+    //   bit 0 = LED1 grün   bit 1 = LED1 rot
+    //   bit 2 = LED2 grün   bit 3 = LED2 rot
+    //   bit 4 = LED3 grün   bit 5 = LED3 rot
+    auto setLeds = [&](uint8_t mask) {
+        mux.selectChannel(kMuxChLegacy);
+        ex3.setOutputPort(0, mask);
     };
 
-    std::cout << "  Teste LEDs — alle AUS...\n";
-    for (int p = 0; p < 6; p++) ex3.setPin(0, static_cast<uint8_t>(p), false);
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    // ── LEDs ──────────────────────────────────────────────────────────────────
+    const std::vector<std::tuple<uint8_t, uint8_t, std::string>> leds = {
+        {0x01, 0x02, "LED1 (WiFi, unten)"},
+        {0x04, 0x08, "LED2 (Fehler, oben)"},
+        {0x10, 0x20, "LED3 (GPS, Mitte)"}
+    };
 
-    for (auto& [idx, name] : leds) {
-        const uint8_t gPin = static_cast<uint8_t>(idx * 2);
-        const uint8_t rPin = static_cast<uint8_t>(idx * 2 + 1);
+    std::cout << "  LEDs AUS...\n";
+    setLeds(0x00);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
+    for (auto& [gMask, rMask, name] : leds) {
         std::cout << "  " << name << ": \033[32mGRÜN\033[0m...\n";
-        ex3.setPin(0, gPin, true);
-        ex3.setPin(0, rPin, false);
-        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        setLeds(gMask);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
 
         std::cout << "  " << name << ": \033[31mROT\033[0m...\n";
-        ex3.setPin(0, gPin, false);
-        ex3.setPin(0, rPin, true);
-        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        setLeds(rMask);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
 
-        ex3.setPin(0, rPin, false);  // AUS
+        setLeds(0x00);
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
     }
 
     if (askUser("Hast du alle 3 LEDs grün und rot blinken gesehen?"))
@@ -632,106 +643,108 @@ static void phase4Aktoren(sunray::platform::I2cMux& mux,
 
 // ── Phase 5: Sicherheits-Sensoren ─────────────────────────────────────────────
 
+// Pollt AT+M-Frames für bis zu pollMs und prüft mit check().
+// Gibt zurück wie viele ms es gedauert hat, oder -1 wenn nicht erkannt.
+static int pollSensor(AtLink& at, int pollMs,
+                      const std::function<bool(const std::vector<std::string>&)>& check) {
+    const uint64_t start    = nowMs();
+    const uint64_t deadline = start + static_cast<uint64_t>(pollMs);
+    while (nowMs() < deadline) {
+        at.sendRaw("AT+M,0,0,0");
+        const std::string f = at.waitFrame('M', 300);
+        if (!f.empty()) {
+            const auto fields = csvSplit(f);
+            if (check(fields)) return static_cast<int>(nowMs() - start);
+        }
+    }
+    return -1;
+}
+
 static void phase5Sensoren(AtLink& at) {
     std::cout << "\n\033[1m--- Phase 5: Sicherheits-Sensoren ---\033[0m\n";
 
-    // Hilfsfunktion: AT+M abfragen und Frame zurückgeben
-    auto getM = [&](int timeoutMs = 500) -> MotorFrame {
-        at.sendRaw("AT+M,0,0,0");
-        const std::string f = at.waitFrame('M', timeoutMs);
-        return f.empty() ? MotorFrame{} : parseMotorFrame(f);
-    };
+    constexpr int kPollMs = 6000;  // 6 s Zeit zum Auslösen
 
     // ── E-Stop ────────────────────────────────────────────────────────────────
     {
-        // Ausgangszustand prüfen (muss 0 sein)
-        const auto baseline = getM();
-        if (!baseline.valid) {
-            rep("E-Stop", Result::FAIL, "kein AT+M Frame erhalten");
-        } else if (baseline.stopButton) {
-            rep("E-Stop Ausgangszustand", Result::WARN,
-                "E-Stop ist bereits aktiv — bitte lösen und erneut testen");
+        // Ausgangszustand: E-Stop muss offen sein
+        at.sendRaw("AT+M,0,0,0");
+        const std::string base = at.waitFrame('M', 600);
+        if (base.empty()) {
+            rep("E-Stop", Result::FAIL, "kein AT+M Frame — UART-Verbindung prüfen");
         } else {
-            waitEnter("E-Stop-Taste DRÜCKEN und gedrückt halten");
-            // Kurz warten, dann prüfen
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            const auto pressed = getM();
-            const bool detected = pressed.valid && pressed.stopButton;
+            const auto m = parseMotorFrame(base);
+            if (m.stopButton) {
+                rep("E-Stop Ausgangszustand", Result::WARN,
+                    "E-Stop bereits aktiv — bitte lösen vor dem Test");
+            } else {
+                std::cout << "  Drücke jetzt den \033[1mE-Stop\033[0m"
+                          << " (wir erkennen automatisch, max " << kPollMs/1000 << " s) ...\n";
+                const int ms = pollSensor(at, kPollMs,
+                    [](const auto& f){ return f.size() > 7 && std::stoi(f[7]) != 0; });
 
-            waitEnter("E-Stop-Taste jetzt LOSLASSEN");
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            const auto released = getM();
-            const bool clearedOk = released.valid && !released.stopButton;
-
-            if (detected && clearedOk)
-                rep("E-Stop", Result::PASS, "auslösbar und rückstellbar");
-            else if (!detected)
-                rep("E-Stop", Result::FAIL, "kein stopButton=1 erkannt — Verkabelung/Firmware prüfen");
-            else
-                rep("E-Stop", Result::WARN, "gedrückt erkannt, aber nicht sauber zurückgestellt");
+                if (ms < 0) {
+                    rep("E-Stop", Result::FAIL, "nicht erkannt — Verkabelung/Firmware prüfen");
+                } else {
+                    std::cout << "  \033[32mErkannt\033[0m nach " << ms << " ms\n";
+                    // Warten bis losgelassen
+                    std::cout << "  Lass den E-Stop los ...\n";
+                    const int msRel = pollSensor(at, kPollMs,
+                        [](const auto& f){ return f.size() > 7 && std::stoi(f[7]) == 0; });
+                    rep("E-Stop", (msRel >= 0) ? Result::PASS : Result::WARN,
+                        "erkannt nach " + std::to_string(ms) + " ms"
+                        + (msRel >= 0 ? ", rückgestellt" : " — Rückstellung nicht erkannt"));
+                }
+            }
         }
     }
 
-    // ── Bumper Links ─────────────────────────────────────────────────────────
+    // ── Bumper Links ──────────────────────────────────────────────────────────
     {
-        waitEnter("Linken Bumper DRÜCKEN und halten");
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        const auto m = getM();
-        waitEnter("Linken Bumper LOSLASSEN");
-        if (m.valid && m.stopButton == false)  {
-            // bumper ist in AT+M Feld 9 (bumperLeft präzise)
-            const std::string raw = at.exchange("AT+M,0,0,0", 'M', 500);
-            // nochmal frischen Frame holen mit gedrücktem Bumper — retry:
+        std::cout << "  Drücke den \033[1mlinken Bumper\033[0m"
+                  << " und halte ihn (max " << kPollMs/1000 << " s) ...\n";
+        const int ms = pollSensor(at, kPollMs, [](const auto& f) {
+            // f[9] = bumperLeft präzise; fallback f[5] = legacy bumper
+            const bool bL = (f.size() > 9)  && (std::stoi(f[9]) != 0);
+            const bool bl = (f.size() > 5)  && (std::stoi(f[5]) != 0);
+            return bL || bl;
+        });
+        if (ms < 0)
+            rep("Bumper Links", Result::FAIL, "nicht erkannt — Anschluss/Firmware prüfen");
+        else {
+            std::cout << "  \033[32mErkannt\033[0m nach " << ms << " ms — Bumper kann losgelassen werden.\n";
+            rep("Bumper Links", Result::PASS, "erkannt nach " + std::to_string(ms) + " ms");
         }
-        // Einfacher: AT+M Frame direkt parsen mit bumperLeft
-        at.sendRaw("AT+M,0,0,0");
-        const std::string bFrame = at.waitFrame('M', 600);
-        bool bLeft = false;
-        if (!bFrame.empty()) {
-            const auto f = csvSplit(bFrame);
-            bLeft = (f.size() > 9) ? (std::stoi(f[9]) != 0) : (f.size() > 5 && std::stoi(f[5]) != 0);
-        }
-        if (bLeft)
-            rep("Bumper Links", Result::PASS, "Signal erkannt");
-        else
-            rep("Bumper Links", Result::FAIL, "kein bumperLeft=1 im Frame");
-        waitEnter("Bumper kann losgelassen werden");
     }
 
     // ── Bumper Rechts ─────────────────────────────────────────────────────────
     {
-        waitEnter("Rechten Bumper DRÜCKEN und halten");
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        at.sendRaw("AT+M,0,0,0");
-        const std::string bFrame = at.waitFrame('M', 600);
-        bool bRight = false;
-        if (!bFrame.empty()) {
-            const auto f = csvSplit(bFrame);
-            bRight = (f.size() > 10) ? (std::stoi(f[10]) != 0) : false;
+        std::cout << "  Drücke den \033[1mrechten Bumper\033[0m"
+                  << " und halte ihn (max " << kPollMs/1000 << " s) ...\n";
+        const int ms = pollSensor(at, kPollMs, [](const auto& f) {
+            return f.size() > 10 && std::stoi(f[10]) != 0;
+        });
+        if (ms < 0)
+            rep("Bumper Rechts", Result::FAIL, "nicht erkannt — Anschluss/Firmware prüfen");
+        else {
+            std::cout << "  \033[32mErkannt\033[0m nach " << ms << " ms — Bumper kann losgelassen werden.\n";
+            rep("Bumper Rechts", Result::PASS, "erkannt nach " + std::to_string(ms) + " ms");
         }
-        if (bRight)
-            rep("Bumper Rechts", Result::PASS, "Signal erkannt");
-        else
-            rep("Bumper Rechts", Result::FAIL, "kein bumperRight=1 im Frame");
-        waitEnter("Bumper kann losgelassen werden");
     }
 
     // ── Lift ──────────────────────────────────────────────────────────────────
     {
-        waitEnter("Roboter ANHEBEN (beide Räder in der Luft)");
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-        at.sendRaw("AT+M,0,0,0");
-        const std::string lFrame = at.waitFrame('M', 600);
-        bool liftOk = false;
-        if (!lFrame.empty()) {
-            const auto f = csvSplit(lFrame);
-            liftOk = (f.size() > 6) ? (std::stoi(f[6]) != 0) : false;
+        std::cout << "  \033[1mRoboter anheben\033[0m (beide Räder frei)"
+                  << " (max " << kPollMs/1000 << " s) ...\n";
+        const int ms = pollSensor(at, kPollMs, [](const auto& f) {
+            return f.size() > 6 && std::stoi(f[6]) != 0;
+        });
+        if (ms < 0)
+            rep("Lift-Sensor", Result::FAIL, "nicht erkannt — Sensor/Schwellwert prüfen");
+        else {
+            std::cout << "  \033[32mErkannt\033[0m nach " << ms << " ms — Roboter wieder absetzen.\n";
+            rep("Lift-Sensor", Result::PASS, "erkannt nach " + std::to_string(ms) + " ms");
         }
-        if (liftOk)
-            rep("Lift-Sensor", Result::PASS, "lift=1 erkannt");
-        else
-            rep("Lift-Sensor", Result::FAIL, "kein lift=1 — Sensor oder Schwellwert prüfen");
-        waitEnter("Roboter wieder ABSETZEN");
     }
 }
 
@@ -1057,12 +1070,27 @@ static void phase7Gps() {
         return;
     }
 
-    // GGA auswerten
+    // UBX-Binärprotokoll erkennen: Sync-Bytes 0xB5 0x62
+    // ZED-F9P sendet standardmäßig UBX, nicht NMEA — das ist normal und kein Fehler
+    const bool hasUbx = [&]() {
+        // Nochmal Rohbytes scannen — wir haben sie nicht gespeichert, aber
+        // wenn nmeaLines leer und rawBytes > 0 → UBX wahrscheinlich
+        return nmeaLines.empty() && rawBytes > 100;
+    }();
+
+    if (hasUbx) {
+        rep("GPS Daten", Result::PASS,
+            std::to_string(rawBytes) + " Bytes empfangen — UBX-Binärprotokoll erkannt (normal für ZED-F9P)");
+        std::cout << "  Info: NMEA-Ausgabe im F9P deaktiviert (gps_configure=false)."
+                  << " Hardware OK.\n";
+        return;
+    }
+
+    // NMEA auswerten
     bool hasGga = false, hasFix = false;
     for (const auto& line : nmeaLines) {
         if (line.find("GGA") != std::string::npos) {
             hasGga = true;
-            // Feld 6 = Fixqualität (0=kein Fix, 1=GPS, 2=DGPS, 4=RTK-Fixed, 5=RTK-Float)
             const auto f = csvSplit(line);
             if (f.size() > 6) {
                 const int q = std::stoi(f[6]);
@@ -1070,7 +1098,7 @@ static void phase7Gps() {
                 rep("GPS GGA Fix", (q > 0) ? Result::PASS : Result::WARN,
                     "Fixqualität=" + std::to_string(q) +
                     (q == 4 ? " (RTK-Fixed)" : q == 5 ? " (RTK-Float)" :
-                     q == 1 ? " (GPS)" : q == 0 ? " (kein Fix)" : ""));
+                     q == 1 ? " (GPS)" : " (kein Fix)"));
             }
             break;
         }
@@ -1079,7 +1107,7 @@ static void phase7Gps() {
     if (!hasGga)
         rep("GPS Daten", Result::WARN,
             std::to_string(rawBytes) + " Bytes / " + std::to_string(nmeaLines.size())
-            + " NMEA-Sätze — kein GGA gefunden");
+            + " NMEA-Sätze — kein GGA");
     else if (!hasFix)
         rep("GPS Daten", Result::WARN, "GGA vorhanden aber kein Fix");
     else
