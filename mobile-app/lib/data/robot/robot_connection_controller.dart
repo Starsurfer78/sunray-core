@@ -20,7 +20,8 @@ class RobotConnectionController {
         _repository = repository,
         _ws = ws;
 
-  static const Duration _connectTimeout = Duration(seconds: 8);
+  static const Duration _connectTimeout  = Duration(seconds: 8);
+  static const Duration _reconnectProbeTimeout = Duration(seconds: 4);
 
   final Ref _ref;
   final RobotRepository _repository;
@@ -343,6 +344,35 @@ class RobotConnectionController {
     }
   }
 
+  /// Lightweight reconnect: only re-probe + re-bind WebSocket.
+  /// Map geometry and missions are NOT re-fetched (already in memory).
+  Future<ConnectionStateKind> _reconnect(SavedRobot robot) async {
+    final resolvedConnection = await _probeRobotWithFallback(robot).timeout(
+      _reconnectProbeTimeout,
+      onTimeout: () => _ResolvedConnection(
+        robot: robot,
+        status: RobotStatus(
+          connectionState: ConnectionStateKind.error,
+          robotName: robot.name,
+          lastError: 'Reconnect-Timeout nach ${_reconnectProbeTimeout.inSeconds}s',
+        ),
+      ),
+    );
+
+    final resolvedRobot = resolvedConnection.robot;
+    final status = resolvedConnection.status;
+    _connectedRobot = resolvedRobot;
+
+    if (status.connectionState != ConnectionStateKind.connected) {
+      _ref.read(connectionStateProvider.notifier).state = status;
+      return status.connectionState;
+    }
+
+    _reconnectAttempt = 0;
+    await _bindTelemetry(resolvedRobot, status);
+    return ConnectionStateKind.connected;
+  }
+
   void _scheduleReconnect() {
     if (_manualDisconnect) return;
     final robot = _connectedRobot ?? _ref.read(activeRobotProvider);
@@ -362,7 +392,13 @@ class RobotConnectionController {
 
     _reconnectTimer = Timer(delay, () async {
       if (_manualDisconnect) return;
-      await connect(robot, persist: false);
+      final state = await _reconnect(robot);
+      // If reconnect failed (robot not yet reachable), keep retrying.
+      // On success, _bindTelemetry() takes over and calls _scheduleReconnect()
+      // on future disconnects via onDone/onError handlers.
+      if (!_manualDisconnect && state != ConnectionStateKind.connected) {
+        _scheduleReconnect();
+      }
     });
   }
 
