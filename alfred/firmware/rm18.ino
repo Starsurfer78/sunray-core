@@ -249,7 +249,7 @@ HardwareSerial mSerial2(pinBluetoothRX, pinBluetoothTX); // rx, tx  - UART avail
 #define CONSOLE2 mSerial2
 #define CONSOLE2_BAUDRATE 115200
 
-static constexpr unsigned long ODOMETRY_DEBOUNCE_MS = 3;
+static constexpr unsigned long ODOMETRY_DEBOUNCE_MS = 1;  // reduced from 3 ms — 3 ms dropped ticks above ~0.5 m/s
 
 // answer Bluetooth with CRC
 void cmdAnswer(String s)
