@@ -500,6 +500,22 @@ static void phase3Imu(sunray::platform::I2C& bus, sunray::platform::I2cMux& mux)
     mux.selectChannel(kMuxChImu);
     std::this_thread::sleep_for(std::chrono::milliseconds(350));  // power-up nach EX1 IO1.6
 
+    // Diagnose: direkter WHO_AM_I-Zugriff vor Treiber-Init
+    // Zeigt ob der I2C-Schreibpfad (Register-Pointer setzen) funktioniert.
+    {
+        static constexpr uint8_t kWhoAmI = 0x75;
+        uint8_t diagVal = 0;
+        mux.selectChannel(kMuxChImu);
+        const bool wOk = bus.write(kAddrImu69, &kWhoAmI, 1);
+        const bool rOk = wOk && bus.read(kAddrImu69, &diagVal, 1);
+        if (rOk) {
+            std::printf("  [DIAG] WHO_AM_I raw write+read: 0x%02X (erwartet 0x68)\n", diagVal);
+        } else {
+            std::printf("  [DIAG] WHO_AM_I raw write+read fehlgeschlagen (write=%s read=%s)\n",
+                        wOk ? "OK" : "FAIL", rOk ? "OK" : "FAIL");
+        }
+    }
+
     // Adresse per echtem Treiber-Init bestimmen — nicht per i2cProbe.
     // i2cProbe (raw read) und Treiber (writeRead mit Register-Adresse) verhalten sich
     // nach Mux-Wechseln unterschiedlich; deshalb probieren wir 0x69 dann 0x68.
