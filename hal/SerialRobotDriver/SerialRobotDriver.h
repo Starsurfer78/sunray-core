@@ -171,8 +171,14 @@ private:
     uint64_t nextTempMs_    = 0;
     uint64_t nextWifiMs_    = 0;
     uint64_t nextLedMs_     = 0;
-    uint64_t nextImuMs_     = 0;
-    uint64_t lastImuMs_     = 0;
+    uint64_t nextImuMs_           = 0;
+    uint64_t lastImuMs_           = 0;
+    uint64_t nextImuMuxRecoverMs_ = 0;  ///< next mux channel re-select attempt when IMU is down
+
+    // Cached mux channel numbers (read from config in init(), used every run() cycle)
+    int imuMuxChannel_    = 4;
+    int ex3MuxChannel_    = 0;
+    int legacyMuxChannel_ = 0;
 
     // RX accumulation buffer (chars until \r or \n)
     std::string rxBuf_;
@@ -206,6 +212,8 @@ private:
     static std::string trim(std::string s);
     void               logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const;
     uint8_t            configI2cAddr(const std::string& key, uint8_t fallback) const;
+    void               selectImuChannel();   ///< select IMU mux channel exclusively
+    void               selectEx3Channel();   ///< select LED/EX3 mux channel exclusively
     static int           fieldInt  (const std::string& s);
     static unsigned long fieldULong(const std::string& s);  ///< BUG-003: for tick counters
     static float         fieldFloat(const std::string& s);

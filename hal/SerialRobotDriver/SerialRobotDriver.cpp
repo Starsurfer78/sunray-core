@@ -80,29 +80,14 @@ bool SerialRobotDriver::init() {
     if (!robotId_.empty() && robotId_.back() == '\n') robotId_.pop_back();
     if (logger_) logger_->info("SRD", "Robot ID: " + robotId_);
 
-    // ── I2C Mux (TCA9548A) ────────────────────────────────────────────────────
-    // On Alfred, we enable all required channels once and keep them open.
-    // This is the state where IMU was working correctly.
+    // ── I2C Mux (TCA9548A) — cache channel numbers from config ───────────────
+    imuMuxChannel_    = config_->get<int>("imu_mux_channel",        4);
+    ex3MuxChannel_    = config_->get<int>("ex3_mux_channel",        0);
+    legacyMuxChannel_ = config_->get<int>("i2c_mux_legacy_channel", 0);
+    // Select the legacy/EX1 channel first so EX1 power and buzzer ops are routed correctly.
     if (mux_) {
-        uint8_t mask = 0;
-        const auto addChannel = [&mask](int channel) {
-            if (channel >= 0 && channel <= 7) {
-                mask = static_cast<uint8_t>(mask | (1u << channel));
-            }
-        };
-        addChannel(config_->get<int>("i2c_mux_legacy_channel", 0));
-        addChannel(config_->get<int>("ex3_mux_channel", 0));
-        addChannel(config_->get<int>("imu_mux_channel", 4));
-        addChannel(config_->get<int>("eeprom_mux_channel", 5));
-        addChannel(config_->get<int>("adc_mux_channel", 6));
-        if (logger_) {
-            std::ostringstream ss;
-            ss << "TCA9548A mux mask: 0x" << std::hex << (int)mask;
-            logger_->info("SRD", ss.str());
-        }
-        if (!mux_->setEnabledMask(mask)) {
-            if (logger_) logger_->warn("SRD", "failed to configure TCA9548A mux");
-        }
+        if (!mux_->selectChannel(static_cast<uint8_t>(legacyMuxChannel_)))
+            if (logger_) logger_->warn("SRD", "failed to select legacy mux channel");
     }
 
     // ── IMU + Fan power via EX1 ───────────────────────────────────────────────
@@ -114,7 +99,7 @@ bool SerialRobotDriver::init() {
         setFanPower(true);                            // Fan ON (default start)
         if (ok) {
             if (logger_) logger_->info("SRD", "EX1: IMU power enabled (IO1.6)");
-            // Give sensor time to power up before I2C access (increased to 300ms)
+            // Give sensor time to power up before I2C access
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
         } else {
             if (logger_) logger_->error("SRD", "EX1: failed to enable IMU power — I2C error at 0x21?");
@@ -122,8 +107,10 @@ bool SerialRobotDriver::init() {
     }
 
     // ── MPU-6050 IMU ──────────────────────────────────────────────────────────
+    // Select IMU channel exclusively before init — prevents address collision with
+    // devices on other channels (e.g. ADC on ch6 may share address 0x68/0x69).
+    selectImuChannel();
     const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
-    // Note: We do NOT use selectChannel here anymore, as the mux mask is already set.
     imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, imuAddr);
     bool imuOk = imu_->init();
     if (!imuOk && imuAddr != 0x68) {
@@ -174,12 +161,14 @@ bool SerialRobotDriver::init() {
 
     // Avoid an immediate false communication warning on the very first run().
     const uint64_t now = nowMs();
-    nextMotorMs_   = now + 20;
-    nextSummaryMs_ = now + 500;
-    nextConsoleMs_ = now + 1000;
-    nextLedMs_     = now + 3000;
-    nextTempMs_    = now + 59000;
-    nextWifiMs_    = now + 7000;
+    nextMotorMs_          = now + 20;
+    nextSummaryMs_        = now + 500;
+    nextConsoleMs_        = now + 1000;
+    nextLedMs_            = now + 3000;
+    nextTempMs_           = now + 59000;
+    nextWifiMs_           = now + 7000;
+    // Give the IMU a few seconds to become valid before mux recovery kicks in.
+    nextImuMuxRecoverMs_  = now + 10000;
 
     if (logger_) {
         logger_->info("SRD", "init complete — UART=" + port + " @" + std::to_string(baud) +
@@ -199,10 +188,19 @@ void SerialRobotDriver::run() {
 
     // 50 Hz — IMU update
     if (imu_ && now >= nextImuMs_) {
+        selectImuChannel();  // exclusive: only ch4 active, prevents address collision with ADC etc.
         const float dt = (lastImuMs_ == 0) ? 0.02f : (now - lastImuMs_) / 1000.0f;
         imu_->update(dt);
         lastImuMs_ = now;
         nextImuMs_ = now + 20;
+
+        // If the IMU is still not responding, periodically force a channel re-select and re-init.
+        if (!imu_->isValid() && now >= nextImuMuxRecoverMs_) {
+            nextImuMuxRecoverMs_ = now + 5000;
+            if (logger_) logger_->warn("SRD", "IMU not valid — re-selecting mux channel and re-init");
+            selectImuChannel();
+            imu_->init();
+        }
     }
 
     // 50 Hz — AT+M motor command
@@ -685,12 +683,21 @@ void SerialRobotDriver::updateChargerConnected(bool rawConnected) {
 
 // ── Hardware helpers ──────────────────────────────────────────────────────────
 
+void SerialRobotDriver::selectImuChannel() {
+    if (mux_) mux_->selectChannel(static_cast<uint8_t>(imuMuxChannel_));
+}
+
+void SerialRobotDriver::selectEx3Channel() {
+    if (mux_) mux_->selectChannel(static_cast<uint8_t>(ex3MuxChannel_));
+}
+
 void SerialRobotDriver::setFanPower(bool on) {
     if (ex1_) ex1_->setPin(1, 7, on);  // EX1 IO1.7 = Fan power
 }
 
 bool SerialRobotDriver::writeLed(LedId id, LedState state) {
     if (!ex3_) return false;
+    selectEx3Channel();  // exclusive: only LED channel active during EX3 access
     uint8_t gPin, rPin;
     switch (id) {
         case LedId::LED_1: gPin = 0; rPin = 1; break;  // WiFi  (bottom)
