@@ -152,6 +152,16 @@ target_link_libraries(hw_test PRIVATE
     sunray_core
 )
 
+add_executable(led_imu_test
+    tools/led_imu_test.cpp
+)
+
+target_link_libraries(led_imu_test PRIVATE
+    sunray_platform
+    sunray_imu
+    sunray_core
+)
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
