@@ -527,14 +527,15 @@ void Robot::tickUserFeedback() {
 void Robot::tickManualDrive() {
     const uint64_t driveTs = manualDriveTs_ms_.load();
     const std::string op   = activeOpName();
-    const bool     inIdle  = (op == "Idle" || op == "Charge");
+    const bool     inIdle  = (op == "Idle");  // Charge excluded: driving while charging risks disconnect → Error
     const bool     fresh   = (now_ms_ - driveTs < 500UL);
 
     if (inIdle && fresh && driveTs > 0) {
-        if (sensors_.stopButton) {
+        if (sensors_.stopButton || sensors_.bumperLeft || sensors_.bumperRight
+                || sensors_.lift || sensors_.motorFault) {
             static uint64_t lastStopLogTs = 0;
             if (now_ms_ - lastStopLogTs > 5000UL) {
-                logger_->warn(TAG, "Joystick blocked: STOP button is active");
+                logger_->warn(TAG, "Joystick blocked: safety sensor active (stop/bumper/lift/fault)");
                 lastStopLogTs = now_ms_;
             }
             return;

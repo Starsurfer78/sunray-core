@@ -85,9 +85,7 @@
         Math.abs(ny) > deadzone ? parseFloat((ny * speed).toFixed(2)) : 0;
       const angular =
         Math.abs(nx) > deadzone ? parseFloat((-nx * speed).toFixed(2)) : 0;
-      if (linear !== 0 || angular !== 0) {
-        sendCmd("drive", { linear, angular });
-      }
+      sendCmd("drive", { linear, angular });
     }, sendInterval);
   }
 
