@@ -355,10 +355,15 @@ static bool phase1Uart(sunray::platform::Serial& uart) {
         rep("AT+V", Result::PASS, "firmware=" + name + "  version=" + ver);
     }
 
-    // AT+S — Summary-Telemetrie
-    const std::string sFrame = at.exchange("AT+S", 'S', 800);
+    // Buffer leeren — nach AT+V können noch M-Frames im RX-Puffer liegen
+    at.flush();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // AT+S — Summary-Telemetrie (längeres Timeout: STM32 antwortet nach AT+S meist erst
+    // nach aktuellem ADC-Zyklus, der bis zu ~500 ms dauern kann)
+    const std::string sFrame = at.exchange("AT+S", 'S', 1500);
     if (sFrame.empty()) {
-        rep("AT+S", Result::FAIL, "keine Antwort innerhalb 0,8 s");
+        rep("AT+S", Result::FAIL, "keine Antwort innerhalb 1,5 s");
         return false;
     }
     {
@@ -491,18 +496,29 @@ static void phase3Imu(sunray::platform::I2C& bus, sunray::platform::I2cMux& mux)
     mux.selectChannel(kMuxChImu);
     std::this_thread::sleep_for(std::chrono::milliseconds(350));  // power-up nach EX1 IO1.6
 
-    // Adresse bestimmen
-    const uint8_t imuAddr = i2cProbe(bus, kAddrImu69) ? kAddrImu69 : kAddrImu68;
-
-    // StdoutLogger damit Fehlermeldungen des Treibers sichtbar sind
+    // Adresse per echtem Treiber-Init bestimmen — nicht per i2cProbe.
+    // i2cProbe (raw read) und Treiber (writeRead mit Register-Adresse) verhalten sich
+    // nach Mux-Wechseln unterschiedlich; deshalb probieren wir 0x69 dann 0x68.
     auto logger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::WARN);
-    sunray::Mpu6050Driver imu(bus, logger, imuAddr);
 
-    if (!imu.init()) {
-        rep("IMU init", Result::FAIL, "MPU-6050 init fehlgeschlagen (Details oben)");
+    uint8_t imuAddr = 0;
+    std::unique_ptr<sunray::Mpu6050Driver> imuPtr;
+    for (uint8_t candidate : {kAddrImu69, kAddrImu68}) {
+        mux.selectChannel(kMuxChImu);  // Mux-Kanal vor jedem Versuch neu setzen
+        auto drv = std::make_unique<sunray::Mpu6050Driver>(bus, logger, candidate);
+        if (drv->init()) {
+            imuAddr = candidate;
+            imuPtr  = std::move(drv);
+            break;
+        }
+    }
+
+    if (!imuPtr) {
+        rep("IMU init", Result::FAIL, "MPU-6050 antwortet nicht auf 0x69 und 0x68");
         return;
     }
     rep("IMU init", Result::PASS, "MPU-6050 bereit (" + hexAddr(imuAddr) + ")");
+    sunray::Mpu6050Driver& imu = *imuPtr;
 
     // Tabellenkopf
     std::cout << "\n  "
