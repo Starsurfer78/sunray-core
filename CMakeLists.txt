@@ -142,6 +142,16 @@ target_link_libraries(pca9555_probe PRIVATE
     sunray_platform
 )
 
+add_executable(hw_test
+    tools/hw_test.cpp
+)
+
+target_link_libraries(hw_test PRIVATE
+    sunray_platform
+    sunray_imu
+    sunray_core
+)
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
