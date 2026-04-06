@@ -145,14 +145,39 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         angleToTargetFits_ = (std::fabs(trackerDiffDelta_) / PI * 180.0f < 45.0f);
     }
 
+    // ── Config snapshot (read once per tick to avoid repeated map lookups) ───
+    //   All config values used below are read here so the if/else branches
+    //   below stay readable and perform only a single lookup per key per tick.
+
+    const float setSpeed       = config_ ? config_->get<float>("motor_set_speed_ms",         0.3f)  : 0.3f;
+
+    const bool  rotRampEnabled = config_ ? config_->get<bool> ("rotation_ramp_enabled",       true)  : true;
+    const float rampMaxDegS    = config_ ? config_->get<float>("rotation_ramp_max_deg_s",    75.0f) : 75.0f;
+    const float rampMinDegS    = config_ ? config_->get<float>("rotation_ramp_min_deg_s",    18.0f) : 18.0f;
+
+    const bool  rotBlockEnabled   = config_ ? config_->get<bool> ("obstacle_detect_rotation_enabled",    false) : false;
+    const unsigned long rotBlockTimeoutMs = static_cast<unsigned long>(
+        config_ ? config_->get<int>("obstacle_detect_rotation_timeout_ms", 3000) : 3000);
+    const float rotBlockMinYawDeg = config_ ? config_->get<float>("obstacle_detect_rotation_min_yaw_deg", 10.0f) : 10.0f;
+
+    const bool  adaptEnabled      = config_ ? config_->get<bool> ("adaptive_speed_enabled",       false) : false;
+    const float adaptScale        = config_ ? config_->get<float>("adaptive_speed_overload_scale", 0.5f)  : 0.5f;
+
+    const float floatSpeedScale   = config_ ? config_->get<float>("gps_float_speed_scale",  0.6f)  : 0.6f;
+    const unsigned long staleAgeMs = static_cast<unsigned long>(
+        config_ ? config_->get<int>("gps_stale_age_ms", 2000) : 2000);
+    const float staleSpeedScale   = config_ ? config_->get<float>("gps_stale_speed_scale",  0.4f)  : 0.4f;
+
+    const float stanleyKSlow      = config_ ? config_->get<float>("stanley_k_slow",       0.2f)  : 0.2f;
+    const float stanleyPSlow      = config_ ? config_->get<float>("stanley_p_slow",       0.5f)  : 0.5f;
+    const float dockLinearSpeed   = config_ ? config_->get<float>("dock_linear_speed_ms", 0.1f)  : 0.1f;
+    const float stanleyKNormal    = config_ ? config_->get<float>("stanley_k_normal",     1.0f)  : 1.0f;
+    const float stanleyPNormal    = config_ ? config_->get<float>("stanley_p_normal",     2.0f)  : 2.0f;
+
     // ── Speed and angular control ─────────────────────────────────────────────
 
     float linear  = 0.0f;
     float angular = 0.0f;
-
-    const float setSpeed = config_
-        ? config_->get<float>("motor_set_speed_ms", 0.3f)
-        : 0.3f;
 
     if (!angleToTargetFits_) {
         // ── Rotate phase: no forward motion ─────────────────────────────────
@@ -161,17 +186,11 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         // ROTATION_RAMP: scale angular speed linearly with remaining angle error.
         // Large error → ramp_max_deg_s, small error → ramp_min_deg_s.
         // Disabled by setting rotation_ramp_enabled=false → constant ROTATE_SPEED_RADPS.
-        const bool rotRampEnabled = config_
-            ? config_->get<bool>("rotation_ramp_enabled", true) : true;
         if (rotRampEnabled) {
-            const float maxDegS = config_
-                ? config_->get<float>("rotation_ramp_max_deg_s", 75.0f) : 75.0f;
-            const float minDegS = config_
-                ? config_->get<float>("rotation_ramp_min_deg_s", 18.0f) : 18.0f;
             const float angleDeg = std::fabs(trackerDiffDelta_) / PI * 180.0f;
             // Linear ramp: full speed at 120°, min speed at 0°.
             const float t = std::clamp(angleDeg / 120.0f, 0.0f, 1.0f);
-            angular = (minDegS + t * (maxDegS - minDegS)) / 180.0f * PI;
+            angular = (rampMinDegS + t * (rampMaxDegS - rampMinDegS)) / 180.0f * PI;
         } else {
             angular = ROTATE_SPEED_RADPS;
         }
@@ -192,29 +211,26 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         // If enabled and IMU is valid: arm on first rotation tick, then monitor
         // whether yaw actually changes. If yaw moves less than threshold after
         // rot_block_timeout_ms → robot is blocked → fire onObstacleRotation().
-        const bool rotBlockEnabled = config_
-            ? config_->get<bool>("obstacle_detect_rotation_enabled", false) : false;
         if (rotBlockEnabled && ctx.imuValid) {
             if (!rotBlockArmed_) {
                 rotBlockArmed_       = true;
                 rotBlockStartMs_     = ctx.now_ms;
                 rotBlockImuYawStart_ = ctx.imuYaw;
             } else {
-                const unsigned long timeoutMs = static_cast<unsigned long>(
-                    config_ ? config_->get<int>("obstacle_detect_rotation_timeout_ms", 3000) : 3000);
-                if (ctx.now_ms - rotBlockStartMs_ >= timeoutMs) {
-                    const float minYawDeg = config_
-                        ? config_->get<float>("obstacle_detect_rotation_min_yaw_deg", 10.0f) : 10.0f;
+                if (ctx.now_ms - rotBlockStartMs_ >= rotBlockTimeoutMs) {
+                    // Fix: use distancePI() to correctly handle ±π yaw wraparound.
                     const float yawChangeDeg =
-                        std::fabs(ctx.imuYaw - rotBlockImuYawStart_) * 180.0f / PI;
+                        std::fabs(distancePI(ctx.imuYaw, rotBlockImuYawStart_)) * 180.0f / PI;
                     rotBlockArmed_   = false;
                     rotBlockStartMs_ = 0;
-                    if (yawChangeDeg < minYawDeg) {
+                    if (yawChangeDeg < rotBlockMinYawDeg) {
                         if (activeOp) activeOp->onObstacleRotation(ctx);
                     }
                 }
             }
-        } else if (!rotBlockEnabled) {
+        } else {
+            // rotBlockEnabled=false OR imuValid=false — disarm so a future
+            // valid rotation phase starts fresh.
             rotBlockArmed_ = false;
         }
     } else {
@@ -225,12 +241,12 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
 
         float k, p;
         if (segment.slow) {
-            k = config_ ? config_->get<float>("stanley_k_slow",     0.2f) : 0.2f;
-            p = config_ ? config_->get<float>("stanley_p_slow",     0.5f) : 0.5f;
-            linear = config_ ? config_->get<float>("dock_linear_speed_ms", 0.1f) : 0.1f;
+            k      = stanleyKSlow;
+            p      = stanleyPSlow;
+            linear = dockLinearSpeed;
         } else {
-            k = config_ ? config_->get<float>("stanley_k_normal", 1.0f) : 1.0f;
-            p = config_ ? config_->get<float>("stanley_p_normal", 2.0f) : 2.0f;
+            k      = stanleyKNormal;
+            p      = stanleyPNormal;
             linear = setSpeed;
             // Reduce speed when approaching a non-straight (turning) waypoint.
             if ((setSpeed > 0.2f) && (targetDist_ < 0.5f) && !segment.nextSegmentStraight) {
@@ -248,34 +264,21 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         // Uses the STM32 overload flag (AT+S/AT+M summary field).
         // Disabled by default — enable via config: "adaptive_speed_enabled": true
         if (!segment.slow && !segment.reverse) {
-            const bool adaptEnabled = config_
-                ? config_->get<bool>("adaptive_speed_enabled", false) : false;
             if (adaptEnabled && ctx.sensors.mowOverload) {
-                const float scale = config_
-                    ? config_->get<float>("adaptive_speed_overload_scale", 0.5f) : 0.5f;
-                linear *= std::clamp(scale, 0.1f, 1.0f);
+                linear *= std::clamp(adaptScale, 0.1f, 1.0f);
             }
         }
     }
 
     // ── GPS degradation mode ─────────────────────────────────────────────────
     // Keep navigating, but reduce commanded speed when GPS quality is degraded.
-    if (!ctx.gpsHasFix) {
-        const float floatScale = config_
-            ? config_->get<float>("gps_float_speed_scale", 0.6f)
-            : 0.6f;
-        const unsigned long staleAgeMs = static_cast<unsigned long>(config_
-            ? config_->get<int>("gps_stale_age_ms", 2000)
-            : 2000);
-        const float staleScale = config_
-            ? config_->get<float>("gps_stale_speed_scale", 0.4f)
-            : 0.4f;
-
+    // Only applies when we actually have forward/reverse motion to scale.
+    if (linear != 0.0f && !ctx.gpsHasFix) {
         if (ctx.gpsHasFloat) {
-            linear *= std::clamp(floatScale, 0.1f, 1.0f);
+            linear *= std::clamp(floatSpeedScale, 0.1f, 1.0f);
         }
         if (ctx.gpsFixAge_ms >= staleAgeMs) {
-            linear *= std::clamp(staleScale, 0.1f, 1.0f);
+            linear *= std::clamp(staleSpeedScale, 0.1f, 1.0f);
         }
     }
 
@@ -303,8 +306,14 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
         rotateLeft_  = false;
         rotateRight_ = false;
         if (activeOp) activeOp->onTargetReached(ctx);
-        if (!map.advanceTracking(stateX, stateY) && activeOp) {
-            activeOp->onNoFurtherWaypoints(ctx);
+        // onTargetReached() may have triggered an Op transition (e.g. to Dock).
+        // Only advance the map and fire onNoFurtherWaypoints() if the active Op
+        // is still the same — otherwise the new Op manages its own tracking.
+        Op* opAfterReached = ctx.opMgr.activeOp();
+        if (opAfterReached == activeOp) {
+            if (!map.advanceTracking(stateX, stateY) && activeOp) {
+                activeOp->onNoFurtherWaypoints(ctx);
+            }
         }
     }
 }
