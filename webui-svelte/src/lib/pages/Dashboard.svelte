@@ -77,7 +77,6 @@
       showViewportActions={false}
       showZoomControls={false}
       interactive={false}
-      height={680}
     />
 
     <!-- Zoom controls -->

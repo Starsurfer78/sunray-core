@@ -5,8 +5,6 @@
   import type { AddPointResult, Point } from '../../stores/map'
   import { mapStore } from '../../stores/map'
 
-  export let width = 900
-  export let height = 620
   export let interactive = true
   export let showHeader = true
   export let showViewportActions = true
@@ -16,6 +14,11 @@
   export let pointAddBlockedReason = ''
 
   const dispatch = createEventDispatcher<{ pointrejected: { tool: string; reason?: string } }>()
+
+  // Actual container dimensions — kept in sync with CSS layout via bind:clientWidth/Height.
+  // Defaults are used only before the first layout measurement.
+  let width = 900
+  let height = 620
 
   const RAD_TO_DEG = 180 / Math.PI
   const baseScale = 20
@@ -329,8 +332,21 @@
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault()
+    const target = event.currentTarget as SVGSVGElement
+    const oldZoom = zoom
     const delta = event.deltaY < 0 ? 1.1 : 0.9
-    zoom = clamp(Number((zoom * delta).toFixed(3)), minZoom, maxZoom)
+    const newZoom = clamp(Number((zoom * delta).toFixed(3)), minZoom, maxZoom)
+    if (newZoom === oldZoom) return
+
+    // Zoom toward cursor: keep the world point under the cursor fixed in screen space.
+    const cursor = clientToSvgCoordinates(event.clientX, event.clientY, target)
+    const oldScale = baseScale * oldZoom
+    const worldX = (cursor.x - width / 2 - offsetX) / oldScale
+    const worldY = (height / 2 + offsetY - cursor.y) / oldScale
+    zoom = newZoom
+    const newScale = baseScale * newZoom
+    offsetX = cursor.x - width / 2 - worldX * newScale
+    offsetY = cursor.y - height / 2 + worldY * newScale
   }
 
   function path(points: Point[], scaleValue = currentScale, xOffset = offsetX, yOffset = offsetY) {
@@ -471,7 +487,7 @@
     </div>
   {/if}
 
-  <div class="canvas-wrap">
+  <div class="canvas-wrap" bind:clientWidth={width} bind:clientHeight={height}>
     {#if cursorWorld}
       <div class="cursor-coords">
         x {cursorWorld.x.toFixed(2)} m &nbsp; y {cursorWorld.y.toFixed(2)} m
@@ -488,7 +504,6 @@
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="xMidYMid slice"
       role="img"
       aria-label="Map canvas"
       tabindex={interactive ? 0 : -1}
