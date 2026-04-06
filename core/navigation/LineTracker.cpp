@@ -153,8 +153,25 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
 
     if (!angleToTargetFits_) {
         // ── Rotate phase: no forward motion ─────────────────────────────────
-        linear  = 0.0f;
-        angular = ROTATE_SPEED_RADPS;
+        linear = 0.0f;
+
+        // ROTATION_RAMP: scale angular speed linearly with remaining angle error.
+        // Large error → ramp_max_deg_s, small error → ramp_min_deg_s.
+        // Disabled by setting rotation_ramp_enabled=false → constant ROTATE_SPEED_RADPS.
+        const bool rotRampEnabled = config_
+            ? config_->get<bool>("rotation_ramp_enabled", true) : true;
+        if (rotRampEnabled) {
+            const float maxDegS = config_
+                ? config_->get<float>("rotation_ramp_max_deg_s", 75.0f) : 75.0f;
+            const float minDegS = config_
+                ? config_->get<float>("rotation_ramp_min_deg_s", 18.0f) : 18.0f;
+            const float angleDeg = std::fabs(trackerDiffDelta_) / PI * 180.0f;
+            // Linear ramp: full speed at 120°, min speed at 0°.
+            const float t = std::clamp(angleDeg / 120.0f, 0.0f, 1.0f);
+            angular = (minDegS + t * (maxDegS - minDegS)) / 180.0f * PI;
+        } else {
+            angular = ROTATE_SPEED_RADPS;
+        }
 
         if (!rotateLeft_ && !rotateRight_) {
             if (trackerDiffDelta_ < 0.0f) rotateLeft_  = true;
@@ -192,6 +209,19 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
                 + std::atan2(k * lateralError_, 0.001f + std::fabs(speed));
 
         if (segment.reverse) linear *= -1.0f;
+
+        // ── ADAPTIVE_SPEED: reduce forward speed when mow motor is overloaded ─
+        // Uses the STM32 overload flag (AT+S/AT+M summary field).
+        // Disabled by default — enable via config: "adaptive_speed_enabled": true
+        if (!segment.slow && !segment.reverse) {
+            const bool adaptEnabled = config_
+                ? config_->get<bool>("adaptive_speed_enabled", false) : false;
+            if (adaptEnabled && ctx.sensors.mowOverload) {
+                const float scale = config_
+                    ? config_->get<float>("adaptive_speed_overload_scale", 0.5f) : 0.5f;
+                linear *= std::clamp(scale, 0.1f, 1.0f);
+            }
+        }
     }
 
     // ── GPS degradation mode ─────────────────────────────────────────────────

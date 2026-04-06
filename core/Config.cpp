@@ -50,6 +50,8 @@ namespace sunray
             {"gps_no_signal_ms", 15000},         // ab hier: onGpsNoSignal()
             {"gps_fix_timeout_ms", 120000},      // ab hier: onGpsFixTimeout()
             {"gps_recover_hysteresis_ms", 3000}, // Signal muss stabil sein
+            {"gps_reset_command", ""},           // GPS_RESET_WAIT_FIX: Befehl bei Midpoint-Timeout (leer=deaktiviert)
+            {"gps_reset_wait_ms", 60000},        // GPS_RESET_WAIT_FIX: Wartezeit vor Reset (Standard: halber fix_timeout)
             {"mow_gps_coast_ms", 20000},         // bounded mowing continuation on degraded fusion
             {"ekf_gps_failover_ms", 20000},      // EKF GPS failover on configured Alfred runtime
 
@@ -114,6 +116,19 @@ namespace sunray
             {"gps_stale_age_ms", 2000},     // ab welchem Fix-Alter als "stale" gilt
             {"gps_stale_speed_scale", 0.4}, // zusätzliche Drossel bei stale GPS
             {"target_reached_tolerance_m", 0.1},
+
+            // ── Rotation Ramp ────────────────────────────────────────────────────
+            // Skaliert die Drehgeschwindigkeit linear mit dem Winkelrestfehler.
+            // Deaktivieren mit rotation_ramp_enabled=false → konstante 29°/s.
+            {"rotation_ramp_enabled", true},
+            {"rotation_ramp_max_deg_s", 75.0},  // Geschwindigkeit bei großem Winkel (120°)
+            {"rotation_ramp_min_deg_s", 18.0},  // Geschwindigkeit bei kleinem Winkel (0°)
+
+            // ── Adaptive Speed ───────────────────────────────────────────────────
+            // Reduziert die Fahrgeschwindigkeit wenn der Mähmotor überlastet ist.
+            // Quelle: STM32 mowOverload-Flag aus AT+S / AT+M.
+            {"adaptive_speed_enabled", false},
+            {"adaptive_speed_overload_scale", 0.5},  // Faktor bei Überlast (0.1–1.0)
 
             // ── Entfuehrungs-Erkennung ────────────────────────────────────────────
             {"kidnap_detect", true},

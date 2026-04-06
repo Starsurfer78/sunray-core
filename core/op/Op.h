@@ -429,7 +429,8 @@ public:
 
 class GpsWaitFixOp : public Op {
 public:
-    unsigned long waitStartTime_ms = 0;
+    unsigned long waitStartTime_ms  = 0;
+    bool          resetTriggered_   = false;  ///< true once mid-timeout reset has fired
 
     std::string name() const override { return "GpsWait"; }
     void begin(OpContext& ctx) override;
