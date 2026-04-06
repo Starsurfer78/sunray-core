@@ -71,6 +71,8 @@ struct OpContext {
     bool  gpsHasFloat       = false;  ///< at least RTK float
     unsigned long gpsFixAge_ms = 9999999; ///< ms since last valid GPS
     bool  resumeBlockedByMapChange = false; ///< true when route changed and resume is unsafe
+    float imuYaw     = 0.0f;  ///< IMU yaw in radians (from lastImu_.yaw) — 0 if not valid
+    bool  imuValid   = false; ///< true when IMU is responding and calibrated
 
     // ── Navigation objects (A.5 — null until loaded) ──────────────────────────
     nav::StateEstimator* stateEst    = nullptr;  ///< pose estimator (owned by Robot)

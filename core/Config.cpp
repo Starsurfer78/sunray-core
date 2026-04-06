@@ -130,6 +130,18 @@ namespace sunray
             {"adaptive_speed_enabled", false},
             {"adaptive_speed_overload_scale", 0.5},  // Faktor bei Überlast (0.1–1.0)
 
+            // ── Escape Lawn (Mähmotor-Blockierung) ───────────────────────────────
+            // Löst onStuck() aus wenn Mähmotor über escape_lawn_timeout_ms überlastet.
+            {"escape_lawn_enabled", false},
+            {"escape_lawn_timeout_ms", 3000},  // ms Dauerlast bis Ausweichmanöver
+
+            // ── Obstacle Detection Rotation (IMU-Blockierung) ────────────────────
+            // Erkennt Blockierung beim Drehen anhand fehlender Yaw-Änderung (IMU).
+            // Erfordert gültigen IMU. Löst onObstacleRotation() aus.
+            {"obstacle_detect_rotation_enabled", false},
+            {"obstacle_detect_rotation_timeout_ms", 3000},  // ms bis Blockierungscheck
+            {"obstacle_detect_rotation_min_yaw_deg", 10.0}, // mindest Yaw-Änderung in °
+
             // ── Entfuehrungs-Erkennung ────────────────────────────────────────────
             {"kidnap_detect", true},
             {"kidnap_detect_tolerance_m", 1.0},

@@ -268,6 +268,7 @@ private:
     void monitorMapChangeSafety(OpContext& ctx);
     void monitorMcuConnectivity(OpContext& ctx);
     void monitorStuckDetection(OpContext& ctx);
+    void monitorMowOverload(OpContext& ctx);   ///< ESCAPE_LAWN: trigger escape on persistent mow overload
     void monitorOpWatchdog(OpContext& ctx);
     void armMissionResumeGuard();
     std::string currentStatePhase() const;
@@ -344,6 +345,7 @@ private:
     unsigned long stuckSince_ms_ = 0;
     unsigned    stuckRecoveryCount_ = 0;
     bool        stuckRecoveryExhaustedLatched_ = false;
+    unsigned long mowOverloadSince_ms_ = 0;  ///< ESCAPE_LAWN: when persistent overload started
     bool        previousInsidePerimeter_ = true;
     bool        sessionActive_ = false;
     SessionRecord currentSession_;

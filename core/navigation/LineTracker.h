@@ -86,6 +86,11 @@ private:
     float targetDist_        = 0.0f;
     float trackerDiffDelta_  = 0.0f;
 
+    // OBSTACLE_DETECTION_ROTATION state
+    float         rotBlockImuYawStart_    = 0.0f;  ///< IMU yaw at start of rotation phase
+    unsigned long rotBlockStartMs_        = 0;     ///< timestamp when rotation phase began
+    bool          rotBlockArmed_          = false; ///< true while in rotation phase with valid IMU
+
     // ── Constants ─────────────────────────────────────────────────────────────
 
     static constexpr float PI = static_cast<float>(M_PI);

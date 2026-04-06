@@ -37,6 +37,12 @@ std::string humanReadableReasonMessage(const std::string& eventReason,
     if (eventReason == "stuck_detected") {
         return "Fortbewegung blockiert: Der Roboter startet ein Befreiungsmanöver.";
     }
+    if (eventReason == "mow_overload_escape") {
+        return "Mähmotor dauerhaft überlastet: Der Roboter weicht zurück.";
+    }
+    if (eventReason == "rotation_blocked") {
+        return "Drehung blockiert: Der Roboter startet ein Befreiungsmanöver.";
+    }
     if (eventReason == "stuck_recovery_exhausted") {
         return "Wiederholtes Festfahren: Der Roboter wurde in einen sicheren Fehlerzustand versetzt.";
     }

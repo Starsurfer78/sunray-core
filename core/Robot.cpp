@@ -277,6 +277,8 @@ OpContext Robot::assembleOpContext() {
     ctx.driveController = &driveController_;
     ctx.now_ms = now_ms_;
     ctx.dt_ms = lastDt_ms_;
+    ctx.imuYaw   = lastImu_.yaw;
+    ctx.imuValid = lastImu_.valid;
     return ctx;
 }
 
@@ -287,6 +289,7 @@ void Robot::tickSafetyGuards(OpContext& ctx) {
     monitorPerimeterSafety(ctx);
     monitorMapChangeSafety(ctx);
     monitorStuckDetection(ctx);
+    monitorMowOverload(ctx);
     monitorOpWatchdog(ctx);
 }
 
@@ -1519,6 +1522,40 @@ void Robot::monitorStuckDetection(OpContext& ctx) {
     const std::string message = messages::humanReadableReasonMessage("stuck_detected");
     recordEvent("warn", "safety_event", "stuck_detected", message);
     showUiNotice(message, "warn", "stuck_detected", 6000);
+    activeOp->onStuck(ctx);
+}
+
+void Robot::monitorMowOverload(OpContext& ctx) {
+    // ESCAPE_LAWN: wenn der Mähmotor über einen konfigurierbaren Zeitraum
+    // kontinuierlich überlastet ist, wird onStuck() ausgelöst — genau wie
+    // bei mechanischer Blockierung. Nur aktiv während MowOp.
+    if (!config_->get<bool>("escape_lawn_enabled", false)) return;
+
+    Op* const activeOp = opMgr_.activeOp();
+    if (!activeOp || activeOp->name() != "Mow") {
+        mowOverloadSince_ms_ = 0;
+        return;
+    }
+
+    const bool overloaded = ctx.sensors.mowOverload || ctx.sensors.mowPermanentFault;
+    if (!overloaded) {
+        mowOverloadSince_ms_ = 0;
+        return;
+    }
+
+    if (mowOverloadSince_ms_ == 0) {
+        mowOverloadSince_ms_ = ctx.now_ms;
+        return;
+    }
+
+    const unsigned long timeoutMs = static_cast<unsigned long>(
+        ctx.config.get<int>("escape_lawn_timeout_ms", 3000));
+    if (ctx.now_ms - mowOverloadSince_ms_ < timeoutMs) return;
+
+    mowOverloadSince_ms_ = 0;
+    const std::string message = messages::humanReadableReasonMessage("mow_overload_escape");
+    recordEvent("warn", "safety_event", "mow_overload_escape", message);
+    showUiNotice(message, "warn", "mow_overload_escape", 6000);
     activeOp->onStuck(ctx);
 }
 

@@ -37,6 +37,9 @@ void LineTracker::reset() {
     lateralError_      = 0.0f;
     targetDist_        = 0.0f;
     trackerDiffDelta_  = 0.0f;
+    rotBlockArmed_     = false;
+    rotBlockStartMs_   = 0;
+    rotBlockImuYawStart_ = 0.0f;
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -184,10 +187,41 @@ void LineTracker::track(OpContext& ctx, Map& map, const StateEstimator& estimato
             rotateLeft_  = false;
             rotateRight_ = false;
         }
+
+        // ── OBSTACLE_DETECTION_ROTATION ──────────────────────────────────────
+        // If enabled and IMU is valid: arm on first rotation tick, then monitor
+        // whether yaw actually changes. If yaw moves less than threshold after
+        // rot_block_timeout_ms → robot is blocked → fire onObstacleRotation().
+        const bool rotBlockEnabled = config_
+            ? config_->get<bool>("obstacle_detect_rotation_enabled", false) : false;
+        if (rotBlockEnabled && ctx.imuValid) {
+            if (!rotBlockArmed_) {
+                rotBlockArmed_       = true;
+                rotBlockStartMs_     = ctx.now_ms;
+                rotBlockImuYawStart_ = ctx.imuYaw;
+            } else {
+                const unsigned long timeoutMs = static_cast<unsigned long>(
+                    config_ ? config_->get<int>("obstacle_detect_rotation_timeout_ms", 3000) : 3000);
+                if (ctx.now_ms - rotBlockStartMs_ >= timeoutMs) {
+                    const float minYawDeg = config_
+                        ? config_->get<float>("obstacle_detect_rotation_min_yaw_deg", 10.0f) : 10.0f;
+                    const float yawChangeDeg =
+                        std::fabs(ctx.imuYaw - rotBlockImuYawStart_) * 180.0f / PI;
+                    rotBlockArmed_   = false;
+                    rotBlockStartMs_ = 0;
+                    if (yawChangeDeg < minYawDeg) {
+                        if (activeOp) activeOp->onObstacleRotation(ctx);
+                    }
+                }
+            }
+        } else if (!rotBlockEnabled) {
+            rotBlockArmed_ = false;
+        }
     } else {
         // ── Stanley tracking phase ───────────────────────────────────────────
         rotateLeft_  = false;
         rotateRight_ = false;
+        rotBlockArmed_ = false;
 
         float k, p;
         if (segment.slow) {
