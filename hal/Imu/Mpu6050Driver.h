@@ -25,7 +25,8 @@ public:
 
     /// Initialize the sensor: wake up, set ranges, enable DLPF.
     /// Returns true if the sensor is responding (WHO_AM_I check).
-    bool init();
+    /// quick=true: single attempt, no sleep — for use inside update() to avoid blocking the control loop.
+    bool init(bool quick = false);
 
     /// Read raw data and update internal orientation.
     /// dt_s: time since last call in seconds (for integration).

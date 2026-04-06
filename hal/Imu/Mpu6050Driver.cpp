@@ -33,25 +33,28 @@ Mpu6050Driver::Mpu6050Driver(platform::I2C& i2c, std::shared_ptr<Logger> logger,
     : i2c_(i2c), logger_(std::move(logger)), addr_(addr)
 {}
 
-bool Mpu6050Driver::init() {
+bool Mpu6050Driver::init(bool quick) {
     initialized_ = false;
-    // 1. Check WHO_AM_I (with retries for slow power-up)
+    // 1. Check WHO_AM_I
+    // Startup path (quick=false): up to 5 retries with 50ms sleep for slow power-up.
+    // Recovery path (quick=true): single attempt, no sleep — must not block the control loop.
     uint8_t who = 0;
     bool found = false;
-    for (int i = 0; i < 5; ++i) {
+    const int retries = quick ? 1 : 5;
+    for (int i = 0; i < retries; ++i) {
         if (readRegs(REG_WHO_AM_I, &who, 1) && who == 0x68) {
             found = true;
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (!quick) std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     if (!found) {
         if (logger_) {
             if (who == 0 || who == 0xFF) {
-                logger_->error("MPU", "sensor not responding at " + toHex(addr_) + " (WHO_AM_I=" + toHex(who) + ")");
+                logger_->error("MPU", "sensor not responding at " + toHex(addr_) + " (WHO_AM_I=" + toHex(who) + ") - check wiring, power, or mux channel");
             } else {
-                logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got " + toHex(who) + ") at " + toHex(addr_));
+                logger_->error("MPU", "sensor WHO_AM_I mismatch (expected 0x68, got " + toHex(who) + ") at " + toHex(addr_) + " - wrong sensor or address conflict");
             }
         }
         return false;
@@ -93,9 +96,14 @@ void Mpu6050Driver::update(float dt_s) {
         if (updateCount_ % 100 == 0 && logger_) {
             logger_->error("MPU", "I2C read failed in update() at " + toHex(addr_));
         }
+        if (calibrating_) {
+            sumGx_ = sumGy_ = sumGz_ = 0;
+            calibSamples_ = 0;
+            calibrating_ = false;
+            if (logger_) logger_->warn("MPU", "calibration aborted — I2C read failure at " + toHex(addr_));
+        }
         std::lock_guard<std::mutex> lk(mutex_);
         data_.valid = false;
-        // If read fails multiple times, we might need a full re-init
         if (updateCount_ % 250 == 0) initialized_ = false;
         return;
     }
@@ -117,13 +125,40 @@ void Mpu6050Driver::update(float dt_s) {
 
     if (!initialized_ || allZero) {
         if (allZero && initialized_ && updateCount_ % 500 == 0 && logger_) {
-            logger_->warn("MPU", "all sensor values are zero — sensor likely reset or in sleep at " + toHex(addr_));
+            logger_->warn("MPU", "all sensor values are zero — sensor likely reset or in sleep at " + toHex(addr_) +
+                        " (attempting auto-recovery)");
         }
-        // Auto-reinit if we are reading zeros or not initialized
-        if (updateCount_ % 50 == 0) { // Try every second at 50Hz
-            if (init()) {
-                if (logger_) logger_->info("MPU", "initialized sensor at " + toHex(addr_));
+        // A running calibration must be aborted: accumulated samples are now
+        // tainted by the I2C failure. Reset so the next successful calibrate()
+        // call starts from a clean state.
+        if (calibrating_) {
+            sumGx_ = sumGy_ = sumGz_ = 0;
+            calibSamples_ = 0;
+            calibrating_ = false;
+            if (logger_) logger_->warn("MPU", "calibration aborted — sensor failure mid-run at " + toHex(addr_));
+        }
+        // Auto-reinit every second (50 Hz). Use quick mode: single WHO_AM_I attempt,
+        // no sleep — must not block the 20ms control loop.
+        if (updateCount_ % 50 == 0) {
+            if (logger_ && updateCount_ > 0) {
+                logger_->info("MPU", "attempting IMU re-initialization (update #" + std::to_string(updateCount_) + ")");
             }
+            bool reinitSuccess = init(/*quick=*/true);
+            if (reinitSuccess && logger_) {
+                logger_->info("MPU", "IMU re-initialization successful at " + toHex(addr_));
+            } else if (!reinitSuccess && logger_ && updateCount_ % 250 == 0) {
+                logger_->error("MPU", "IMU re-initialization failed at " + toHex(addr_) + " - check hardware");
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lk(mutex_);
+            data_.accX  = ax; data_.accY  = ay; data_.accZ  = az;
+            data_.gyroX = gx * DEG_TO_RAD; data_.gyroY = gy * DEG_TO_RAD; data_.gyroZ = gz * DEG_TO_RAD;
+            data_.roll  = roll_;
+            data_.pitch = pitch_;
+            data_.yaw   = yaw_;
+            data_.calibrating = calibrating_.load();
+            data_.valid = false;
         }
         return;
     }

@@ -85,18 +85,15 @@ bool SerialRobotDriver::init() {
     ex3MuxChannel_    = config_->get<int>("ex3_mux_channel",        0);
     legacyMuxChannel_ = config_->get<int>("i2c_mux_legacy_channel", 0);
     // Select the legacy/EX1 channel first so EX1 power and buzzer ops are routed correctly.
-    if (mux_) {
-        if (!mux_->selectChannel(static_cast<uint8_t>(legacyMuxChannel_)))
-            if (logger_) logger_->warn("SRD", "failed to select legacy mux channel");
-    }
+    selectLegacyChannel();
 
     // ── IMU + Fan power via EX1 ───────────────────────────────────────────────
     // PCA9555 EX1: IO1.6 = IMU power, IO1.7 = Fan power
     // Ensure both are set correctly on init.
     if (ex1_) {
         bool ok = true;
-        if (!ex1_->setPin(1, 6, true)) ok = false;   // IMU ON
-        setFanPower(true);                            // Fan ON (default start)
+        if (!ex1_->setPin(1, 6, true)) ok = false;  // IMU ON  (IO1.6)
+        if (!ex1_->setPin(1, 7, true)) ok = false;  // Fan ON  (IO1.7) — channel already selected above
         if (ok) {
             if (logger_) logger_->info("SRD", "EX1: IMU power enabled (IO1.6)");
             // Give sensor time to power up before I2C access
@@ -113,17 +110,29 @@ bool SerialRobotDriver::init() {
     const uint8_t imuAddr = configI2cAddr("imu_i2c_addr", 0x69);
     imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, imuAddr);
     bool imuOk = imu_->init();
+    uint8_t usedImuAddr = imuAddr;
     if (!imuOk && imuAddr != 0x68) {
         if (logger_) {
             std::ostringstream ss;
-            ss << "IMU at 0x" << std::hex << (int)imuAddr << std::dec << " failed, trying 0x68";
+            ss << "IMU at 0x" << std::hex << (int)imuAddr << std::dec << " failed, trying fallback 0x68";
             logger_->warn("SRD", ss.str());
         }
+        // Wait a bit before retry to let I2C bus settle
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        selectImuChannel();  // Re-select channel for fallback attempt
         imu_ = std::make_unique<Mpu6050Driver>(*i2c_, logger_, 0x68);
         imuOk = imu_->init();
+        if (imuOk) usedImuAddr = 0x68;
     }
     if (!imuOk) {
-        if (logger_) logger_->error("SRD", "IMU init failed (check wiring/mux channel/config)");
+        if (logger_) logger_->error("SRD", "IMU init failed on both addresses - check wiring, mux channel " +
+                                    std::to_string(imuMuxChannel_) + ", power, or sensor hardware");
+    } else {
+        if (logger_) {
+            std::ostringstream ss;
+            ss << "IMU successfully initialized at address 0x" << std::hex << (int)usedImuAddr;
+            logger_->info("SRD", ss.str());
+        }
     }
 
     // ── Panel LEDs — startup sequence ─────────────────────────────────────────
@@ -194,12 +203,18 @@ void SerialRobotDriver::run() {
         lastImuMs_ = now;
         nextImuMs_ = now + 20;
 
-        // If the IMU is still not responding, periodically force a channel re-select and re-init.
+        // Enhanced logging for IMU issues - but let the driver handle re-init internally
         if (!imu_->isValid() && now >= nextImuMuxRecoverMs_) {
-            nextImuMuxRecoverMs_ = now + 5000;
-            if (logger_) logger_->warn("SRD", "IMU not valid — re-selecting mux channel and re-init");
-            selectImuChannel();
-            imu_->init();
+            nextImuMuxRecoverMs_ = now + 10000;  // Reduced frequency: check every 10s instead of 5s
+            if (logger_) {
+                logger_->warn("SRD", "IMU still not valid after driver recovery attempts - check hardware");
+                // Log additional diagnostic info
+                ImuData data = imu_->getData();
+                std::ostringstream ss;
+                ss << "IMU data - valid: " << data.valid << ", calibrating: " << data.calibrating 
+                   << ", acc: [" << data.accX << ", " << data.accY << ", " << data.accZ << "]";
+                logger_->info("SRD", ss.str());
+            }
         }
     }
 
@@ -341,6 +356,7 @@ void SerialRobotDriver::calibrateImu() {
 
 void SerialRobotDriver::setBuzzer(bool on) {
     if (ex2_) {
+        selectLegacyChannel();
         if (!ex2_->setPin(1, 1, on)) {
             static uint64_t lastBuzzerWarn = 0;
             if (nowMs() - lastBuzzerWarn > 10000) {
@@ -684,15 +700,46 @@ void SerialRobotDriver::updateChargerConnected(bool rawConnected) {
 // ── Hardware helpers ──────────────────────────────────────────────────────────
 
 void SerialRobotDriver::selectImuChannel() {
-    if (mux_) mux_->selectChannel(static_cast<uint8_t>(imuMuxChannel_));
+    if (mux_) {
+        bool success = mux_->selectChannel(static_cast<uint8_t>(imuMuxChannel_));
+        if (!success && logger_) {
+            logger_->error("SRD", "Failed to select IMU mux channel " + std::to_string(imuMuxChannel_));
+        }
+        // Add settling time for TCA9548A mux switch
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 void SerialRobotDriver::selectEx3Channel() {
-    if (mux_) mux_->selectChannel(static_cast<uint8_t>(ex3MuxChannel_));
+    if (mux_) {
+        bool success = mux_->selectChannel(static_cast<uint8_t>(ex3MuxChannel_));
+        if (!success && logger_) {
+            logger_->error("SRD", "Failed to select EX3 mux channel " + std::to_string(ex3MuxChannel_));
+        }
+        // Add settling time for TCA9548A mux switch
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+}
+
+void SerialRobotDriver::selectLegacyChannel() {
+    if (mux_) {
+        bool success = mux_->selectChannel(static_cast<uint8_t>(legacyMuxChannel_));
+        if (!success && logger_) {
+            logger_->error("SRD", "Failed to select legacy mux channel " + std::to_string(legacyMuxChannel_));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 void SerialRobotDriver::setFanPower(bool on) {
-    if (ex1_) ex1_->setPin(1, 7, on);  // EX1 IO1.7 = Fan power
+    selectLegacyChannel();
+    if (ex1_ && !ex1_->setPin(1, 7, on)) {
+        static uint64_t lastFanWarn = 0;
+        if (nowMs() - lastFanWarn > 10000) {
+            std::cerr << "[SRD] WARN: fan power update failed (I2C error on EX1)\n";
+            lastFanWarn = nowMs();
+        }
+    }
 }
 
 bool SerialRobotDriver::writeLed(LedId id, LedState state) {

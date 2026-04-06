@@ -212,8 +212,9 @@ private:
     static std::string trim(std::string s);
     void               logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const;
     uint8_t            configI2cAddr(const std::string& key, uint8_t fallback) const;
-    void               selectImuChannel();   ///< select IMU mux channel exclusively
-    void               selectEx3Channel();   ///< select LED/EX3 mux channel exclusively
+    void               selectImuChannel();      ///< select IMU mux channel exclusively
+    void               selectEx3Channel();      ///< select LED/EX3 mux channel exclusively
+    void               selectLegacyChannel();   ///< select EX1/EX2 (fan, buzzer) mux channel
     static int           fieldInt  (const std::string& s);
     static unsigned long fieldULong(const std::string& s);  ///< BUG-003: for tick counters
     static float         fieldFloat(const std::string& s);
