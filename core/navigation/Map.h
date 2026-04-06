@@ -232,6 +232,8 @@ public:
     bool maybeReplanToCurrentTarget(unsigned long now_ms, float robotX, float robotY);
 
     /// Compute a planner preview path without mutating map state.
+    /// When constraintZone is non-empty, the A* grid is bounded to that polygon
+    /// so the path stays within the active zone (used for MOW transitions).
     RoutePlan previewPath(const Point& src,
                           const Point& dst,
                           WayType missionMode = WayType::FREE,
@@ -240,7 +242,8 @@ public:
                           bool hasHeadingReference = false,
                           bool reverseAllowed = false,
                           float clearance_m = 0.25f,
-                          float robotRadius_m = 0.0f) const;
+                          float robotRadius_m = 0.0f,
+                          const PolygonPoints& constraintZone = {}) const;
 
     // ── Boundary queries ──────────────────────────────────────────────────────
 

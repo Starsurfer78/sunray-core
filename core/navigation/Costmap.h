@@ -30,7 +30,8 @@ public:
                       int   cols         = DEFAULT_COLS,
                       int   rows         = DEFAULT_ROWS,
                       float robotRadius  = DEFAULT_ROBOT_RAD_M,
-                      WayType planningMode = WayType::FREE);
+                      WayType planningMode = WayType::FREE,
+                      const PolygonPoints& constraintZone = {});
 
     bool isBuilt() const { return !cells_.empty(); }
 

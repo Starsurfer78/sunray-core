@@ -1263,7 +1263,8 @@ RoutePlan Map::previewPath(const Point& src,
                            bool hasHeadingReference,
                            bool reverseAllowed,
                            float clearance_m,
-                           float robotRadius_m) const {
+                           float robotRadius_m,
+                           const PolygonPoints& constraintZone) const {
     PlannerContext context;
     context.robotPose = src;
     context.source = src;
@@ -1275,6 +1276,7 @@ RoutePlan Map::previewPath(const Point& src,
     context.reverseAllowed = reverseAllowed;
     context.clearance_m = clearance_m;
     context.robotRadius_m = (robotRadius_m > 0.0f) ? robotRadius_m : (clearance_m + planner_.obstacleInflation_m);
+    context.constraintZone = constraintZone;
     return Planner::planPath(*this, context);
 }
 

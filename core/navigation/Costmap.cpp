@@ -256,7 +256,8 @@ void Costmap::buildFromMap(const Map& map,
                            float originX, float originY,
                            float cellSize_m, int cols, int rows,
                            float robotRadius,
-                           WayType planningMode) {
+                           WayType planningMode,
+                           const PolygonPoints& constraintZone) {
     if (cellSize_m <= 0.0f || cols <= 0 || rows <= 0) {
         originX_ = originX;
         originY_ = originY;
@@ -288,6 +289,13 @@ void Costmap::buildFromMap(const Map& map,
                              map.plannerSettings().perimeterHardMargin_m,
                              map.plannerSettings().perimeterSoftMargin_m,
                              4.0f);
+
+    // Zone-aware planning: when a constraint zone polygon is provided (MOW
+    // transitions), also block cells outside that polygon so A* stays within
+    // the active zone and cannot take shortcuts through other areas.
+    if (constraintZone.size() >= 3) {
+        markExterior(staticGeometryCells, constraintZone);
+    }
 
     const auto& exclusions = map.exclusions();
     const auto& exclusionMeta = map.exclusionMeta();

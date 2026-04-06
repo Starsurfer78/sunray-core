@@ -43,19 +43,35 @@ bool Planner::segmentNeedsReplan(const Map& map, const PlannerContext& context) 
 RoutePlan Planner::planPath(const Map& map, const PlannerContext& context) {
     const float cellSize = std::max(0.05f, map.planner_.gridCellSize_m);
     const float margin = std::max(2.0f, context.clearance_m * 4.0f);
-    const float spanX = std::fabs(context.destination.x - context.source.x) + margin * 2.0f;
-    const float spanY = std::fabs(context.destination.y - context.source.y) + margin * 2.0f;
-    const int cols = std::max(GridMap::DEFAULT_COLS,
-                              static_cast<int>(std::ceil(spanX / cellSize)));
-    const int rows = std::max(GridMap::DEFAULT_ROWS,
-                              static_cast<int>(std::ceil(spanY / cellSize)));
     const float originX = (context.source.x + context.destination.x) * 0.5f;
     const float originY = (context.source.y + context.destination.y) * 0.5f;
+
+    // Base grid covers source→destination span plus a fixed margin.
+    float spanX = std::fabs(context.destination.x - context.source.x) + margin * 2.0f;
+    float spanY = std::fabs(context.destination.y - context.source.y) + margin * 2.0f;
+
+    // If a constraint zone is provided, extend the grid to cover its full
+    // bounding box so A* can find detour paths around the zone boundary.
+    // Without this, the grid would be too narrow to route around obstacles
+    // when source and destination share a similar coordinate.
+    if (!context.constraintZone.empty()) {
+        for (const auto& p : context.constraintZone) {
+            spanX = std::max(spanX, std::fabs(p.x - originX) * 2.0f + margin * 2.0f);
+            spanY = std::max(spanY, std::fabs(p.y - originY) * 2.0f + margin * 2.0f);
+        }
+    }
+
+    // Cap grid size to keep planning time bounded (200×200 = 40 000 cells max).
+    const int cols = std::min(200, std::max(GridMap::DEFAULT_COLS,
+                              static_cast<int>(std::ceil(spanX / cellSize))));
+    const int rows = std::min(200, std::max(GridMap::DEFAULT_ROWS,
+                              static_cast<int>(std::ceil(spanY / cellSize))));
 
     GridMap gridMap;
     gridMap.build(map, originX, originY, cellSize, cols, rows,
                   context.robotRadius_m,
-                  context.planningMode);
+                  context.planningMode,
+                  context.constraintZone);
     if (!gridMap.isBuilt()) return {};
 
     auto path = gridMap.planPath(context.source, context.destination);

@@ -16,6 +16,11 @@ struct PlannerContext {
     bool    reverseAllowed = false;
     float   clearance_m = 0.25f;
     float   robotRadius_m = 0.0f;
+
+    /// Optional zone polygon for zone-aware MOW planning.
+    /// When non-empty: the grid is extended to cover the full zone bounding box
+    /// and cells outside this polygon are blocked, so A* stays within the zone.
+    PolygonPoints constraintZone;
 };
 
 } // namespace nav

@@ -68,9 +68,10 @@ void GridMap::build(const Map& map,
                     float originX, float originY,
                     float cellSize_m, int cols, int rows,
                     float robotRadius,
-                    WayType planningMode) {
+                    WayType planningMode,
+                    const PolygonPoints& constraintZone) {
     Costmap costmap;
-    costmap.buildFromMap(map, originX, originY, cellSize_m, cols, rows, robotRadius, planningMode);
+    costmap.buildFromMap(map, originX, originY, cellSize_m, cols, rows, robotRadius, planningMode, constraintZone);
     build(costmap);
 }
 

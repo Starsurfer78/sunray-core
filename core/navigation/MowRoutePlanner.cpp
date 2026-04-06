@@ -329,51 +329,6 @@ static std::vector<Interval> effectiveIntervalsAtY(const PolygonPoints& zone,
     return intervals;
 }
 
-static std::vector<Segment> sortSegmentsNearestNeighbour(const std::vector<Segment>& segments) {
-    if (segments.empty()) return {};
-
-    std::vector<Segment> remaining = segments;
-    std::vector<Segment> result;
-    result.reserve(segments.size());
-    Segment current = remaining.front();
-    remaining.erase(remaining.begin());
-    result.push_back(current);
-
-    auto dist2 = [](const Point& a, const Point& b) {
-        const float dx = a.x - b.x;
-        const float dy = a.y - b.y;
-        return dx * dx + dy * dy;
-    };
-
-    while (!remaining.empty()) {
-        size_t bestIdx = 0;
-        float bestDist = std::numeric_limits<float>::infinity();
-        bool bestFlip = false;
-
-        for (size_t i = 0; i < remaining.size(); ++i) {
-            const Segment& s = remaining[i];
-            const float dStart = dist2(current.b, s.a);
-            const float dEnd = dist2(current.b, s.b);
-            if (dStart < bestDist) {
-                bestDist = dStart;
-                bestIdx = i;
-                bestFlip = false;
-            }
-            if (dEnd < bestDist) {
-                bestDist = dEnd;
-                bestIdx = i;
-                bestFlip = true;
-            }
-        }
-
-        Segment next = remaining[bestIdx];
-        remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(bestIdx));
-        current = bestFlip ? Segment{next.b, next.a} : next;
-        result.push_back(current);
-    }
-    return result;
-}
-
 static std::vector<Segment> buildStripeSegments(const PolygonPoints& zone,
                                                 const PolygonPoints& perimeter,
                                                 const std::vector<PolygonPoints>& exclusions,
@@ -403,18 +358,22 @@ static std::vector<Segment> buildStripeSegments(const PolygonPoints& zone,
         maxY = std::max(maxY, p.y);
     }
 
-    std::vector<Segment> rawSegments;
+    // Build segments in strict row-by-row zigzag order (boustrophedon).
+    // Do NOT apply sortSegmentsNearestNeighbour() here: global nearest-neighbour
+    // reordering destroys the row sequence, forces long diagonal transitions and
+    // can lead to stripes being missed entirely on complex zone shapes.
+    std::vector<Segment> segments;
     int rowIdx = 0;
     for (float y = minY + stripWidth * 0.5f; y <= maxY + stripWidth * 0.01f; y += stripWidth, ++rowIdx) {
         std::vector<Interval> intervals = effectiveIntervalsAtY(rotZone, rotPerimeter, rotExclusions, y);
         for (const auto& interval : intervals) {
             const Point a = rotatePoint({interval.left, y}, cosPos, sinPos);
             const Point b = rotatePoint({interval.right, y}, cosPos, sinPos);
-            rawSegments.push_back(rowIdx % 2 == 0 ? Segment{a, b} : Segment{b, a});
+            segments.push_back(rowIdx % 2 == 0 ? Segment{a, b} : Segment{b, a});
         }
     }
 
-    return sortSegmentsNearestNeighbour(rawSegments);
+    return segments;
 }
 
 static RoutePlan routeFromPolyline(const PolygonPoints& points,
@@ -456,10 +415,32 @@ static void appendTransition(RoutePlan& route,
                              const Map& map,
                              const Point& from,
                              const Point& to,
-                             const ZoneSettings& settings);
+                             const ZoneSettings& settings,
+                             const PolygonPoints& zonePoly);
 
-static std::vector<PolygonPoints> clipContourToAllowedRuns(const PolygonPoints& contour,
-                                                           const Map& map) {
+/// Point-in-polygon test (ray-casting).
+static bool pointInPolygonLocal(const PolygonPoints& poly, float px, float py) {
+    bool inside = false;
+    const size_t n = poly.size();
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const float xi = poly[i].x, yi = poly[i].y;
+        const float xj = poly[j].x, yj = poly[j].y;
+        if (((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+/// Clip contour to runs that stay inside the zone polygon and outside exclusions.
+/// Uses the zone polygon directly instead of the global isInsideAllowedArea() (which
+/// checks against the perimeter) so headland tracks are not incorrectly clipped when
+/// the zone polygon overlaps or is coincident with the perimeter boundary.
+static std::vector<PolygonPoints> clipContourToAllowedRuns(
+    const PolygonPoints& contour,
+    const PolygonPoints& zonePoly,
+    const std::vector<PolygonPoints>& exclusions) {
+
     std::vector<PolygonPoints> runs;
     if (contour.size() < 2) return runs;
 
@@ -477,7 +458,14 @@ static std::vector<PolygonPoints> clipContourToAllowedRuns(const PolygonPoints& 
                 a.x + (b.x - a.x) * t,
                 a.y + (b.y - a.y) * t,
             };
-            if (map.isInsideAllowedArea(p.x, p.y)) {
+            // Allow if inside the zone polygon and not inside any exclusion.
+            bool allowed = pointInPolygonLocal(zonePoly, p.x, p.y);
+            if (allowed) {
+                for (const auto& ex : exclusions) {
+                    if (pointInPolygonLocal(ex, p.x, p.y)) { allowed = false; break; }
+                }
+            }
+            if (allowed) {
                 appendUniquePoint(current, p, 1e-3f);
             } else if (current.size() >= 2) {
                 runs.push_back(current);
@@ -497,7 +485,8 @@ static std::vector<PolygonPoints> clipContourToAllowedRuns(const PolygonPoints& 
 static void appendSegmentRoute(RoutePlan& route,
                                const Map& map,
                                const Segment& segment,
-                               const ZoneSettings& settings) {
+                               const ZoneSettings& settings,
+                               const PolygonPoints& zonePoly) {
     auto makePoint = [&](const Point& p) {
         RoutePoint rp;
         rp.p = p;
@@ -517,7 +506,7 @@ static void appendSegmentRoute(RoutePlan& route,
         return;
     }
 
-    appendTransition(route, map, route.points.back().p, segment.a, settings);
+    appendTransition(route, map, route.points.back().p, segment.a, settings, zonePoly);
     if (!samePoint(route.points.back().p, segment.a)) {
         route.points.push_back(makePoint(segment.a));
     }
@@ -542,11 +531,14 @@ static nav::ZoneSettings applyMissionOverrides(const nav::ZoneSettings& base,
     return settings;
 }
 
+/// Zone-aware transition: the A* grid is bounded to zonePoly so the path
+/// cannot take shortcuts through areas outside the active zone.
 static void appendTransition(RoutePlan& route,
                              const Map& map,
                              const Point& from,
                              const Point& to,
-                             const ZoneSettings& settings) {
+                             const ZoneSettings& settings,
+                             const PolygonPoints& zonePoly) {
     if (samePoint(from, to)) return;
     const RoutePlan transition = map.previewPath(
         from,
@@ -557,7 +549,8 @@ static void appendTransition(RoutePlan& route,
         false,
         settings.reverseAllowed,
         settings.clearance,
-        settings.clearance + map.plannerSettings().obstacleInflation_m);
+        settings.clearance + map.plannerSettings().obstacleInflation_m,
+        zonePoly);
     for (const auto& point : transition.points) {
         if (!route.points.empty() && samePoint(route.points.back().p, point.p)) continue;
         route.points.push_back(point);
@@ -567,21 +560,23 @@ static void appendTransition(RoutePlan& route,
 static void appendSegmentsWithTransitions(RoutePlan& route,
                                           const Map& map,
                                           const std::vector<Segment>& segments,
-                                          const ZoneSettings& settings) {
+                                          const ZoneSettings& settings,
+                                          const PolygonPoints& zonePoly) {
     for (const auto& segment : segments) {
-        appendSegmentRoute(route, map, segment, settings);
+        appendSegmentRoute(route, map, segment, settings, zonePoly);
     }
 }
 
 static void appendContourRuns(RoutePlan& route,
                               const Map& map,
                               const std::vector<PolygonPoints>& runs,
-                              const ZoneSettings& settings) {
+                              const ZoneSettings& settings,
+                              const PolygonPoints& zonePoly) {
     for (const auto& run : runs) {
         RoutePlan runRoute = routeFromPolyline(run, settings);
         if (runRoute.points.empty()) continue;
         if (!route.points.empty()) {
-            appendTransition(route, map, route.points.back().p, runRoute.points.front().p, settings);
+            appendTransition(route, map, route.points.back().p, runRoute.points.front().p, settings, zonePoly);
         }
         route = appendRoute(route, runRoute);
     }
@@ -634,8 +629,12 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
                 const float inset = (static_cast<float>(round) - 0.5f) * settings.stripWidth;
                 const PolygonPoints contour = offsetPolygonRounded(prepared.zone, inset);
                 if (contour.empty()) continue;
-                const std::vector<PolygonPoints> contourRuns = clipContourToAllowedRuns(contour, map);
-                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings);
+                // Pass zone polygon + exclusions so the headland contour is clipped
+                // against the zone itself, not the global perimeter. This prevents
+                // incorrect clipping when the zone polygon overlaps the perimeter.
+                const std::vector<PolygonPoints> contourRuns =
+                    clipContourToAllowedRuns(contour, prepared.zone, prepared.exclusions);
+                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings, prepared.zone);
             }
         }
 
@@ -650,10 +649,10 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
         RoutePlan stripeRoute;
         stripeRoute.sourceMode = WayType::MOW;
         stripeRoute.active = false;
-        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings);
+        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, prepared.zone);
         if (!stripeRoute.points.empty()) {
             if (!zoneRoute.points.empty()) {
-                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings);
+                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings, prepared.zone);
             }
             zoneRoute = appendRoute(zoneRoute, stripeRoute);
         }
@@ -661,7 +660,8 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
         if (route.points.empty()) {
             route = zoneRoute;
         } else if (!zoneRoute.points.empty()) {
-            appendTransition(route, map, route.points.back().p, zoneRoute.points.front().p, settings);
+            // Inter-zone transition: no zone constraint (robot must cross between zones)
+            appendTransition(route, map, route.points.back().p, zoneRoute.points.front().p, settings, {});
             route = appendRoute(route, zoneRoute);
         }
     }
