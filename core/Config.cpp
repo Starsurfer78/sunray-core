@@ -162,6 +162,7 @@ namespace sunray
             {"buzzer_enabled", true},
             {"port_expander_addr", "0x20"},
             {"bumper_deadtime_ms", 1000},
+            {"perimeter_recovery_timeout_ms", 5000}, // max. Zeit zum Zurückfahren in den Perimeter
             {"bumper_invert", false},
             {"enable_lift_detection", true},
             {"lift_obstacle_avoidance", true}, // false=nur Messer aus, true=Ausweichen

@@ -7,9 +7,11 @@ static constexpr unsigned long ESCAPE_REVERSE_MS = 3000;
 
 void EscapeReverseOp::begin(OpContext& ctx) {
     ctx.logger.info("EscapeReverse", "begin");
-    hitLeft  = ctx.sensors.bumperLeft;
-    hitRight = ctx.sensors.bumperRight;
-    driveReverseStopTime_ms = ctx.now_ms + ESCAPE_REVERSE_MS;
+    hitLeft                    = ctx.sensors.bumperLeft;
+    hitRight                   = ctx.sensors.bumperRight;
+    driveReverseStopTime_ms    = ctx.now_ms + ESCAPE_REVERSE_MS;
+    recoveringToPerimeter_     = false;
+    perimeterRecoveryStart_ms_ = 0;
     // C.7: record obstacle at current robot position for future path avoidance
     if (ctx.map) ctx.map->addObstacle(ctx.x, ctx.y, ctx.now_ms);
 }
@@ -17,11 +19,38 @@ void EscapeReverseOp::begin(OpContext& ctx) {
 void EscapeReverseOp::end(OpContext&) {}
 
 void EscapeReverseOp::run(OpContext& ctx) {
-    // Boundary guard: stop if reversing takes robot outside perimeter.
+    const unsigned long perimeterRecoveryTimeoutMs = static_cast<unsigned long>(
+        ctx.config.get<int>("perimeter_recovery_timeout_ms", 5000));
+
+    // ── Perimeter recovery mode ───────────────────────────────────────────────
+    // Entered when the robot has reversed outside the perimeter boundary.
+    // Drive forward slowly until back inside, or error on timeout.
+    if (recoveringToPerimeter_) {
+        if (ctx.insidePerimeter) {
+            ctx.logger.info("EscapeReverse", "back inside perimeter — resuming escape");
+            recoveringToPerimeter_ = false;
+            // Re-arm escape timer so the robot gets some more distance from the boundary.
+            driveReverseStopTime_ms = ctx.now_ms + ESCAPE_REVERSE_MS;
+            return;
+        }
+        if (ctx.now_ms - perimeterRecoveryStart_ms_ > perimeterRecoveryTimeoutMs) {
+            ctx.stopMotors();
+            ctx.logger.error("EscapeReverse", "perimeter recovery timeout => ERROR");
+            changeOp(ctx, ctx.opMgr.error());
+            return;
+        }
+        // Drive forward toward perimeter at low speed.
+        ctx.setLinearAngularSpeed(0.1f, 0.0f);
+        return;
+    }
+
+    // ── Normal reverse phase ──────────────────────────────────────────────────
     if (!ctx.insidePerimeter) {
-        ctx.logger.warn("EscapeReverse", "outside perimeter during escape — docking");
+        // Reversed too far — switch to perimeter recovery instead of docking.
+        ctx.logger.warn("EscapeReverse", "outside perimeter while reversing — recovering");
         ctx.stopMotors();
-        changeOp(ctx, ctx.opMgr.dock());
+        recoveringToPerimeter_     = true;
+        perimeterRecoveryStart_ms_ = ctx.now_ms;
         return;
     }
 
@@ -41,8 +70,10 @@ void EscapeReverseOp::run(OpContext& ctx) {
             return;
         }
         if (!ctx.insidePerimeter) {
-            ctx.logger.warn("EscapeReverse", "still outside perimeter => DOCK");
-            changeOp(ctx, ctx.opMgr.dock());
+            // Escape finished but still outside — last chance to recover.
+            ctx.logger.warn("EscapeReverse", "still outside perimeter after escape — recovering");
+            recoveringToPerimeter_     = true;
+            perimeterRecoveryStart_ms_ = ctx.now_ms;
             return;
         }
         // Continue with previous operation.
@@ -99,9 +130,8 @@ void EscapeReverseOp::onImuError(OpContext& ctx) {
 }
 
 void EscapeReverseOp::onPerimeterViolated(OpContext& ctx) {
-    ctx.stopMotors();
-    ctx.logger.warn("EscapeReverse", "outside perimeter during escape => DOCK");
-    changeOp(ctx, ctx.opMgr.dock());
+    // Handled inside run() via recoveringToPerimeter_ — no separate action needed.
+    (void)ctx;
 }
 
 // ── EscapeForwardOp ───────────────────────────────────────────────────────────

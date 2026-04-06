@@ -395,9 +395,11 @@ private:
 
 class EscapeReverseOp : public Op {
 public:
-    unsigned long driveReverseStopTime_ms = 0;
-    bool          hitLeft  = false;
-    bool          hitRight = false;
+    unsigned long driveReverseStopTime_ms    = 0;
+    bool          hitLeft                    = false;
+    bool          hitRight                   = false;
+    bool          recoveringToPerimeter_     = false;  ///< true while driving forward back into perimeter
+    unsigned long perimeterRecoveryStart_ms_ = 0;
 
     std::string name() const override { return "EscapeReverse"; }
     void begin(OpContext& ctx) override;
