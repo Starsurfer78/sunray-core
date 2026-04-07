@@ -59,6 +59,12 @@
     }).join(' ')
   }
 
+  function toPathD(pts: Point[], bounds: Bounds): string {
+    if (pts.length < 3) return ''
+    const projected = pts.map(p => project(p, bounds))
+    return 'M ' + projected.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' L ') + ' Z'
+  }
+
   function polygonCenter(zone: Zone): Point {
     const total = zone.polygon.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 })
     return { x: total.x / Math.max(1, zone.polygon.length), y: total.y / Math.max(1, zone.polygon.length) }
@@ -79,9 +85,11 @@
   }
 
   function startDrag(event: PointerEvent) {
+    if (event.button !== 0) return
     dragging = true
     dragStartX = event.clientX - offsetX
     dragStartY = event.clientY - offsetY
+    ;(event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId)
   }
 
   function duringDrag(event: PointerEvent) {
@@ -250,9 +258,7 @@
     }
   }
 
-  $: if (map && mission && missionZones.length > 0) {
-    void refreshPlannerPreview()
-  } else {
+  $: if (!map || !mission || missionZones.length === 0) {
     plannerRoutes = []
     plannerLoading = false
     plannerError = ''
@@ -289,12 +295,23 @@
     </div>
   {/if}
 
+  {#if missionZones.length > 0}
+    <button
+      type="button"
+      class="preview-btn"
+      disabled={plannerLoading}
+      on:click={() => void refreshPlannerPreview()}
+    >
+      {plannerLoading ? 'Wird berechnet…' : 'Vorschau berechnen'}
+    </button>
+  {/if}
+
   {#if plannerLoading}
     <div class="planner-status">Planner wird geprüft...</div>
   {:else if plannerError}
     <div class="planner-status error">{plannerError}</div>
-  {:else if missionZones.length > 0 && !hasPreviewRoute}
-    <div class="planner-status warn">Keine Bahnvorschau vom C++-Planner erhalten.</div>
+  {:else if missionZones.length > 0 && hasPreviewRoute}
+    <div class="planner-status ok">Route bereit</div>
   {/if}
 
   {#if missionZones.length === 0}
@@ -320,6 +337,21 @@
       <pattern id="pp-grid" width="30" height="30" patternUnits="userSpaceOnUse">
         <path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5" />
       </pattern>
+      {#if perimeter.length >= 3}
+        <!-- Perimeter only — clips zone polygons -->
+        <clipPath id="perimeter-clip">
+          <polygon points={polyPoints(perimeter, bounds)} />
+        </clipPath>
+        <!-- Perimeter minus exclusions (evenodd) — clips mow route -->
+        <clipPath id="mow-clip" clip-rule="evenodd">
+          <path d={toPathD(perimeter, bounds)} />
+          {#each exclusions as exc}
+            {#if exc.length >= 3}
+              <path d={toPathD(exc, bounds)} />
+            {/if}
+          {/each}
+        </clipPath>
+      {/if}
     </defs>
 
     <rect x="-9999" y="-9999" width="19999" height="19999" fill="#070d18" />
@@ -331,7 +363,7 @@
         points={polyPoints(perimeter, bounds)}
         fill="rgba(30, 58, 95, 0.06)"
         stroke="#7c9ccf"
-        stroke-width="1.2"
+        stroke-width="0.7"
         stroke-dasharray="5 4"
         stroke-linejoin="round"
       />
@@ -343,10 +375,10 @@
         {#if exclusion.length >= 3}
           <polygon
             points={polyPoints(exclusion, bounds)}
-            fill="rgba(220, 38, 38, 0.10)"
+            fill="rgba(220, 38, 38, 0.18)"
             stroke="#f87171"
-            stroke-width="1.15"
-            stroke-dasharray="4 4"
+            stroke-width="0.7"
+            stroke-dasharray="4 3"
             stroke-linejoin="round"
           />
         {/if}
@@ -359,98 +391,93 @@
         points={polyPoints(dock, bounds)}
         fill="none"
         stroke="#fbbf24"
-        stroke-width="1.8"
+        stroke-width="1.0"
         stroke-linecap="round"
         stroke-linejoin="round"
-        stroke-dasharray="6 5"
+        stroke-dasharray="5 4"
       />
       {@const dockEnd = project(dock[dock.length - 1], bounds)}
-      <circle cx={dockEnd.x} cy={dockEnd.y} r="4" fill="#fbbf24" />
+      <circle cx={dockEnd.x} cy={dockEnd.y} r="3" fill="#fbbf24" />
     {/if}
 
-    <!-- Zonen -->
-    {#each missionZones as zone, i}
-      {@const color = zoneColors[i % zoneColors.length]}
-      {@const label = `${zone.settings.name} · ${(mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle)}°`}
-      {@const labelPos = labelPosition(polygonCenter(zone), bounds, label)}
+    <!-- Zonen — geklippt am Perimeter -->
+    <g clip-path={perimeter.length >= 3 ? 'url(#perimeter-clip)' : undefined}>
+      {#each missionZones as zone, i}
+        {@const color = zoneColors[i % zoneColors.length]}
+        {@const label = `${zone.settings.name} · ${(mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle)}°`}
+        {@const labelPos = labelPosition(polygonCenter(zone), bounds, label)}
 
-      <g
-        role="button"
-        tabindex="0"
-        aria-label={`Zone ${zone.settings.name} auswählen`}
-        on:click={() => dispatch('selectzone', { zoneId: zone.id })}
-        on:keydown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            dispatch('selectzone', { zoneId: zone.id })
-          }
-        }}
-      >
-        <polygon
-          points={polyPoints(zone.polygon, bounds)}
-          fill={selectedZoneId === zone.id ? `${color}36` : `${color}18`}
-          stroke={color}
-          stroke-width={selectedZoneId === zone.id ? 2.4 : 1.35}
-          stroke-dasharray="4 3"
-          stroke-linejoin="round"
-        />
-
-        <g>
-          <rect
-            x={labelPos.x - labelPos.width / 2}
-            y={labelPos.y - 13}
-            width={labelPos.width}
-            height="14"
-            rx="7"
-            fill="rgba(7, 13, 24, 0.72)"
-            stroke={selectedZoneId === zone.id ? color : 'rgba(148, 163, 184, 0.2)'}
-            stroke-width="1"
+        <g
+          role="button"
+          tabindex="0"
+          aria-label={`Zone ${zone.settings.name} auswählen`}
+          on:click|stopPropagation={() => dispatch('selectzone', { zoneId: zone.id })}
+          on:keydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              dispatch('selectzone', { zoneId: zone.id })
+            }
+          }}
+        >
+          <polygon
+            points={polyPoints(zone.polygon, bounds)}
+            fill={selectedZoneId === zone.id ? `${color}30` : `${color}14`}
+            stroke={color}
+            stroke-width={selectedZoneId === zone.id ? 1.4 : 0.8}
+            stroke-dasharray="4 3"
+            stroke-linejoin="round"
           />
-          <text
-            x={labelPos.x}
-            y={labelPos.y - 4}
-            text-anchor="middle"
-            fill="#e2e8f0"
-            font-size="8.5"
-            font-weight="600"
-          >
-            {label}
-          </text>
+
+          <g>
+            <rect
+              x={labelPos.x - labelPos.width / 2}
+              y={labelPos.y - 13}
+              width={labelPos.width}
+              height="14"
+              rx="7"
+              fill="rgba(7, 13, 24, 0.72)"
+              stroke={selectedZoneId === zone.id ? color : 'rgba(148, 163, 184, 0.2)'}
+              stroke-width="0.8"
+            />
+            <text
+              x={labelPos.x}
+              y={labelPos.y - 4}
+              text-anchor="middle"
+              fill="#e2e8f0"
+              font-size="8.5"
+              font-weight="600"
+            >
+              {label}
+            </text>
+          </g>
         </g>
-      </g>
-    {/each}
+      {/each}
+    </g>
 
     <!-- Invalid route points (validation errors) -->
     {#each invalidPoints as inv}
       {@const proj = project(inv.point, bounds)}
-      <circle cx={proj.x} cy={proj.y} r="5" fill="none" stroke="#ef4444" stroke-width="1.5" />
-      <circle cx={proj.x} cy={proj.y} r="2.5" fill="#ef4444" />
+      <circle cx={proj.x} cy={proj.y} r="4" fill="none" stroke="#ef4444" stroke-width="1" />
+      <circle cx={proj.x} cy={proj.y} r="2" fill="#ef4444" />
     {/each}
 
+    <!-- Route — geklippt am Perimeter minus No-Go-Flächen -->
     {#if hasPreviewRoute}
-      <!-- Shadow pass for contrast -->
-      <polyline
-        points={polyPoints(previewRoute, bounds)}
-        fill="none"
-        stroke="rgba(7, 13, 24, 0.85)"
-        stroke-width="3.2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-      <!-- Semantic colour runs -->
-      {#each semanticRuns as run}
-        {#if run.points.length >= 2}
-          <polyline
-            points={polyPoints(run.points, bounds)}
-            fill="none"
-            stroke={semanticColor[run.semantic]}
-            stroke-opacity="0.92"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        {/if}
-      {/each}
+      <g clip-path={perimeter.length >= 3 ? 'url(#mow-clip)' : undefined}>
+        {#each semanticRuns as run}
+          {#if run.points.length >= 2}
+            <polyline
+              points={polyPoints(run.points, bounds)}
+              fill="none"
+              stroke={semanticColor[run.semantic]}
+              stroke-opacity="0.9"
+              stroke-width="0.9"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          {/if}
+        {/each}
+      </g>
     {/if}
   </svg>
 
@@ -534,9 +561,34 @@
     color: #fecaca;
   }
 
-  .planner-status.warn {
-    border-color: rgba(251, 191, 36, 0.35);
-    color: #fde68a;
+  .planner-status.ok {
+    border-color: rgba(34, 197, 94, 0.35);
+    color: #86efac;
+  }
+
+  .preview-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    z-index: 2;
+    background: #0f1829;
+    border: 1px solid #2563eb;
+    color: #60a5fa;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .preview-btn:hover:not(:disabled) {
+    background: #1e3a5f;
+    border-color: #3b82f6;
+  }
+
+  .preview-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .ms-zoom {
