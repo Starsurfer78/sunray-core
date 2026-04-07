@@ -89,7 +89,8 @@
     dragging = true
     dragStartX = event.clientX - offsetX
     dragStartY = event.clientY - offsetY
-    ;(event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId)
+    const svg = event.currentTarget as SVGSVGElement
+    svg.setPointerCapture(event.pointerId)
   }
 
   function duringDrag(event: PointerEvent) {
@@ -98,16 +99,45 @@
     offsetY = event.clientY - dragStartY
   }
 
-  function endDrag() { dragging = false }
+  function endDrag(event: PointerEvent) {
+    if (!dragging) return
+    dragging = false
+    try {
+      (event.currentTarget as SVGSVGElement).releasePointerCapture(event.pointerId)
+    } catch { /* ignore */ }
+  }
 
   function onWheel(event: WheelEvent) {
     event.preventDefault()
-    const delta = event.deltaY < 0 ? 0.12 : -0.12
-    zoom = Math.max(0.5, Math.min(3, zoom + delta))
+    const svg = event.currentTarget as SVGSVGElement
+    const rect = svg.getBoundingClientRect()
+    // cursor in SVG-Viewport-Koordinaten
+    const svgX = (event.clientX - rect.left) * (width / rect.width)
+    const svgY = (event.clientY - rect.top) * (height / rect.height)
+
+    const spanX = Math.max(1, bounds.maxX - bounds.minX)
+    const spanY = Math.max(1, bounds.maxY - bounds.minY)
+    const baseScale = Math.min((width - 120) / spanX, (height - 120) / spanY)
+    const oldScale = baseScale * zoom
+
+    const factor = event.deltaY < 0 ? 1.1 : 0.9
+    const newZoom = Math.max(0.5, Math.min(8, zoom * factor))
+    const newScale = baseScale * newZoom
+
+    // Weltpunkt unter Cursor festhalten
+    const worldX = (svgX - width / 2 - offsetX) / oldScale
+    const worldY = (svgY - height / 2 - offsetY) / oldScale
+    offsetX = svgX - width / 2 - worldX * newScale
+    offsetY = svgY - height / 2 - worldY * newScale
+    zoom = newZoom
   }
 
-  function zoomIn() { zoom = Math.min(3, zoom + 0.2) }
-  function zoomOut() { zoom = Math.max(0.5, zoom - 0.2) }
+  function zoomIn() {
+    zoom = Math.min(8, zoom * 1.2)
+  }
+  function zoomOut() {
+    zoom = Math.max(0.5, zoom * 0.8)
+  }
   function resetView() { zoom = 1; offsetX = 0; offsetY = 0 }
 
   $: missionZones = mission
@@ -331,7 +361,7 @@
     on:pointermove={duringDrag}
     on:pointerup={endDrag}
     on:pointerleave={endDrag}
-    on:wheel|preventDefault={onWheel}
+    on:wheel|nonpassive={onWheel}
   >
     <defs>
       <pattern id="pp-grid" width="30" height="30" patternUnits="userSpaceOnUse">
