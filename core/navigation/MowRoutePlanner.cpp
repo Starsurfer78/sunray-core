@@ -184,6 +184,9 @@ static std::vector<PolygonPoints> computeWorkingArea(
     std::vector<PolygonPoints> result;
     result.reserve(work.size());
     for (const auto& path : work) {
+        // Clipper2 uses sign of area to distinguish outer rings (positive / CCW)
+        // from hole rings (negative / CW). Only outer rings become working polygons.
+        if (Clipper2Lib::Area(path) < 0.0) continue;
         PolygonPoints poly = fromClipperPath(path);
         if (poly.size() >= 3) result.push_back(std::move(poly));
     }
@@ -406,6 +409,49 @@ static bool pointInPolygonLocal(const PolygonPoints& poly, float px, float py) {
         }
     }
     return inside;
+}
+
+/// Clip contour to runs inside zonePoly and outside exclusions.
+/// Used for headland generation: zonePoly is the outer boundary of a working-area
+/// component; exclusions are subtracted separately (not baked into zonePoly).
+static std::vector<PolygonPoints> clipContourToAllowedRuns(
+    const PolygonPoints& contour,
+    const PolygonPoints& zonePoly,
+    const std::vector<PolygonPoints>& exclusions)
+{
+    std::vector<PolygonPoints> runs;
+    if (contour.size() < 2 || zonePoly.empty()) return runs;
+
+    PolygonPoints current;
+    const size_t n = contour.size();
+    for (size_t i = 0; i < n; ++i) {
+        const Point& a = contour[i];
+        const Point& b = contour[(i + 1) % n];
+        const float distance = a.distanceTo(b);
+        const int steps = std::max(1, static_cast<int>(std::ceil(distance / 0.05f)));
+
+        for (int step = 0; step <= steps; ++step) {
+            const float t = static_cast<float>(step) / static_cast<float>(steps);
+            const Point p{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
+
+            bool allowed = pointInPolygonLocal(zonePoly, p.x, p.y);
+            if (allowed) {
+                for (const auto& ex : exclusions) {
+                    if (pointInPolygonLocal(ex, p.x, p.y)) { allowed = false; break; }
+                }
+            }
+            if (allowed) {
+                appendUniquePoint(current, p, 1e-3f);
+            } else if (current.size() >= 2) {
+                runs.push_back(current);
+                current.clear();
+            } else {
+                current.clear();
+            }
+        }
+    }
+    if (current.size() >= 2) runs.push_back(current);
+    return runs;
 }
 
 /// Clip contour to runs that lie within the working area (zone ∩ perimeter − exclusions).
@@ -638,42 +684,64 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
         zoneRoute.sourceMode = WayType::MOW;
         zoneRoute.active = false;
 
-        const PolygonPoints& workPoly = prepared.primaryWorkingPoly;
+        // Use all connected components of the working area independently.
+        // Each component gets its own headland + infill; components are connected
+        // with unconstrained inter-component transitions (navigates around the gap).
+        const std::vector<PolygonPoints> components = prepared.workingArea.empty()
+            ? std::vector<PolygonPoints>{prepared.primaryWorkingPoly}
+            : prepared.workingArea;
 
-        if (settings.edgeMowing && settings.edgeRounds > 0) {
-            for (int round = 1; round <= settings.edgeRounds; ++round) {
-                const float inset = (static_cast<float>(round) - 0.5f) * settings.stripWidth;
-                // Offset the working area, not the raw zone — headland stays inside
-                // the real mowable surface (zone ∩ perimeter − exclusions).
-                const PolygonPoints contour = offsetPolygonRounded(workPoly, inset);
-                if (contour.empty()) continue;
-                const std::vector<PolygonPoints> contourRuns =
-                    clipContourToWorkingArea(contour, prepared.workingArea);
-                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings, workPoly, zoneId);
-            }
-        }
+        for (const auto& compPoly : components) {
+            if (compPoly.size() < 3) continue;
+            RoutePlan compRoute;
+            compRoute.sourceMode = WayType::MOW;
+            compRoute.active = false;
 
-        // Infill: inset from working area so stripes start inside headland boundary.
-        // Pass empty perimeter/exclusions — they are already baked into workPoly.
-        const float infillInset = std::max(0.0f, static_cast<float>(settings.edgeRounds) * settings.stripWidth);
-        const PolygonPoints infillZone = infillInset > 0.0f
-            ? offsetPolygon(workPoly, infillInset)
-            : PolygonPoints{};
-        const std::vector<Segment> stripes = buildStripeSegments(
-            infillZone.empty() ? workPoly : infillZone,
-            {},   // perimeter already in workPoly
-            {},   // exclusions already in workPoly
-            settings.stripWidth,
-            settings.angle);
-        RoutePlan stripeRoute;
-        stripeRoute.sourceMode = WayType::MOW;
-        stripeRoute.active = false;
-        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, workPoly, zoneId);
-        if (!stripeRoute.points.empty()) {
-            if (!zoneRoute.points.empty()) {
-                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings, workPoly, zoneId);
+            // Headland: offset compPoly and clip with exclusions subtracted.
+            // compPoly is the outer boundary; exclusions are subtracted separately
+            // (not baked in — Clipper2 hole rings are excluded from workingArea).
+            if (settings.edgeMowing && settings.edgeRounds > 0) {
+                for (int round = 1; round <= settings.edgeRounds; ++round) {
+                    const float inset = (static_cast<float>(round) - 0.5f) * settings.stripWidth;
+                    const PolygonPoints contour = offsetPolygonRounded(compPoly, inset);
+                    if (contour.empty()) continue;
+                    const std::vector<PolygonPoints> contourRuns =
+                        clipContourToAllowedRuns(contour, compPoly, prepared.exclusions);
+                    if (!contourRuns.empty()) appendContourRuns(compRoute, map, contourRuns, settings, compPoly, zoneId);
+                }
             }
-            zoneRoute = appendRoute(zoneRoute, stripeRoute);
+
+            // Infill: pass exclusions explicitly so effectiveIntervalsAtY subtracts them.
+            // compPoly is already zone ∩ perimeter; passing perimeter again is a no-op.
+            const float infillInset = std::max(0.0f, static_cast<float>(settings.edgeRounds) * settings.stripWidth);
+            const PolygonPoints infillZone = infillInset > 0.0f
+                ? offsetPolygon(compPoly, infillInset)
+                : PolygonPoints{};
+            const std::vector<Segment> stripes = buildStripeSegments(
+                infillZone.empty() ? compPoly : infillZone,
+                prepared.perimeter,   // no-op if compPoly already clipped to perimeter
+                prepared.exclusions,  // subtract exclusion intervals per stripe row
+                settings.stripWidth, settings.angle);
+            RoutePlan stripeRoute;
+            stripeRoute.sourceMode = WayType::MOW;
+            stripeRoute.active = false;
+            appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, compPoly, zoneId);
+            if (!stripeRoute.points.empty()) {
+                if (!compRoute.points.empty()) {
+                    appendTransition(compRoute, map, compRoute.points.back().p, stripeRoute.points.front().p, settings, compPoly, zoneId);
+                }
+                compRoute = appendRoute(compRoute, stripeRoute);
+            }
+
+            // Connect this component to the zone route.
+            if (zoneRoute.points.empty()) {
+                zoneRoute = compRoute;
+            } else if (!compRoute.points.empty()) {
+                // Inter-component transition: no zone constraint — robot navigates
+                // around the gap between disconnected parts of the same zone.
+                appendTransition(zoneRoute, map, zoneRoute.points.back().p, compRoute.points.front().p, settings, {}, {});
+                zoneRoute = appendRoute(zoneRoute, compRoute);
+            }
         }
 
         if (route.points.empty()) {
