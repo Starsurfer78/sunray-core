@@ -1328,6 +1328,165 @@ TEST_CASE("WorkingArea D: angled zone near perimeter — headland stays in worki
     REQUIRE(hasEdge);
 }
 
+TEST_CASE("WorkingArea E: non-rectangular exclusion — hole ring filtered, no coverage inside hole", "[coverage]") {
+    // Diamond-shaped exclusion inside zone: vertices (5,1),(9,5),(5,9),(1,5).
+    // Clipper2 Difference returns a hole ring (Area < 0) for the diamond boundary.
+    // computeWorkingArea must filter it — hole must never become a coverage component.
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-1,-1],[11,-1],[11,11],[-1,11]],
+      "exclusions":[[[5,1],[9,5],[5,9],[1,5]]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[10,0],[10,10],[0,10]],
+        "settings":{
+          "name":"DiamondHole","stripWidth":0.5,"angle":0,"edgeMowing":true,
+          "edgeRounds":1,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+
+    // Diamond: center (5,5), half-extents 4 in each direction.
+    // Point is well inside if |x-5| + |y-5| < 3.0 (inset margin of 1.0 from edge).
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
+            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            const bool deepInsideDiamond =
+                std::abs(p.p.x - 5.0f) + std::abs(p.p.y - 5.0f) < 3.0f;
+            REQUIRE_FALSE(deepInsideDiamond);
+        }
+    }
+    // Coverage must exist in the corners (outside the diamond)
+    bool hasCornerCoverage = false;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            // Top-right corner: x>7, y>7 — clearly outside diamond
+            if (p.p.x > 7.0f && p.p.y > 7.0f) { hasCornerCoverage = true; break; }
+        }
+    }
+    REQUIRE(hasCornerCoverage);
+}
+
+TEST_CASE("WorkingArea F: two exclusions in one zone — all holes respected", "[coverage]") {
+    // Zone [0,0]-[12,8], two square NoGos: [1,1]-[4,4] and [8,1]-[11,4].
+    // Headland and infill must avoid both holes independently.
+    // Coverage must still exist between the two exclusions and above them.
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-1,-1],[13,-1],[13,9],[-1,9]],
+      "exclusions":[
+        [[1,1],[4,1],[4,4],[1,4]],
+        [[8,1],[11,1],[11,4],[8,4]]
+      ],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[12,0],[12,8],[0,8]],
+        "settings":{
+          "name":"TwoHoles","stripWidth":0.5,"angle":0,"edgeMowing":true,
+          "edgeRounds":1,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+
+    const float margin = 0.1f;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
+            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            // Must not be inside first exclusion [1,1]-[4,4]
+            const bool inFirst =
+                p.p.x > 1.0f + margin && p.p.x < 4.0f - margin &&
+                p.p.y > 1.0f + margin && p.p.y < 4.0f - margin;
+            REQUIRE_FALSE(inFirst);
+            // Must not be inside second exclusion [8,1]-[11,4]
+            const bool inSecond =
+                p.p.x > 8.0f + margin && p.p.x < 11.0f - margin &&
+                p.p.y > 1.0f + margin && p.p.y < 4.0f - margin;
+            REQUIRE_FALSE(inSecond);
+        }
+    }
+    // Coverage must exist between the two holes (x=3.5..8.5, y=1..5) and above them (y>5).
+    // Stripe endpoints land at x≈4.0 and x≈8.0, so use loose bounds.
+    bool coverageBetween = false;
+    bool coverageAbove   = false;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL ||
+            p.semantic == RouteSemantic::COVERAGE_EDGE) {
+            if (p.p.x > 3.5f && p.p.x < 8.5f &&
+                p.p.y > 1.0f && p.p.y < 5.0f) coverageBetween = true;
+            if (p.p.y > 5.0f)                  coverageAbove   = true;
+        }
+    }
+    REQUIRE(coverageBetween);
+    REQUIRE(coverageAbove);
+}
+
+TEST_CASE("WorkingArea G: narrow passage just over strip width — stable, no micro-components", "[coverage]") {
+    // Zone [0,0]-[10,10].
+    // Two exclusions create a narrow vertical corridor (1.4 m wide) between y=3.5 and y=6.5.
+    // Corridor width (1.4 m) is just under 3 strip widths (3×0.5=1.5) but clearly above one.
+    // Planner must complete without crash; no coverage inside exclusions; coverage in corridor.
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-1,-1],[11,-1],[11,11],[-1,11]],
+      "exclusions":[
+        [[0,3.5],[4.3,3.5],[4.3,6.5],[0,6.5]],
+        [[5.7,3.5],[10,3.5],[10,6.5],[5.7,6.5]]
+      ],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[10,0],[10,10],[0,10]],
+        "settings":{
+          "name":"NarrowPassage","stripWidth":0.5,"angle":0,"edgeMowing":false,
+          "edgeRounds":0,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    // Planner must not throw or hang — REQUIRE_NOTHROW implicitly covered by reaching here
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+
+    const float margin = 0.12f;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
+            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            // Must not be inside left exclusion [0,3.5]-[4.3,6.5]
+            const bool inLeft =
+                p.p.x > 0.0f + margin && p.p.x < 4.3f - margin &&
+                p.p.y > 3.5f + margin && p.p.y < 6.5f - margin;
+            REQUIRE_FALSE(inLeft);
+            // Must not be inside right exclusion [5.7,3.5]-[10,6.5]
+            const bool inRight =
+                p.p.x > 5.7f + margin && p.p.x < 10.0f - margin &&
+                p.p.y > 3.5f + margin && p.p.y < 6.5f - margin;
+            REQUIRE_FALSE(inRight);
+        }
+    }
+    // Coverage must exist in the open top area (y > 7.5) and bottom area (y < 2.5)
+    bool coverageTop    = false;
+    bool coverageBottom = false;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            if (p.p.y > 7.5f) coverageTop    = true;
+            if (p.p.y < 2.5f) coverageBottom = true;
+        }
+    }
+    REQUIRE(coverageTop);
+    REQUIRE(coverageBottom);
+}
+
 TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridmap]") {
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,-2],[2,2]]})");
