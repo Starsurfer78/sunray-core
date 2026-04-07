@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import type { Mission } from '../../stores/missions'
   import type { Zone, Point, RobotMap } from '../../stores/map'
-  import { previewPlannerRoutes, type PlannerPreviewRequest, type PlannerPreviewRoute } from '../../api/rest'
+  import { previewPlannerRoutes, type PlannerPreviewRequest, type PlannerPreviewRoute, type RouteSemantic, type RouteValidationError } from '../../api/rest'
 
   export let zones: Zone[] = []
   export let perimeter: Point[] = []
@@ -119,6 +119,37 @@
   let plannerError = ''
   let plannerRequestId = 0
 
+  const semanticColor: Record<RouteSemantic, string> = {
+    coverage_edge:       '#22d3ee',   // cyan — headland
+    coverage_infill:     '#22c55e',   // green — stripes
+    transit_within_zone: '#f59e0b',   // amber — intra-zone transition
+    transit_inter_zone:  '#f97316',   // orange — inter-zone transition
+    dock_approach:       '#fbbf24',   // yellow — dock
+    recovery:            '#ef4444',   // red — recovery
+    unknown:             '#94a3b8',   // slate — legacy
+  }
+
+  interface SemanticRun {
+    semantic: RouteSemantic
+    points: Point[]
+  }
+
+  function routeSemanticRuns(route: PlannerPreviewRoute['route'] | undefined): SemanticRun[] {
+    const pts = route?.points
+    if (!pts || pts.length < 2) return []
+    const runs: SemanticRun[] = []
+    let current: SemanticRun = { semantic: pts[0].semantic ?? 'unknown', points: [{ x: pts[0].p[0], y: pts[0].p[1] }] }
+    for (let i = 1; i < pts.length; i++) {
+      const sem: RouteSemantic = pts[i].semantic ?? 'unknown'
+      current.points.push({ x: pts[i].p[0], y: pts[i].p[1] })
+      if (sem !== current.semantic || i === pts.length - 1) {
+        runs.push(current)
+        current = { semantic: sem, points: [{ x: pts[i].p[0], y: pts[i].p[1] }] }
+      }
+    }
+    return runs
+  }
+
   function routePoints(route: PlannerPreviewRoute['route'] | undefined): Point[] {
     return route?.points.map((entry) => ({ x: entry.p[0], y: entry.p[1] })) ?? []
   }
@@ -198,9 +229,18 @@
       const response = await previewPlannerRoutes({ map: plannerMapSnapshot(map), mission: plannerMissionSnapshot(mission) })
       if (requestId !== plannerRequestId) return
       plannerRoutes = response.routes ?? []
-      plannerError = response.routes.some((entry) => !entry.ok)
-        ? 'Die C++-Bahnplanung konnte nicht vollständig erzeugt werden.'
-        : ''
+      const hasRouteError = response.routes.some((entry) => !entry.ok)
+      const hasValidationError = response.routes.some((entry) => entry.valid === false)
+      if (hasRouteError) {
+        plannerError = 'Die C++-Bahnplanung konnte nicht vollständig erzeugt werden.'
+      } else if (hasValidationError) {
+        const firstErr = response.routes.find(e => e.valid === false)?.error
+        plannerError = firstErr
+          ? `Route ungültig: ${firstErr}`
+          : 'Route enthält ungültige Segmente — Start gesperrt.'
+      } else {
+        plannerError = ''
+      }
     } catch (err) {
       if (requestId !== plannerRequestId) return
       plannerRoutes = []
@@ -218,8 +258,17 @@
     plannerError = ''
   }
 
-  $: previewRoute = routePoints(plannerRoutes.find((entry) => entry.ok && entry.route)?.route)
+  $: previewEntry = plannerRoutes.find((entry) => entry.ok && entry.route)
+  $: previewRoute = routePoints(previewEntry?.route)
   $: hasPreviewRoute = previewRoute.length >= 2
+  $: semanticRuns = routeSemanticRuns(previewEntry?.route)
+  $: validationErrors = (previewEntry?.validationErrors ?? []) as RouteValidationError[]
+  $: invalidPoints = validationErrors
+    .filter(e => e.pointIndex >= 0 && previewEntry?.route?.points[e.pointIndex])
+    .map(e => {
+      const pt = previewEntry!.route!.points[e.pointIndex]
+      return { point: { x: pt.p[0], y: pt.p[1] }, message: e.message }
+    })
 </script>
 
 <div class="preview-root">
@@ -371,25 +420,37 @@
       </g>
     {/each}
 
+    <!-- Invalid route points (validation errors) -->
+    {#each invalidPoints as inv}
+      {@const proj = project(inv.point, bounds)}
+      <circle cx={proj.x} cy={proj.y} r="5" fill="none" stroke="#ef4444" stroke-width="1.5" />
+      <circle cx={proj.x} cy={proj.y} r="2.5" fill="#ef4444" />
+    {/each}
+
     {#if hasPreviewRoute}
+      <!-- Shadow pass for contrast -->
       <polyline
         points={polyPoints(previewRoute, bounds)}
         fill="none"
-        stroke="rgba(7, 13, 24, 0.92)"
-        stroke-width="3.6"
+        stroke="rgba(7, 13, 24, 0.85)"
+        stroke-width="3.2"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
-      <polyline
-        points={polyPoints(previewRoute, bounds)}
-        fill="none"
-        stroke="#fbbf24"
-        stroke-opacity="0.96"
-        stroke-width="1.6"
-        stroke-dasharray="5 4"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
+      <!-- Semantic colour runs -->
+      {#each semanticRuns as run}
+        {#if run.points.length >= 2}
+          <polyline
+            points={polyPoints(run.points, bounds)}
+            fill="none"
+            stroke={semanticColor[run.semantic]}
+            stroke-opacity="0.92"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        {/if}
+      {/each}
     {/if}
   </svg>
 

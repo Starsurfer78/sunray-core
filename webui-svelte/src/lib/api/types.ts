@@ -12,6 +12,9 @@ export interface Telemetry {
   gps_sol: number
   gps_text: string
   gps_acc: number
+  gps_num_sv: number
+  gps_num_corr_signals: number
+  gps_dgps_age_ms: number
   gps_lat: number
   gps_lon: number
   bumper_l: boolean
@@ -67,6 +70,9 @@ export const defaultTelemetry: Telemetry = {
   gps_sol: 0,
   gps_text: '---',
   gps_acc: 0,
+  gps_num_sv: 0,
+  gps_num_corr_signals: 0,
+  gps_dgps_age_ms: 0,
   gps_lat: 0,
   gps_lon: 0,
   bumper_l: false,

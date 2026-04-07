@@ -1,4 +1,531 @@
 # Implementierungsplan: Robuste Mähplanung
+Technische Spezifikation: Sunray Missionsplanung, Vorschau und Laufzeit
+1. Ziel
+
+Die Missionsplanung muss so umgesetzt werden, dass der Benutzer einen einfachen Standardablauf bekommt:
+
+Perimeter anlegen
+No-Go-Zonen anlegen
+Dock setzen
+Mähzonen anlegen und konfigurieren
+Mission aus Zonen bauen
+Vorschau ansehen
+Mission starten
+Fortschritt im Dashboard live verfolgen
+
+Die interne Architektur muss sicherstellen, dass Vorschau, gespeicherter Plan, Laufzeitroute und Dashboard-Fortschritt dieselbe Route verwenden.
+
+2. Harte Produktanforderungen
+2.1 Sichtbarer Benutzerablauf
+
+Die UI zeigt nur diese Konzepte:
+
+Karte
+Zonen
+Mission
+Vorschau
+Dashboard
+
+Die UI zeigt keine internen Planungsbegriffe wie:
+
+A*
+Costmap
+PlannerContext
+CoverageDecomposer
+TransitPlanner
+RouteValidator
+2.2 Vorschau
+
+Die Vorschau muss exakt die Route zeigen, die später gefahren wird.
+
+2.3 Missionstart
+
+Beim Missionsstart darf keine andere Route erzeugt werden als die, die in der Vorschau angezeigt wurde.
+
+2.4 Dashboard
+
+Das Dashboard muss den Fortschritt gegen genau dieselbe Route berechnen, die in der Vorschau angezeigt und von der Runtime gefahren wird.
+
+3. Harte Architekturregeln
+Regel A — Eine Wahrheit
+
+Es darf genau eine kompilierte Missionsroute geben.
+
+Nicht erlaubt:
+
+separate Vorschau-Route
+separate Laufzeit-Route
+separate Dashboard-Route
+implizite Neugenerierung beim Start
+UI-seitige eigene Geometrie-/Pfadlogik
+
+Erlaubt:
+
+eine Route wird im Backend kompiliert
+diese Route wird gespeichert
+dieselbe Route wird an Vorschau, Runtime und Dashboard geliefert
+Regel B — WebUI ist Renderer, nicht Planer
+
+Die WebUI darf keine eigene Bahnplanung oder Geometrieplanung durchführen.
+Sie rendert ausschließlich Backend-Daten.
+
+Regel C — Coverage und Transit sind getrennte Planungsschritte
+
+Mähbahnen und Übergänge sind fachlich verschieden und müssen intern getrennt behandelt werden.
+
+Regel D — Keine stillen Fallbacks
+
+Wenn ein Übergang oder Segment nicht gültig geplant werden kann, darf das System keine Fake-Direktverbindung erzeugen.
+Stattdessen:
+
+Mission als ungültig markieren
+Segment als fehlerhaft markieren
+Vorschau entsprechend kennzeichnen
+Missionsstart blockieren
+Regel E — Route muss validiert werden
+
+Jede kompilierte Route muss vor dem Missionsstart vollständig validiert werden.
+
+4. Zielarchitektur
+4.1 Map-Modell
+
+Bestehende Verantwortung von Map:
+
+Perimeter
+Exclusions / No-Go
+Dock
+Zonen
+Planner-Defaults
+
+Map ist Weltmodell, nicht zentrale Missionslogik.
+
+4.2 MissionPlanner
+
+Neues oder logisch neu definiertes Modul.
+
+Verantwortung:
+
+nimmt Map + Benutzer-Missionsauswahl
+erzeugt eine vollständige Missionsroute
+validiert die Route
+liefert die Route an Vorschau, Runtime und Dashboard
+Eingaben
+Map
+Liste ausgewählter Zonen
+Reihenfolge
+Missionsoptionen
+Ausgabe
+CompiledMissionRoute
+4.3 CoveragePlanner
+
+Verantwortung:
+
+Headland / Randmähen
+Infill / Stripe
+lokale Reihenfolge innerhalb der Coverage-Fläche
+
+CoveragePlanner erzeugt nur Coverage-Segmente:
+
+COVERAGE_EDGE
+COVERAGE_INFILL
+
+Er erzeugt keine globalen freien Übergänge.
+
+4.4 TransitPlanner
+
+Verantwortung:
+
+Verbindung zwischen Coverage-Blöcken
+Verbindung zwischen Teilflächen
+Verbindung zwischen Zonen
+Dock-Anfahrt
+
+TransitPlanner darf vorhandene Infrastruktur (Planner, GridMap, Costmap) nutzen.
+
+Er muss Modi unterscheiden:
+
+WITHIN_REGION
+WITHIN_ZONE
+INTER_ZONE
+DOCK
+4.5 RouteValidator
+
+Neues Pflichtmodul.
+
+Verantwortung:
+
+vollständige Validierung der geplanten Route vor Missionsstart
+
+Prüft:
+
+alle Punkte in erlaubter Fläche
+alle MOW-Transitionen in zulässiger Fläche / Zone
+keine Sprünge ohne gültige Verbindung
+keine Kollision mit Exclusions
+keine Segmente außerhalb Perimeter
+konsistente Segmenttypen
+Route vollständig und fahrbar
+
+Ohne erfolgreiche Validierung ist die Mission nicht startbar.
+
+4.6 ExecutionEngine
+
+Verantwortung:
+
+fährt die kompilierte Route ab
+verwaltet aktives Segment
+berechnet Fortschritt
+löst lokales Recovery aus
+
+LineTracker bleibt nur Pfadverfolger.
+
+5. Datenmodell
+5.1 Mindestanforderung an RoutePoint
+
+RoutePoint muss erweitert werden um:
+
+RouteSemantic semantic
+std::string zoneId
+Vorgeschlagene Erweiterung
+enum class RouteSemantic : uint8_t {
+    COVERAGE_EDGE,
+    COVERAGE_INFILL,
+    TRANSIT_WITHIN_ZONE,
+    TRANSIT_INTER_ZONE,
+    DOCK_APPROACH,
+    RECOVERY,
+    UNKNOWN
+};
+struct RoutePoint {
+    Point p;
+    bool reverse = false;
+    bool slow = false;
+    bool reverseAllowed = false;
+    float clearance_m = 0.25f;
+    WayType sourceMode = WayType::FREE;
+
+    RouteSemantic semantic = RouteSemantic::UNKNOWN;
+    std::string zoneId;
+};
+5.2 Semantik-Pflicht
+
+Jeder vom Planner erzeugte Punkt muss sinnvolle Semantik tragen:
+
+Randmähen
+Innenbahn
+Übergang innerhalb Zone
+Übergang zwischen Zonen
+Dock
+Recovery
+
+UNKNOWN ist nur für Legacy oder nicht migrierte Altpfade zulässig, nicht für neue Missionsplanung.
+
+5.3 Langfristiges Ziel
+
+Später sollte zusätzlich eine Segmentebene eingeführt werden.
+Kurzfristig reicht Punkt-Semantik, solange sie konsequent gesetzt und validiert wird.
+
+6. Verbindlicher Ablauf
+6.1 Karte speichern
+
+Benutzer speichert Karte.
+Ergebnis: Map
+
+6.2 Mission erstellen
+
+Benutzer wählt:
+
+Zonen
+Reihenfolge
+Missionsoptionen
+
+Ergebnis: MissionRequest
+
+6.3 Mission kompilieren
+
+Backend führt aus:
+
+Coverage pro Zone erzeugen
+Coverage-Reihenfolge festlegen
+Übergänge per TransitPlanner erzeugen
+Route validieren
+Route speichern
+
+Ergebnis: CompiledMissionRoute
+
+6.4 Vorschau anzeigen
+
+WebUI rendert ausschließlich CompiledMissionRoute.
+
+6.5 Mission starten
+
+Runtime erhält exakt CompiledMissionRoute.
+Es wird nichts neu erzeugt.
+
+6.6 Dashboard
+
+Dashboard erhält:
+
+CompiledMissionRoute
+aktuellen Laufzeitstatus
+
+Fortschritt wird gegen diese Route berechnet.
+
+7. Verbotene Implementierungsmuster
+
+Diese Muster sind ab jetzt unzulässig:
+
+7.1 UI-seitige Planungslogik
+
+Nicht erlaubt:
+
+Vorschau in TypeScript oder Svelte separat nachbauen
+Geometrie in der WebUI neu berechnen
+eigene Stripe- oder Übergangslogik im Frontend
+7.2 Implizite Neugenerierung beim Start
+
+Nicht erlaubt:
+
+beim Start aus zones oder mow eine neue Route bauen, wenn die Vorschau vorher auf etwas anderem basierte
+7.3 Stille Direktverbindungen
+
+Nicht erlaubt:
+
+wenn previewPath() fehlschlägt, einfach den Zielpunkt direkt einfügen
+7.4 Ungültige Mission trotzdem fahren
+
+Nicht erlaubt:
+
+Routefehler loggen, aber Mission trotzdem als startbar behandeln
+8. Bestehender Code: konkrete Anforderungen
+8.1 Route.h
+
+Pflicht:
+
+RouteSemantic hinzufügen
+zoneId hinzufügen
+8.2 MowRoutePlanner.cpp
+
+Pflicht:
+
+semantic setzen
+zoneId setzen
+Coverage- und Transitpunkte unterscheiden
+keine stillen Fake-Fallbacks
+8.3 Map.cpp
+
+Pflicht:
+
+Runtime darf nicht stillschweigend andere Route verwenden als Vorschau
+startPlannedMowing(...) ist der bevorzugte Einstieg für Runtime
+startMowing() / startMowingZones() dürfen nicht zu einer alternativen Wahrheit werden
+8.4 neuer RouteValidator
+
+Pflicht:
+
+vor Missionsstart aufrufen
+bei Fehler Mission blockieren
+8.5 WebUI
+
+Pflicht:
+
+Vorschau aus Backend-Route rendern
+keine eigene Planungslogik
+Segmenttypen intern farblich differenzieren dürfen
+Benutzeroberfläche bleibt einfach
+9. WebUI-Spezifikation
+9.1 Benutzeroberflächen
+Map Editor
+
+Benutzer kann:
+
+Perimeter anlegen
+No-Go-Zonen anlegen
+Dock setzen
+Zonen anlegen
+Mission Planner
+
+Benutzer kann:
+
+Zonen auswählen
+Reihenfolge festlegen
+Vorschau ansehen
+Dashboard
+
+Benutzer kann sehen:
+
+aktuelle Zone
+Fortschritt
+aktive Bahn / aktueller Abschnitt
+bisher gefahrene Route
+Restzeit / Status
+9.2 Interne Darstellung
+
+Die WebUI darf intern Segmentfarben verwenden, z. B.:
+
+Randmähen
+Innenbahnen
+Übergänge
+Dock
+Recovery
+
+Diese Begriffe müssen dem Benutzer nicht als technische Klassen gezeigt werden.
+
+10. Recovery-Spezifikation
+10.1 Grundsatz
+
+Recovery ist lokal.
+
+Nicht erlaubt:
+
+komplette Mission neu interpretieren
+Zonenreihenfolge verlieren
+komplette Coverage neu aufbauen
+
+Erlaubt:
+
+aktuelles Segment lokal umgehen
+auf gültigen Punkt der bestehenden Route zurückkehren
+danach normal fortsetzen
+10.2 Recovery-Ziel
+
+Recovery repariert nur das aktuelle Problem, nicht die gesamte Mission.
+
+11. Validierung
+11.1 Pflichtprüfungen
+
+Vor Missionsstart muss RouteValidator mindestens prüfen:
+
+jeder Punkt innerhalb global erlaubter Fläche
+jede MOW-Transition innerhalb fachlich zulässiger Fläche
+kein Segment schneidet harte Exclusions
+kein Segment verlässt unzulässig den Perimeter
+Segmentfolge vollständig
+keine direkten Sprünge ohne Transit
+Route nicht leer
+Route konsistent mit Mission
+11.2 Startbedingung
+
+Mission darf nur starten, wenn Validierung erfolgreich ist.
+
+12. Definition of Done
+
+Ein Task zur Missionsplanung ist nur dann fertig, wenn alle Punkte erfüllt sind.
+
+Architektur
+ Es gibt genau eine kompilierte Missionsroute
+ Vorschau verwendet diese Route
+ Runtime verwendet diese Route
+ Dashboard verwendet diese Route
+Datenmodell
+ RoutePoint enthält semantic
+ RoutePoint enthält zoneId
+ neue Punkte erhalten sinnvolle Semantik
+Planung
+ Coverage und Transit werden getrennt behandelt
+ keine stillen Direktverbindungen bei Planner-Fehlern
+ jede Route wird vor Start validiert
+ ungültige Mission ist nicht startbar
+WebUI
+ keine eigene Planungslogik im Frontend
+ Vorschau rendert Backend-Daten
+ Dashboard zeigt Fortschritt gegen Backend-Route
+Runtime
+ Missionsstart nutzt geplante Route
+ Recovery wirkt lokal
+ Fortschritt bleibt konsistent
+13. Priorisierte Umsetzung
+Phase 1
+RouteSemantic + zoneId in RoutePoint
+MowRoutePlanner setzt diese Felder
+Vorschau serialisiert diese Daten
+WebUI rendert diese Route
+Phase 2
+CompiledMissionRoute bzw. Route als einzige Wahrheit etablieren
+startPlannedMowing(...) als Standardpfad anbinden
+Vorschau = Runtime erzwingen
+Phase 3
+RouteValidator implementieren
+Missionsstart nur bei gültiger Route erlauben
+Phase 4
+TransitPlanner explizit trennen
+Recovery lokalisieren
+Phase 5
+Dashboard auf segment-/routenbasierten Fortschritt umstellen
+14. Konkrete Anweisung an den Coder
+
+Diese Anweisung ist verbindlich:
+
+Implementiere die Missionsplanung so, dass genau eine kompilierte Missionsroute erzeugt wird.
+Diese Route ist die einzige Wahrheit für Vorschau, Laufzeit und Dashboard.
+Die WebUI darf keine eigene Planungslogik enthalten.
+Coverage und Transit sind getrennte interne Schritte.
+Jede Route muss vor Missionsstart validiert werden.
+Ungültige Transitionen dürfen nicht stillschweigend durch Direktverbindungen ersetzt werden.
+RoutePoint ist mindestens um semantic und zoneId zu erweitern.
+Die Runtime nutzt bevorzugt eine bereits geplante Route, nicht implizite Neugenerierung aus anderen Datenquellen.
+
+15. Abnahmetests
+
+Der Coder muss mindestens diese Tests liefern.
+
+Test A — einfache Rechteckzone
+
+Erwartung:
+
+plausible Coverage
+keine ungültigen Transitionen
+Vorschau = Runtime
+Test B — Zone nahe Perimeter
+
+Erwartung:
+
+keine Abkürzung über Perimeter
+Route validierbar
+Test C — Zone mit Exclusion
+
+Erwartung:
+
+keine Transition durch Exclusion
+Coverage bleibt konsistent
+Test D — mehrere Zonen
+
+Erwartung:
+
+definierte Reihenfolge
+saubere Übergänge
+Dashboard zeigt richtige aktive Zone
+Test E — Planner-Fehler
+
+Erwartung:
+
+Mission wird als ungültig markiert
+kein stiller Direktsprung
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## ALT #####
 
 Basierend auf der Analyse in `mapping-TXT.md` und dem aktuellen Code-Stand.
 

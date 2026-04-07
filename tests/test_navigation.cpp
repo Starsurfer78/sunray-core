@@ -16,6 +16,7 @@
 #include "core/navigation/LineTracker.h"
 #include "core/navigation/Map.h"
 #include "core/navigation/MowRoutePlanner.h"
+#include "core/navigation/RouteValidator.h"
 #include "core/control/OpenLoopDriveController.h"
 #include "core/control/DifferentialDriveController.h"
 #include "core/op/Op.h"
@@ -717,23 +718,24 @@ TEST_CASE("Map: save() exports generated mow route from zones", "[map]") {
 }
 
 TEST_CASE("Planner: edge rounds are sampled with curved corners", "[map]") {
+    // Zone 6x6 m, stripWidth 0.5 m — headland inset (0.25 m) well within zone bounds
     Map map;
     REQUIRE(map.loadJson(nlohmann::json::parse(R"({
       "perimeter":[[0,0],[10,0],[10,10],[0,10]],
       "zones":[{
         "id":"z1",
         "order":1,
-        "polygon":[[2,2],[4,2],[4,4],[2,4]],
+        "polygon":[[2,2],[8,2],[8,8],[2,8]],
         "settings":{
           "name":"Corner",
-          "stripWidth":2.0,
+          "stripWidth":0.5,
           "angle":0,
           "edgeMowing":true,
           "edgeRounds":1,
           "speed":1.0,
           "pattern":"stripe",
           "reverseAllowed":false,
-          "clearance":0.25
+          "clearance":0.1
         }
       }]
     })")));
@@ -1003,6 +1005,179 @@ TEST_CASE("GridMap: planPath avoids exclusion polygons", "[gridmap]") {
 
     REQUIRE_FALSE(touchedExclusion);
     REQUIRE(tookDetour);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 5.2 — Headland/Infill coverage tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+static nlohmann::json makeSimpleZoneMap(float zx0, float zy0, float zx1, float zy1,
+                                        float stripWidth = 0.5f, int edgeRounds = 1) {
+    return nlohmann::json::parse(R"({
+      "perimeter":[[-20,-20],[20,-20],[20,20],[-20,20]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[)" + std::to_string(zx0) + "," + std::to_string(zy0) + "],[" +
+            std::to_string(zx1) + "," + std::to_string(zy0) + "],[" +
+            std::to_string(zx1) + "," + std::to_string(zy1) + "],[" +
+            std::to_string(zx0) + "," + std::to_string(zy1) + R"(]],
+        "settings":{
+          "name":"T","stripWidth":)" + std::to_string(stripWidth) +
+          R"(,"angle":0,"edgeMowing":true,"edgeRounds":)" + std::to_string(edgeRounds) +
+          R"(,"speed":1.0,"pattern":"stripe","reverseAllowed":false,"clearance":0.1}
+      }]
+    })");
+}
+
+TEST_CASE("Coverage: rectangle zone produces both COVERAGE_EDGE and COVERAGE_INFILL points", "[coverage]") {
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+
+    bool hasEdge   = false;
+    bool hasInfill = false;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE)   hasEdge   = true;
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL) hasInfill = true;
+    }
+    REQUIRE(hasEdge);
+    REQUIRE(hasInfill);
+}
+
+TEST_CASE("Coverage: all mow points have a non-empty zoneId", "[coverage]") {
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    for (const auto& p : route.points) {
+        if (p.sourceMode == WayType::MOW &&
+            (p.semantic == RouteSemantic::COVERAGE_EDGE ||
+             p.semantic == RouteSemantic::COVERAGE_INFILL)) {
+            REQUIRE_FALSE(p.zoneId.empty());
+        }
+    }
+}
+
+TEST_CASE("Coverage: no UNKNOWN semantic on coverage or transit points", "[coverage]") {
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    for (const auto& p : route.points) {
+        if (p.sourceMode == WayType::MOW) {
+            REQUIRE(p.semantic != RouteSemantic::UNKNOWN);
+        }
+    }
+}
+
+TEST_CASE("Coverage: route stays within zone polygon for intra-zone transitions", "[coverage]") {
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 5, 5)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    // TRANSIT_WITHIN_ZONE points must stay inside zone
+    const auto& zonePoly = map.zones().front().polygon;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::TRANSIT_WITHIN_ZONE) {
+            // Allow 5 cm tolerance for boundary points
+            const float margin = 0.05f;
+            const float cx = (0.0f + 5.0f) / 2.0f;
+            const float cy = (0.0f + 5.0f) / 2.0f;
+            REQUIRE(p.p.x > -margin);
+            REQUIRE(p.p.x < 5.0f + margin);
+            REQUIRE(p.p.y > -margin);
+            REQUIRE(p.p.y < 5.0f + margin);
+            (void)cx; (void)cy; (void)zonePoly;
+        }
+    }
+}
+
+TEST_CASE("Coverage: zone near perimeter boundary produces headland contour", "[coverage]") {
+    // Zone almost touching perimeter — headland inset should not produce empty contour
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[-4.5,-4.5],[4.5,-4.5],[4.5,4.5],[-4.5,4.5]],
+        "settings":{
+          "name":"NearBound","stripWidth":0.5,"angle":0,"edgeMowing":true,
+          "edgeRounds":1,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    bool hasEdge = false;
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE) { hasEdge = true; break; }
+    }
+    REQUIRE(hasEdge);
+}
+
+TEST_CASE("Coverage: infill does not enter exclusion zone", "[coverage]") {
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-10,-10],[10,-10],[10,10],[-10,10]],
+      "exclusions":[[[1,1],[3,1],[3,3],[1,3]]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[-4,-4],[4,-4],[4,4],[-4,4]],
+        "settings":{
+          "name":"ExclTest","stripWidth":0.5,"angle":0,"edgeMowing":true,
+          "edgeRounds":1,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    for (const auto& p : route.points) {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            // Must not be deep inside the exclusion [1,1]-[3,3]
+            const bool deepInside =
+                p.p.x > 1.1f && p.p.x < 2.9f &&
+                p.p.y > 1.1f && p.p.y < 2.9f;
+            REQUIRE_FALSE(deepInside);
+        }
+    }
+}
+
+TEST_CASE("Coverage: RouteValidator passes for simple rectangle zone", "[coverage]") {
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    // Route-level validity flag
+    REQUIRE(route.valid);
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    // Basic rectangle with no exclusions should have no point_outside_perimeter
+    // or point_in_exclusion errors. Unknown semantic and within-zone transit
+    // errors are acceptable in this test — we check structure, not full coverage.
+    REQUIRE_FALSE(result.hasError(RouteErrorCode::ROUTE_EMPTY));
+    REQUIRE_FALSE(result.hasError(RouteErrorCode::ROUTE_INVALID_TRANSITION));
+    REQUIRE_FALSE(result.hasError(RouteErrorCode::POINT_OUTSIDE_PERIMETER));
+    REQUIRE_FALSE(result.hasError(RouteErrorCode::POINT_IN_EXCLUSION));
 }
 
 TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridmap]") {

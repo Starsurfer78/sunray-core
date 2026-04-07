@@ -180,6 +180,15 @@ export interface PlannerPreviewJob {
   robotRadius_m?: number
 }
 
+export type RouteSemantic =
+  | 'coverage_edge'
+  | 'coverage_infill'
+  | 'transit_within_zone'
+  | 'transit_inter_zone'
+  | 'dock_approach'
+  | 'recovery'
+  | 'unknown'
+
 export interface PlannerPreviewRoutePoint {
   p: [number, number]
   reverse: boolean
@@ -187,14 +196,27 @@ export interface PlannerPreviewRoutePoint {
   reverseAllowed: boolean
   clearance_m: number
   sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
+  semantic: RouteSemantic
+  zoneId: string
+}
+
+export interface RouteValidationError {
+  pointIndex: number
+  code: number
+  message: string
+  zoneId: string
 }
 
 export interface PlannerPreviewRoute {
   index: number
   ok: boolean
+  valid?: boolean
   error?: string
+  validationErrors?: RouteValidationError[]
   route?: {
     active: boolean
+    valid: boolean
+    invalidReason: string
     sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
     points: PlannerPreviewRoutePoint[]
   }

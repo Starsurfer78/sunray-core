@@ -451,7 +451,20 @@ long Map::calcCRC() const {
 }
 
 // ── Mission control ────────────────────────────────────────────────────────────
+//
+// One-truth architecture:
+//   startPlannedMowing(robotX, robotY, route)  ← PRIMARY PATH
+//     Used by Robot::startMowingMission() after calling buildMissionMowRoutePreview().
+//     Preview and runtime share the exact same RoutePlan.
+//
+//   startMowing() / startMowingZones()          ← LEGACY PATHS
+//     Used only for raw mow: JSON points (no zone-based planning) and for
+//     direct button-triggered starts without a mission document.
+//     These paths produce a route that is NOT guaranteed to match the WebUI preview.
 
+// [Legacy] Start from raw mow: JSON points loaded into allMowRoute_ at map load time.
+// Does NOT call buildMissionMowRoutePreview(); preview ≠ runtime for zone-based maps.
+// Prefer startPlannedMowing() via Robot::startMowingMission() for zone-based missions.
 bool Map::startMowing(float robotX, float robotY) {
     if (!allMowRoute_.points.empty()) {
         activateMowRoute(allMowRoute_);
@@ -478,6 +491,9 @@ bool Map::startMowing(float robotX, float robotY) {
     return true;
 }
 
+// [Legacy] Start from a zone-filtered subset of raw mow: JSON points.
+// Does NOT call buildMissionMowRoutePreview(); preview ≠ runtime for zone-based maps.
+// Prefer startPlannedMowing() via Robot::startMowingMission() for zone-based missions.
 bool Map::startMowingZones(float robotX, float robotY, const std::vector<std::string>& zoneIds) {
     if (zoneIds.empty()) return startMowing(robotX, robotY);
     if (allMowRoute_.points.empty()) return startMowing(robotX, robotY);

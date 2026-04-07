@@ -1,5 +1,7 @@
 #include "core/navigation/MowRoutePlanner.h"
 
+#include <clipper2/clipper.h>
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
@@ -45,50 +47,6 @@ static PolygonPoints rotatePolygon(const PolygonPoints& poly, float angleRad) {
     return out;
 }
 
-static float signedArea(const PolygonPoints& poly) {
-    if (poly.size() < 3) return 0.0f;
-    float area = 0.0f;
-    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
-        area += (poly[j].x * poly[i].y) - (poly[i].x * poly[j].y);
-    }
-    return area * 0.5f;
-}
-
-static bool intersectLines(const Point& a1, const Point& a2,
-                           const Point& b1, const Point& b2,
-                           Point& out) {
-    const float x1 = a1.x, y1 = a1.y;
-    const float x2 = a2.x, y2 = a2.y;
-    const float x3 = b1.x, y3 = b1.y;
-    const float x4 = b2.x, y4 = b2.y;
-    const float den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-    if (std::fabs(den) < 1e-8f) return false;
-
-    const float det1 = x1 * y2 - y1 * x2;
-    const float det2 = x3 * y4 - y3 * x4;
-    out.x = (det1 * (x3 - x4) - (x1 - x2) * det2) / den;
-    out.y = (det1 * (y3 - y4) - (y1 - y2) * det2) / den;
-    return true;
-}
-
-static Point addScaled(const Point& base, const Point& dir, float scale) {
-    return { base.x + dir.x * scale, base.y + dir.y * scale };
-}
-
-static Point normalizeVec(const Point& p) {
-    const float len = std::sqrt(p.x * p.x + p.y * p.y);
-    if (len < 1e-8f) return {0.0f, 0.0f};
-    return { p.x / len, p.y / len };
-}
-
-static float cross2d(const Point& a, const Point& b) {
-    return a.x * b.y - a.y * b.x;
-}
-
-static float dot2d(const Point& a, const Point& b) {
-    return a.x * b.x + a.y * b.y;
-}
-
 static void appendUniquePoint(PolygonPoints& pts, const Point& p, float eps = 1e-4f) {
     if (!pts.empty() && samePoint(pts.back(), p, eps)) return;
     pts.push_back(p);
@@ -118,119 +76,70 @@ static PreparedCoverageArea prepareCoverageArea(const Zone& zone, const Map& map
     return prepared;
 }
 
-static PolygonPoints offsetPolygon(const PolygonPoints& poly, float inset) {
-    if (poly.size() < 3 || std::fabs(inset) < 1e-6f) return poly;
+// ── Polygon offset via Clipper2 ───────────────────────────────────────────────
+// Clipper2 works in integer space. We scale by 1000 (mm precision).
+static constexpr double kClipperScale = 1000.0;
 
-    const float area = signedArea(poly);
-    if (std::fabs(area) < 1e-8f) return {};
-    const bool ccw = area > 0.0f;
+static Clipper2Lib::PathD toClipperPath(const PolygonPoints& poly) {
+    Clipper2Lib::PathD path;
+    path.reserve(poly.size());
+    for (const auto& p : poly) path.emplace_back(p.x, p.y);
+    return path;
+}
 
-    const size_t n = poly.size();
-    std::vector<std::pair<Point, Point>> offsetEdges;
-    offsetEdges.reserve(n);
-
-    for (size_t i = 0; i < n; ++i) {
-        const Point& a = poly[i];
-        const Point& b = poly[(i + 1) % n];
-        const float dx = b.x - a.x;
-        const float dy = b.y - a.y;
-        const float len = std::sqrt(dx * dx + dy * dy);
-        if (len < 1e-8f) {
-            offsetEdges.push_back({a, b});
-            continue;
-        }
-
-        const float nx = ccw ? (-dy / len) : (dy / len);
-        const float ny = ccw ? ( dx / len) : (-dx / len);
-        const Point shift{nx * inset, ny * inset};
-        offsetEdges.push_back({
-            {a.x + shift.x, a.y + shift.y},
-            {b.x + shift.x, b.y + shift.y},
-        });
-    }
-
+static PolygonPoints fromClipperPath(const Clipper2Lib::PathD& path) {
     PolygonPoints out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        const auto& prev = offsetEdges[(i + n - 1) % n];
-        const auto& curr = offsetEdges[i];
-        Point p;
-        if (!intersectLines(prev.first, prev.second, curr.first, curr.second, p)) {
-            p = curr.first;
-        }
-        out.push_back(p);
-    }
+    out.reserve(path.size());
+    for (const auto& pt : path) out.push_back({static_cast<float>(pt.x), static_cast<float>(pt.y)});
     return out;
 }
 
+/// Inset (positive inset = shrink) via Clipper2 with miter join.
+/// Returns the largest result polygon, or empty if the polygon vanishes.
+static PolygonPoints offsetPolygon(const PolygonPoints& poly, float inset) {
+    if (poly.size() < 3) return poly;
+    if (std::fabs(inset) < 1e-6f) return poly;
+
+    Clipper2Lib::PathsD paths = {toClipperPath(poly)};
+    // Clipper2 InflatePaths: negative delta = inset
+    const Clipper2Lib::PathsD result = Clipper2Lib::InflatePaths(
+        paths,
+        -static_cast<double>(inset),
+        Clipper2Lib::JoinType::Miter,
+        Clipper2Lib::EndType::Polygon);
+
+    if (result.empty()) return {};
+    // Return the largest polygon by signed area
+    const Clipper2Lib::PathD* best = &result[0];
+    double bestArea = std::fabs(Clipper2Lib::Area(*best));
+    for (size_t i = 1; i < result.size(); ++i) {
+        double a = std::fabs(Clipper2Lib::Area(result[i]));
+        if (a > bestArea) { bestArea = a; best = &result[i]; }
+    }
+    return fromClipperPath(*best);
+}
+
+/// Inset with round join at convex corners (used for headland contours).
+/// Returns the largest result polygon, or the original if inset is near zero.
 static PolygonPoints offsetPolygonRounded(const PolygonPoints& poly, float inset) {
-    if (poly.size() < 3 || std::fabs(inset) < 1e-6f) return poly;
+    if (poly.size() < 3) return poly;
+    if (std::fabs(inset) < 1e-6f) return poly;
 
-    const float area = signedArea(poly);
-    if (std::fabs(area) < 1e-8f) return {};
-    const bool ccw = area > 0.0f;
-    const float distance = std::fabs(inset);
-    const float maxStep = static_cast<float>(M_PI) / 8.0f;
+    Clipper2Lib::PathsD paths = {toClipperPath(poly)};
+    const Clipper2Lib::PathsD result = Clipper2Lib::InflatePaths(
+        paths,
+        -static_cast<double>(inset),
+        Clipper2Lib::JoinType::Round,
+        Clipper2Lib::EndType::Polygon);
 
-    const size_t n = poly.size();
-    PolygonPoints out;
-    out.reserve(n * 3);
-
-    auto inwardNormal = [&](const Point& edge) {
-        if (ccw) return Point{-edge.y, edge.x};
-        return Point{edge.y, -edge.x};
-    };
-
-    for (size_t i = 0; i < n; ++i) {
-        const Point& prev = poly[(i + n - 1) % n];
-        const Point& curr = poly[i];
-        const Point& next = poly[(i + 1) % n];
-
-        const Point prevEdge = normalizeVec({curr.x - prev.x, curr.y - prev.y});
-        const Point nextEdge = normalizeVec({next.x - curr.x, next.y - curr.y});
-        if (std::fabs(prevEdge.x) < 1e-8f && std::fabs(prevEdge.y) < 1e-8f) continue;
-        if (std::fabs(nextEdge.x) < 1e-8f && std::fabs(nextEdge.y) < 1e-8f) continue;
-
-        const Point n1 = inwardNormal(prevEdge);
-        const Point n2 = inwardNormal(nextEdge);
-        const Point start = addScaled(curr, n1, distance);
-
-        const float turnCross = cross2d(prevEdge, nextEdge);
-        const bool convex = ccw ? (turnCross > 1e-7f) : (turnCross < -1e-7f);
-
-        if (!convex) {
-            Point miter;
-            const Point prevA = addScaled(prev, inwardNormal(prevEdge), distance);
-            const Point prevB = addScaled(curr, inwardNormal(prevEdge), distance);
-            const Point nextA = addScaled(curr, inwardNormal(nextEdge), distance);
-            const Point nextB = addScaled(next, inwardNormal(nextEdge), distance);
-            if (intersectLines(prevA, prevB, nextA, nextB, miter)) {
-                appendUniquePoint(out, miter);
-            } else {
-                appendUniquePoint(out, start);
-            }
-            continue;
-        }
-
-        const float startAngle = std::atan2(start.y - curr.y, start.x - curr.x);
-        float sweep = std::atan2(cross2d(n1, n2), dot2d(n1, n2));
-        if (std::fabs(sweep) < 1e-6f) {
-            appendUniquePoint(out, start);
-            continue;
-        }
-
-        int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(sweep) / maxStep)));
-        for (int step = 0; step <= steps; ++step) {
-            const float t = static_cast<float>(step) / static_cast<float>(steps);
-            const float angle = startAngle + sweep * t;
-            appendUniquePoint(out, { curr.x + std::cos(angle) * distance, curr.y + std::sin(angle) * distance });
-        }
+    if (result.empty()) return {};
+    const Clipper2Lib::PathD* best = &result[0];
+    double bestArea = std::fabs(Clipper2Lib::Area(*best));
+    for (size_t i = 1; i < result.size(); ++i) {
+        double a = std::fabs(Clipper2Lib::Area(result[i]));
+        if (a > bestArea) { bestArea = a; best = &result[i]; }
     }
-
-    if (out.size() > 1 && samePoint(out.front(), out.back())) {
-        out.pop_back();
-    }
-    return out;
+    return fromClipperPath(*best);
 }
 
 static std::vector<Interval> normalizeIntervals(std::vector<Interval> intervals) {
@@ -329,6 +238,10 @@ static std::vector<Interval> effectiveIntervalsAtY(const PolygonPoints& zone,
     return intervals;
 }
 
+// ── Coverage helpers ──────────────────────────────────────────────────────────
+// These functions produce Coverage segments (stripes and headland contours).
+// They do NOT insert free-path transitions — that is the Transition layer's job.
+
 static std::vector<Segment> buildStripeSegments(const PolygonPoints& zone,
                                                 const PolygonPoints& perimeter,
                                                 const std::vector<PolygonPoints>& exclusions,
@@ -377,7 +290,9 @@ static std::vector<Segment> buildStripeSegments(const PolygonPoints& zone,
 }
 
 static RoutePlan routeFromPolyline(const PolygonPoints& points,
-                                   const ZoneSettings& settings) {
+                                   const ZoneSettings& settings,
+                                   RouteSemantic semantic = RouteSemantic::COVERAGE_EDGE,
+                                   const std::string& zoneId = {}) {
     RoutePlan route;
     route.sourceMode = WayType::MOW;
     route.active = points.size() >= 2;
@@ -391,6 +306,8 @@ static RoutePlan routeFromPolyline(const PolygonPoints& points,
         rp.reverseAllowed = settings.reverseAllowed;
         rp.clearance_m = settings.clearance;
         rp.sourceMode = WayType::MOW;
+        rp.semantic = semantic;
+        rp.zoneId = zoneId;
         route.points.push_back(rp);
     }
     return route;
@@ -408,15 +325,26 @@ static RoutePlan appendRoute(RoutePlan base, const RoutePlan& add) {
         base.points.push_back(add.points[i]);
     }
     base.active = !base.points.empty();
+    // Propagate invalidity from either side
+    if (!add.valid) {
+        base.valid = false;
+        if (base.invalidReason.empty()) base.invalidReason = add.invalidReason;
+    }
     return base;
 }
+
+// ── Transition helpers ────────────────────────────────────────────────────────
+// These functions insert A*-planned transitions between Coverage blocks.
+// Transitions are zone-aware: TRANSIT_WITHIN_ZONE paths are constrained to the
+// active zone polygon; TRANSIT_INTER_ZONE paths have no zone constraint.
 
 static void appendTransition(RoutePlan& route,
                              const Map& map,
                              const Point& from,
                              const Point& to,
                              const ZoneSettings& settings,
-                             const PolygonPoints& zonePoly);
+                             const PolygonPoints& zonePoly,
+                             const std::string& zoneId = {});
 
 /// Point-in-polygon test (ray-casting).
 static bool pointInPolygonLocal(const PolygonPoints& poly, float px, float py) {
@@ -486,7 +414,8 @@ static void appendSegmentRoute(RoutePlan& route,
                                const Map& map,
                                const Segment& segment,
                                const ZoneSettings& settings,
-                               const PolygonPoints& zonePoly) {
+                               const PolygonPoints& zonePoly,
+                               const std::string& zoneId = {}) {
     auto makePoint = [&](const Point& p) {
         RoutePoint rp;
         rp.p = p;
@@ -495,6 +424,8 @@ static void appendSegmentRoute(RoutePlan& route,
         rp.reverseAllowed = settings.reverseAllowed;
         rp.clearance_m = settings.clearance;
         rp.sourceMode = WayType::MOW;
+        rp.semantic = RouteSemantic::COVERAGE_INFILL;
+        rp.zoneId = zoneId;
         return rp;
     };
 
@@ -506,7 +437,7 @@ static void appendSegmentRoute(RoutePlan& route,
         return;
     }
 
-    appendTransition(route, map, route.points.back().p, segment.a, settings, zonePoly);
+    appendTransition(route, map, route.points.back().p, segment.a, settings, zonePoly, zoneId);
     if (!samePoint(route.points.back().p, segment.a)) {
         route.points.push_back(makePoint(segment.a));
     }
@@ -533,13 +464,19 @@ static nav::ZoneSettings applyMissionOverrides(const nav::ZoneSettings& base,
 
 /// Zone-aware transition: the A* grid is bounded to zonePoly so the path
 /// cannot take shortcuts through areas outside the active zone.
+/// If no path is found, route.valid is set to false — no silent direct-point fallback.
 static void appendTransition(RoutePlan& route,
                              const Map& map,
                              const Point& from,
                              const Point& to,
                              const ZoneSettings& settings,
-                             const PolygonPoints& zonePoly) {
+                             const PolygonPoints& zonePoly,
+                             const std::string& zoneId) {
     if (samePoint(from, to)) return;
+    const RouteSemantic sem = zonePoly.empty()
+        ? RouteSemantic::TRANSIT_INTER_ZONE
+        : RouteSemantic::TRANSIT_WITHIN_ZONE;
+
     const RoutePlan transition = map.previewPath(
         from,
         to,
@@ -551,8 +488,27 @@ static void appendTransition(RoutePlan& route,
         settings.clearance,
         settings.clearance + map.plannerSettings().obstacleInflation_m,
         zonePoly);
-    for (const auto& point : transition.points) {
+
+    if (transition.points.empty()) {
+        // No A* path found. Mark the route as invalid so the validator and the
+        // mission start gate can detect and reject it. Do NOT insert a direct
+        // point: that would create a silent shortcut through obstacles or the
+        // zone boundary that is invisible to the RouteValidator.
+        route.valid = false;
+        if (route.invalidReason.empty()) {
+            route.invalidReason = "no transition path from ("
+                + std::to_string(from.x) + "," + std::to_string(from.y)
+                + ") to ("
+                + std::to_string(to.x) + "," + std::to_string(to.y) + ")"
+                + (zoneId.empty() ? "" : " in zone '" + zoneId + "'");
+        }
+        return;
+    }
+
+    for (auto point : transition.points) {
         if (!route.points.empty() && samePoint(route.points.back().p, point.p)) continue;
+        point.semantic = sem;
+        point.zoneId = zoneId;
         route.points.push_back(point);
     }
 }
@@ -561,9 +517,10 @@ static void appendSegmentsWithTransitions(RoutePlan& route,
                                           const Map& map,
                                           const std::vector<Segment>& segments,
                                           const ZoneSettings& settings,
-                                          const PolygonPoints& zonePoly) {
+                                          const PolygonPoints& zonePoly,
+                                          const std::string& zoneId = {}) {
     for (const auto& segment : segments) {
-        appendSegmentRoute(route, map, segment, settings, zonePoly);
+        appendSegmentRoute(route, map, segment, settings, zonePoly, zoneId);
     }
 }
 
@@ -571,12 +528,13 @@ static void appendContourRuns(RoutePlan& route,
                               const Map& map,
                               const std::vector<PolygonPoints>& runs,
                               const ZoneSettings& settings,
-                              const PolygonPoints& zonePoly) {
+                              const PolygonPoints& zonePoly,
+                              const std::string& zoneId = {}) {
     for (const auto& run : runs) {
-        RoutePlan runRoute = routeFromPolyline(run, settings);
+        RoutePlan runRoute = routeFromPolyline(run, settings, RouteSemantic::COVERAGE_EDGE, zoneId);
         if (runRoute.points.empty()) continue;
         if (!route.points.empty()) {
-            appendTransition(route, map, route.points.back().p, runRoute.points.front().p, settings, zonePoly);
+            appendTransition(route, map, route.points.back().p, runRoute.points.front().p, settings, zonePoly, zoneId);
         }
         route = appendRoute(route, runRoute);
     }
@@ -634,7 +592,7 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
                 // incorrect clipping when the zone polygon overlaps the perimeter.
                 const std::vector<PolygonPoints> contourRuns =
                     clipContourToAllowedRuns(contour, prepared.zone, prepared.exclusions);
-                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings, prepared.zone);
+                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings, prepared.zone, zoneId);
             }
         }
 
@@ -649,10 +607,10 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
         RoutePlan stripeRoute;
         stripeRoute.sourceMode = WayType::MOW;
         stripeRoute.active = false;
-        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, prepared.zone);
+        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, prepared.zone, zoneId);
         if (!stripeRoute.points.empty()) {
             if (!zoneRoute.points.empty()) {
-                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings, prepared.zone);
+                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings, prepared.zone, zoneId);
             }
             zoneRoute = appendRoute(zoneRoute, stripeRoute);
         }
@@ -661,7 +619,7 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
             route = zoneRoute;
         } else if (!zoneRoute.points.empty()) {
             // Inter-zone transition: no zone constraint (robot must cross between zones)
-            appendTransition(route, map, route.points.back().p, zoneRoute.points.front().p, settings, {});
+            appendTransition(route, map, route.points.back().p, zoneRoute.points.front().p, settings, {}, {});
             route = appendRoute(route, zoneRoute);
         }
     }

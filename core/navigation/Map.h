@@ -143,9 +143,10 @@ public:
     /// Falls back to startMowing() if zoneIds is empty or no points match.
     bool startMowingZones(float robotX, float robotY, const std::vector<std::string>& zoneIds);
 
-    /// Begin mowing from an already planned route.
-    /// Used for mission-specific coverage plans so runtime follows exactly the
-    /// same route that preview/save generated.
+    /// [PRIMARY PATH] Begin mowing from a pre-compiled RoutePlan.
+    /// Robot::startMowingMission() calls buildMissionMowRoutePreview() to obtain
+    /// the route and passes it here — preview and runtime are guaranteed to match.
+    /// The robot position only determines the nearest entry index, not route content.
     bool startPlannedMowing(float robotX, float robotY, const RoutePlan& route);
 
     /// Begin dock approach from current robot position.

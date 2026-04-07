@@ -39,8 +39,13 @@ namespace sunray
             // ── GPS ──────────────────────────────────────────────────────────────
             {"gps_port", "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00"},
             {"gps_baud", 115200},
-            {"gps_configure", false},
-            {"gps_config_filter", true},           // Elevationsfilter fuer stabiles RTK-Signal
+            {"gps_configure", true},
+            {"gps_config_filter", true}, // Elevationsfilter fuer stabiles RTK-Signal
+            {"gps_receiver_constrain_alt_cm", 10000},
+            {"gps_receiver_min_elev_deg", 10},
+            {"gps_receiver_cno_threshold_num_svs", 10},
+            {"gps_receiver_cno_threshold_dbhz", 30},
+            {"gps_receiver_dgnss_timeout_s", 60},
             {"gps_wait_timeout_ms", 600000},       // 0 = warten bis Signal da
             {"gps_require_valid", true},           // REQUIRE_VALID_GPS
             {"gps_speed_detection", true},         // GPS_SPEED_DETECTION
@@ -121,19 +126,19 @@ namespace sunray
             // Skaliert die Drehgeschwindigkeit linear mit dem Winkelrestfehler.
             // Deaktivieren mit rotation_ramp_enabled=false → konstante 29°/s.
             {"rotation_ramp_enabled", true},
-            {"rotation_ramp_max_deg_s", 75.0},  // Geschwindigkeit bei großem Winkel (120°)
-            {"rotation_ramp_min_deg_s", 18.0},  // Geschwindigkeit bei kleinem Winkel (0°)
+            {"rotation_ramp_max_deg_s", 75.0}, // Geschwindigkeit bei großem Winkel (120°)
+            {"rotation_ramp_min_deg_s", 18.0}, // Geschwindigkeit bei kleinem Winkel (0°)
 
             // ── Adaptive Speed ───────────────────────────────────────────────────
             // Reduziert die Fahrgeschwindigkeit wenn der Mähmotor überlastet ist.
             // Quelle: STM32 mowOverload-Flag aus AT+S / AT+M.
             {"adaptive_speed_enabled", false},
-            {"adaptive_speed_overload_scale", 0.5},  // Faktor bei Überlast (0.1–1.0)
+            {"adaptive_speed_overload_scale", 0.5}, // Faktor bei Überlast (0.1–1.0)
 
             // ── Escape Lawn (Mähmotor-Blockierung) ───────────────────────────────
             // Löst onStuck() aus wenn Mähmotor über escape_lawn_timeout_ms überlastet.
             {"escape_lawn_enabled", false},
-            {"escape_lawn_timeout_ms", 3000},  // ms Dauerlast bis Ausweichmanöver
+            {"escape_lawn_timeout_ms", 3000}, // ms Dauerlast bis Ausweichmanöver
 
             // ── Obstacle Detection Rotation (IMU-Blockierung) ────────────────────
             // Erkennt Blockierung beim Drehen anhand fehlender Yaw-Änderung (IMU).

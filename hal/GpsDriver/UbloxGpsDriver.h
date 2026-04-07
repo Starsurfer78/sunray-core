@@ -5,6 +5,7 @@
 // and parses:
 //   UBX-NAV-RELPOSNED  → RTK solution (float/fixed), relPosN/E
 //   UBX-NAV-HPPOSLLH   → WGS-84 lat/lon, hAccuracy
+//   UBX-NAV-SIG        → healthy/corrected rover signal counts
 //   UBX-NAV-VELNED      → ground speed (stored, not yet exposed)
 //   UBX-RXM-RTCM        → RTCM correction status (dgpsAge)
 //   NMEA GNGGA          → raw GGA sentence
@@ -12,9 +13,15 @@
 // Ported from sunray/src/ublox/ublox.cpp — all Arduino shims removed.
 //
 // Config keys:
-//   gps_port       (string)  default: /dev/serial/by-id/usb-u-blox_...
-//   gps_baud       (int)     default: 115200
-//   gps_configure  (bool)    default: false — send UBX-CFG-VALSET at init
+//   gps_port                          (string) default: /dev/serial/by-id/usb-u-blox_...
+//   gps_baud                          (int)    default: 115200
+//   gps_configure                     (bool)   default: false — send UBX-CFG-VALSET at init
+//   gps_config_filter                 (bool)   default: true  — apply RTK stability filters
+//   gps_receiver_constrain_alt_cm     (int)    default: 10000 — 100 m startup altitude constraint
+//   gps_receiver_min_elev_deg         (int)    default: 10    — minimum satellite elevation
+//   gps_receiver_cno_threshold_num_svs(int)    default: 10    — #SVs above C/N0 threshold when filter enabled
+//   gps_receiver_cno_threshold_dbhz   (int)    default: 30    — C/N0 threshold in dBHz when filter enabled
+//   gps_receiver_dgnss_timeout_s      (int)    default: 60    — receiver-side DGNSS timeout
 
 #include "hal/GpsDriver/GpsDriver.h"
 #include "core/Config.h"
@@ -28,75 +35,89 @@
 #include <thread>
 #include <vector>
 
-namespace sunray {
+namespace sunray
+{
 
-class UbloxGpsDriver : public GpsDriver {
-public:
-    explicit UbloxGpsDriver(std::shared_ptr<Config> config,
-                            std::shared_ptr<Logger> logger);
-    ~UbloxGpsDriver() override;
+    class UbloxGpsDriver : public GpsDriver
+    {
+    public:
+        explicit UbloxGpsDriver(std::shared_ptr<Config> config,
+                                std::shared_ptr<Logger> logger);
+        ~UbloxGpsDriver() override;
 
-    bool    init()          override;
-    GpsData getData() const override;
+        bool init() override;
+        GpsData getData() const override;
 
-private:
-    // ── UBX frame state machine ────────────────────────────────────────────────
-    enum class State : uint8_t { SYNC1, SYNC2, CLASS, ID, LEN1, LEN2, PAYLOAD, CHKA, CHKB };
+    private:
+        // ── UBX frame state machine ────────────────────────────────────────────────
+        enum class State : uint8_t
+        {
+            SYNC1,
+            SYNC2,
+            CLASS,
+            ID,
+            LEN1,
+            LEN2,
+            PAYLOAD,
+            CHKA,
+            CHKB
+        };
 
-    void parseByte(uint8_t b);
-    void dispatchMessage();
-    void addChk(uint8_t b);
+        void parseByte(uint8_t b);
+        void dispatchMessage();
+        void addChk(uint8_t b);
 
-    // Little-endian unpack helpers (UBX is always little-endian)
-    int32_t  unpackI32(int ofs) const;
-    int8_t   unpackI8 (int ofs) const;
-    uint32_t unpackU32(int ofs) const;
+        // Little-endian unpack helpers (UBX is always little-endian)
+        int32_t unpackI32(int ofs) const;
+        int8_t unpackI8(int ofs) const;
+        uint16_t unpackU16(int ofs) const;
+        uint32_t unpackU32(int ofs) const;
 
-    // ── UBX frame builder / sender ────────────────────────────────────────────
-    void sendUbx(uint8_t cls, uint8_t id, const std::vector<uint8_t>& payload);
+        // ── UBX frame builder / sender ────────────────────────────────────────────
+        void sendUbx(uint8_t cls, uint8_t id, const std::vector<uint8_t> &payload);
 
-    /// Send one UBX-CFG-VALSET packet (RAM layer).
-    /// items: { key, value_bytes_LE } — value size inferred from key[31:28]
-    bool sendCfgValset(
-        const std::vector<std::pair<uint32_t, std::vector<uint8_t>>>& items);
+        /// Send one UBX-CFG-VALSET packet (RAM layer).
+        /// items: { key, value_bytes_LE } — value size inferred from key[31:28]
+        bool sendCfgValset(
+            const std::vector<std::pair<uint32_t, std::vector<uint8_t>>> &items);
 
-    bool configure();
+        bool configure();
 
-    // ── Background reader ─────────────────────────────────────────────────────
-    void readerLoop();
+        // ── Background reader ─────────────────────────────────────────────────────
+        void readerLoop();
 
-    // ── Members ───────────────────────────────────────────────────────────────
-    std::shared_ptr<Config> config_;
-    std::shared_ptr<Logger> logger_;
+        // ── Members ───────────────────────────────────────────────────────────────
+        std::shared_ptr<Config> config_;
+        std::shared_ptr<Logger> logger_;
 
-    int fd_ = -1;  ///< POSIX file descriptor for GPS serial port
+        int fd_ = -1; ///< POSIX file descriptor for GPS serial port
 
-    // Parser state — owned by readerLoop thread only (no lock needed)
-    State    state_    = State::SYNC1;
-    uint8_t  msgClass_ = 0;
-    uint8_t  msgId_    = 0;
-    uint16_t msgLen_   = 0;
-    uint16_t count_    = 0;
-    uint8_t  chkA_     = 0;
-    uint8_t  chkB_     = 0;
-    uint8_t  payload_[1024]{};
+        // Parser state — owned by readerLoop thread only (no lock needed)
+        State state_ = State::SYNC1;
+        uint8_t msgClass_ = 0;
+        uint8_t msgId_ = 0;
+        uint16_t msgLen_ = 0;
+        uint16_t count_ = 0;
+        uint8_t chkA_ = 0;
+        uint8_t chkB_ = 0;
+        uint8_t payload_[1024]{};
 
-    std::string nmeaAccum_;       ///< NMEA line accumulator (readerLoop only)
-    uint64_t lastRelposMs_ = 0;   ///< steady_clock ms of last RELPOSNED (readerLoop only)
-    uint64_t rtcmLastMs_   = 0;   ///< steady_clock ms of last RTCM packet (readerLoop only)
+        std::string nmeaAccum_;     ///< NMEA line accumulator (readerLoop only)
+        uint64_t lastRelposMs_ = 0; ///< steady_clock ms of last RELPOSNED (readerLoop only)
+        uint64_t rtcmLastMs_ = 0;   ///< steady_clock ms of last RTCM packet (readerLoop only)
 
-    // Shared GPS data — protected by dataMutex_
-    mutable std::mutex dataMutex_;
-    GpsData            data_;
+        // Shared GPS data — protected by dataMutex_
+        mutable std::mutex dataMutex_;
+        GpsData data_;
 
-    // Background thread
-    std::thread       thread_;
-    std::atomic<bool> running_{false};
+        // Background thread
+        std::thread thread_;
+        std::atomic<bool> running_{false};
 
-    static constexpr const char* TAG             = "UbloxGps";
-    static constexpr uint64_t    SOL_TIMEOUT_MS  = 3000;
-    static constexpr const char* DEFAULT_PORT    =
-        "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00";
-};
+        static constexpr const char *TAG = "UbloxGps";
+        static constexpr uint64_t SOL_TIMEOUT_MS = 3000;
+        static constexpr const char *DEFAULT_PORT =
+            "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00";
+    };
 
 } // namespace sunray

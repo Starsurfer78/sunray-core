@@ -43,268 +43,274 @@
 #include <string>
 #include <thread>
 
-namespace sunray {
+namespace sunray
+{
 
-class WebSocketServer {
-public:
-    // ── Telemetry snapshot ────────────────────────────────────────────────────
-    // Filled by Robot::run() every 20 ms; broadcast every 100 ms.
+    class WebSocketServer
+    {
+    public:
+        // ── Telemetry snapshot ────────────────────────────────────────────────────
+        // Filled by Robot::run() every 20 ms; broadcast every 100 ms.
 
-    struct TelemetryData {
-        std::string  op        = "Idle";  ///< active Op name (frozen set)
-        float        x         = 0.0f;   ///< local east  (m)
-        float        y         = 0.0f;   ///< local north (m)
-        float        heading   = 0.0f;   ///< heading (rad, 0 = east)
-        float        battery_v = 0.0f;   ///< battery voltage (V)
-        float        charge_v  = 0.0f;   ///< charger output voltage (V)
-        float        charge_a  = 0.0f;   ///< charging current (A)
-        bool         charger_connected = false; ///< debounced charger/dock contact
-        int          gps_sol   = 0;      ///< NMEA quality (0=none, 4=RTK, 5=float)
-        std::string  gps_text  = "---";  ///< human-readable GPS quality
-        float        gps_acc   = 0.0f;   ///< horizontal GPS accuracy estimate (m)
-        double       gps_lat   = 0.0;    ///< WGS-84 latitude  (Phase 2)
-        double       gps_lon   = 0.0;    ///< WGS-84 longitude (Phase 2)
-        bool         bumper_l  = false;
-        bool         bumper_r  = false;
-        bool         stop_button = false;
-        bool         lift      = false;  ///< lift sensor (C.10)
-        bool         motor_err = false;
-        bool         mow_fault_pin = false;
-        bool         mow_overload = false;
-        bool         mow_permanent_fault = false;
-        bool         mow_ov_check = false;
-        unsigned long uptime_s = 0;      ///< seconds since robot start
-        bool         diag_active = false; ///< true while a diag motor test is running
-        long         diag_ticks  = 0;     ///< accumulated encoder ticks in current diag test
-        std::string  mcu_version = "";   ///< MCU firmware version (e.g. "rm18-v1.0")
-        float        imu_heading = 0.0f; ///< integrated yaw [deg]
-        float        imu_roll    = 0.0f; ///< roll [deg]
-        float        imu_pitch   = 0.0f; ///< pitch [deg]
-        std::string  ekf_health = "Odo"; ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
-        std::string  runtime_health = "ok"; ///< compact runtime health: ok | degraded | fault
-        bool         mcu_connected = false; ///< latest odometry/MCU connectivity state
-        bool         mcu_comm_loss = false; ///< latched Pi-side MCU communication-loss fault
-        bool         gps_signal_lost = false; ///< short-outage GPS degradation latch
-        bool         gps_fix_timeout = false; ///< prolonged GPS outage latch
-        bool         battery_low = false; ///< low-battery dock request guard active
-        bool         battery_critical = false; ///< critical-battery stop guard active
-        bool         recovery_active = false; ///< runtime is in a recoverable degraded/retry phase
-        bool         watchdog_event_active = false; ///< recent watchdog fault notice still active
-        unsigned long ts_ms = 0;         ///< telemetry timestamp since robot start [ms]
-        unsigned long state_since_ms = 0;///< active op begin timestamp since robot start [ms]
-        std::string  state_phase = "idle"; ///< stable business phase for UI/diagnostics
-        std::string  resume_target = "";   ///< explicit resume op when state is recoverable
-        std::string  event_reason = "none"; ///< human/machine-readable dominant event reason
-        std::string  error_code = "";       ///< stable error code when a fault state is active
-        std::string  ui_message = "";       ///< transient user-facing message for WebUI
-        std::string  ui_severity = "info";  ///< info | warn | error
-        bool         history_backend_ready = false; ///< true when central history DB is available
-        std::string  session_id = "";       ///< backend-led active mowing session id
-        long long    session_started_at_ms = 0; ///< unix epoch ms of active session start
-        std::string  mission_id = "";       ///< active mission id if started from Mission UI
-        int          mission_zone_index = 0; ///< 1-based active mission zone index
-        int          mission_zone_count = 0; ///< total number of zones in active mission
+        struct TelemetryData
+        {
+            std::string op = "Idle";        ///< active Op name (frozen set)
+            float x = 0.0f;                 ///< local east  (m)
+            float y = 0.0f;                 ///< local north (m)
+            float heading = 0.0f;           ///< heading (rad, 0 = east)
+            float battery_v = 0.0f;         ///< battery voltage (V)
+            float charge_v = 0.0f;          ///< charger output voltage (V)
+            float charge_a = 0.0f;          ///< charging current (A)
+            bool charger_connected = false; ///< debounced charger/dock contact
+            int gps_sol = 0;                ///< NMEA quality (0=none, 4=RTK, 5=float)
+            std::string gps_text = "---";   ///< human-readable GPS quality
+            float gps_acc = 0.0f;           ///< horizontal GPS accuracy estimate (m)
+            int gps_num_sv = 0;             ///< healthy rover satellites used in current fix
+            int gps_num_corr_signals = 0;   ///< healthy rover signals with carrier corrections applied
+            uint32_t gps_dgps_age_ms = 0;   ///< age of last RTCM correction in ms
+            double gps_lat = 0.0;           ///< WGS-84 latitude  (Phase 2)
+            double gps_lon = 0.0;           ///< WGS-84 longitude (Phase 2)
+            bool bumper_l = false;
+            bool bumper_r = false;
+            bool stop_button = false;
+            bool lift = false; ///< lift sensor (C.10)
+            bool motor_err = false;
+            bool mow_fault_pin = false;
+            bool mow_overload = false;
+            bool mow_permanent_fault = false;
+            bool mow_ov_check = false;
+            unsigned long uptime_s = 0;          ///< seconds since robot start
+            bool diag_active = false;            ///< true while a diag motor test is running
+            long diag_ticks = 0;                 ///< accumulated encoder ticks in current diag test
+            std::string mcu_version = "";        ///< MCU firmware version (e.g. "rm18-v1.0")
+            float imu_heading = 0.0f;            ///< integrated yaw [deg]
+            float imu_roll = 0.0f;               ///< roll [deg]
+            float imu_pitch = 0.0f;              ///< pitch [deg]
+            std::string ekf_health = "Odo";      ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
+            std::string runtime_health = "ok";   ///< compact runtime health: ok | degraded | fault
+            bool mcu_connected = false;          ///< latest odometry/MCU connectivity state
+            bool mcu_comm_loss = false;          ///< latched Pi-side MCU communication-loss fault
+            bool gps_signal_lost = false;        ///< short-outage GPS degradation latch
+            bool gps_fix_timeout = false;        ///< prolonged GPS outage latch
+            bool battery_low = false;            ///< low-battery dock request guard active
+            bool battery_critical = false;       ///< critical-battery stop guard active
+            bool recovery_active = false;        ///< runtime is in a recoverable degraded/retry phase
+            bool watchdog_event_active = false;  ///< recent watchdog fault notice still active
+            unsigned long ts_ms = 0;             ///< telemetry timestamp since robot start [ms]
+            unsigned long state_since_ms = 0;    ///< active op begin timestamp since robot start [ms]
+            std::string state_phase = "idle";    ///< stable business phase for UI/diagnostics
+            std::string resume_target = "";      ///< explicit resume op when state is recoverable
+            std::string event_reason = "none";   ///< human/machine-readable dominant event reason
+            std::string error_code = "";         ///< stable error code when a fault state is active
+            std::string ui_message = "";         ///< transient user-facing message for WebUI
+            std::string ui_severity = "info";    ///< info | warn | error
+            bool history_backend_ready = false;  ///< true when central history DB is available
+            std::string session_id = "";         ///< backend-led active mowing session id
+            long long session_started_at_ms = 0; ///< unix epoch ms of active session start
+            std::string mission_id = "";         ///< active mission id if started from Mission UI
+            int mission_zone_index = 0;          ///< 1-based active mission zone index
+            int mission_zone_count = 0;          ///< total number of zones in active mission
+        };
+
+        // ── Callbacks ─────────────────────────────────────────────────────────────
+
+        using CommandCallback = std::function<void(const std::string &cmd,
+                                                   const nlohmann::json &params)>;
+        using SimCommandCallback = std::function<void(const std::string &action,
+                                                      const nlohmann::json &params)>;
+        /// Diagnostic callback: invoked by POST /api/diag/<action>.
+        /// Returns a JSON result that is sent back as the HTTP response body (C.10b).
+        using DiagCallback = std::function<nlohmann::json(const std::string &action,
+                                                          const nlohmann::json &params)>;
+        /// Schedule GET callback: returns current schedule as JSON array (C.11).
+        using ScheduleGetCallback = std::function<nlohmann::json()>;
+        /// Schedule PUT callback: receives new schedule JSON array, returns {"ok":true/false} (C.11).
+        using SchedulePutCallback = std::function<nlohmann::json(const nlohmann::json &)>;
+        using MapGetCallback = std::function<nlohmann::json()>;
+        using HistoryGetCallback = std::function<nlohmann::json(unsigned limit)>;
+        using StatisticsGetCallback = std::function<nlohmann::json()>;
+        using StmFlashStateCallback = std::function<void(bool active, uint64_t recoveryGraceMs)>;
+
+        // ── Construction ──────────────────────────────────────────────────────────
+
+        explicit WebSocketServer(std::shared_ptr<Config> config,
+                                 std::shared_ptr<Logger> logger);
+        ~WebSocketServer();
+
+        // Non-copyable / non-movable (owns thread + network state)
+        WebSocketServer(const WebSocketServer &) = delete;
+        WebSocketServer &operator=(const WebSocketServer &) = delete;
+        WebSocketServer(WebSocketServer &&) = delete;
+        WebSocketServer &operator=(WebSocketServer &&) = delete;
+
+        // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+        /// Start Crow + push thread in background. Returns immediately.
+        /// Port is read from config key "ws_port" (default 8765).
+        void start();
+
+        /// Graceful shutdown: stop push loop, stop Crow, join thread.
+        void stop();
+
+        bool isRunning() const { return running_.load(); }
+
+        // ── Configuration ─────────────────────────────────────────────────────────
+
+        /// Set directory from which GET / and GET /assets/* are served.
+        /// If empty (default), no static routes are registered.
+        /// Must be called before start().
+        void setWebRoot(const std::string &distDir);
+
+        // ── Data feed (called from Robot control-loop thread at 50 Hz) ────────────
+
+        /// Thread-safe: stores the latest telemetry snapshot for the next broadcast.
+        void pushTelemetry(const TelemetryData &data);
+
+        /// Broadcast a raw NMEA sentence to all connected WebSocket clients.
+        /// Sends {"type":"nmea","line":"<sentence>"} immediately.
+        /// Thread-safe: may be called from any thread.
+        void broadcastNmea(const std::string &line);
+
+        /// Broadcast a logger line to all connected WebSocket clients.
+        /// Sends {"type":"log","text":"..."} via the same queued channel as telemetry.
+        /// Thread-safe: may be called from any thread.
+        void broadcastLog(const std::string &text);
+
+        // ── Command registration ──────────────────────────────────────────────────
+
+        /// Register the callback invoked on each incoming WebSocket command.
+        /// Called from Crow's I/O thread — the callback must be thread-safe.
+        void onCommand(CommandCallback cb);
+
+        /// Register the callback for POST /api/sim/<action> requests.
+        /// Only active in --sim mode; not called if unregistered.
+        void onSimCommand(SimCommandCallback cb);
+
+        /// Register the callback for POST /api/diag/<action> requests (C.10b).
+        /// Callback may block and returns the JSON response body synchronously.
+        void onDiag(DiagCallback cb);
+
+        /// Register callbacks for GET/PUT /api/schedule (C.11).
+        void onScheduleGet(ScheduleGetCallback cb);
+        void onSchedulePut(SchedulePutCallback cb);
+        void onHistoryEventsGet(HistoryGetCallback cb);
+        void onHistorySessionsGet(HistoryGetCallback cb);
+        void onStatisticsSummaryGet(StatisticsGetCallback cb);
+
+        // ── Map API ───────────────────────────────────────────────────────────────
+
+        /// Set the path of the map JSON file served by GET /api/map and written
+        /// by POST /api/map.  Must be called before start().
+        void setMapPath(const std::string &mapPath);
+
+        /// Register a callback invoked after POST /api/map saves the new map file.
+        /// The callback should reload the map into the running Robot instance.
+        /// Returns true on success (reported back to the HTTP caller).
+        using MapReloadCallback = std::function<bool()>;
+        void onMapGet(MapGetCallback cb);
+        void onMapReload(MapReloadCallback cb);
+
+        /// Set the path of the missions JSON file served by /api/missions.
+        /// Must be called before start().
+        void setMissionPath(const std::string &missionPath);
+
+        /// Set the path of the OTA update script used by POST /api/ota/*.
+        /// When empty (default), the OTA endpoints return 503.
+        void setOtaScriptPath(const std::string &path);
+
+        /// Set the path of the STM flash helper script used by POST /api/stm/*.
+        /// When empty (default), the STM probe endpoint returns 503.
+        void setStmFlashScriptPath(const std::string &path);
+        void onStmFlashStateChange(StmFlashStateCallback cb);
+
+        // ── Testable helper ───────────────────────────────────────────────────────
+
+        /// Serialize to the frozen telemetry JSON format (no trailing newline).
+        /// Pure function — no side effects. Used by both the push loop and tests.
+        static std::string buildTelemetryJson(const TelemetryData &data);
+
+        /// Testable auth helpers for REST and WebSocket command paths.
+        static bool isHttpAuthorizedForToken(const std::string &apiToken,
+                                             const std::string &xApiToken,
+                                             const std::string &authorizationHeader);
+        static bool isWsCommandAuthorizedForToken(const std::string &apiToken,
+                                                  const nlohmann::json &payload);
+
+    private:
+        std::shared_ptr<Config> config_;
+        std::shared_ptr<Logger> logger_;
+
+        std::atomic<bool> running_{false};
+        std::thread serverThread_;
+        std::future<void> crowFuture_;
+
+        std::string webRoot_; ///< path to webui/dist (empty = no static serving)
+
+        // Latest telemetry snapshot (written by pushTelemetry, read by push loop)
+        mutable std::mutex telemetryMutex_;
+        TelemetryData latestTelemetry_;
+        bool hasNewTelemetry_ = false;
+
+        // NMEA queue: broadcastNmea() enqueues here; only serverThread_ dequeues+sends
+        // (BUG-005: prevents concurrent send_text() calls from Robot + push threads)
+        std::mutex nmeaMutex_;
+        std::queue<std::string> nmeaQueue_;
+        std::mutex logMutex_;
+        std::queue<std::string> logQueue_;
+
+        // WebSocket command callback
+        std::mutex cmdMutex_;
+        CommandCallback commandCallback_;
+
+        // Simulator command callback (POST /api/sim/*)
+        std::mutex simCmdMutex_;
+        SimCommandCallback simCommandCallback_;
+
+        // Diagnostic callback (POST /api/diag/*) — C.10b
+        std::mutex diagCbMutex_;
+        DiagCallback diagCallback_;
+
+        // Schedule callbacks (GET/PUT /api/schedule) — C.11
+        std::mutex schedCbMutex_;
+        ScheduleGetCallback schedGetCb_;
+        SchedulePutCallback schedPutCb_;
+        std::mutex historyCbMutex_;
+        HistoryGetCallback historyEventsGetCb_;
+        HistoryGetCallback historySessionsGetCb_;
+        StatisticsGetCallback statisticsSummaryGetCb_;
+
+        // OTA update script path + running flag (POST /api/ota/*)
+        std::string otaScriptPath_;
+        std::atomic<bool> otaRunning_{false};
+        std::string stmFlashScriptPath_;
+        std::atomic<bool> stmFlashRunning_{false};
+        std::mutex stmFlashStateMutex_;
+        StmFlashStateCallback stmFlashStateCb_;
+
+        // Map file path + reload callback (GET/POST /api/map)
+        std::string mapPath_;
+        std::string missionPath_;
+        std::mutex mapReloadMutex_;
+        std::mutex mapCatalogMutex_;
+        MapGetCallback mapGetCallback_;
+        MapReloadCallback mapReloadCallback_;
+
+        // Pimpl: hides all Crow types from this header
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+
+        static constexpr const char *TAG = "WsServer";
+        static constexpr int PUSH_INTERVAL_MS = 100;
+
+        void setupHttpRoutes();
+
+        std::filesystem::path mapsDir() const;
+        std::filesystem::path mapsCatalogPath() const;
+        bool ensureMapsCatalogLocked(std::string *err = nullptr);
+        bool syncActiveMapSnapshotLocked(const nlohmann::json &mapDoc, std::string *err = nullptr);
+        bool activateMapByIdLocked(const std::string &mapId, std::string *err = nullptr);
+        nlohmann::json loadMapsCatalogLocked() const;
+        bool saveMapsCatalogLocked(const nlohmann::json &catalog, std::string *err = nullptr) const;
     };
-
-    // ── Callbacks ─────────────────────────────────────────────────────────────
-
-    using CommandCallback    = std::function<void(const std::string& cmd,
-                                                  const nlohmann::json& params)>;
-    using SimCommandCallback = std::function<void(const std::string& action,
-                                                  const nlohmann::json& params)>;
-    /// Diagnostic callback: invoked by POST /api/diag/<action>.
-    /// Returns a JSON result that is sent back as the HTTP response body (C.10b).
-    using DiagCallback       = std::function<nlohmann::json(const std::string& action,
-                                                             const nlohmann::json& params)>;
-    /// Schedule GET callback: returns current schedule as JSON array (C.11).
-    using ScheduleGetCallback = std::function<nlohmann::json()>;
-    /// Schedule PUT callback: receives new schedule JSON array, returns {"ok":true/false} (C.11).
-    using SchedulePutCallback = std::function<nlohmann::json(const nlohmann::json&)>;
-    using MapGetCallback = std::function<nlohmann::json()>;
-    using HistoryGetCallback = std::function<nlohmann::json(unsigned limit)>;
-    using StatisticsGetCallback = std::function<nlohmann::json()>;
-    using StmFlashStateCallback = std::function<void(bool active, uint64_t recoveryGraceMs)>;
-
-    // ── Construction ──────────────────────────────────────────────────────────
-
-    explicit WebSocketServer(std::shared_ptr<Config> config,
-                             std::shared_ptr<Logger> logger);
-    ~WebSocketServer();
-
-    // Non-copyable / non-movable (owns thread + network state)
-    WebSocketServer(const WebSocketServer&)            = delete;
-    WebSocketServer& operator=(const WebSocketServer&) = delete;
-    WebSocketServer(WebSocketServer&&)                 = delete;
-    WebSocketServer& operator=(WebSocketServer&&)      = delete;
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
-
-    /// Start Crow + push thread in background. Returns immediately.
-    /// Port is read from config key "ws_port" (default 8765).
-    void start();
-
-    /// Graceful shutdown: stop push loop, stop Crow, join thread.
-    void stop();
-
-    bool isRunning() const { return running_.load(); }
-
-    // ── Configuration ─────────────────────────────────────────────────────────
-
-    /// Set directory from which GET / and GET /assets/* are served.
-    /// If empty (default), no static routes are registered.
-    /// Must be called before start().
-    void setWebRoot(const std::string& distDir);
-
-    // ── Data feed (called from Robot control-loop thread at 50 Hz) ────────────
-
-    /// Thread-safe: stores the latest telemetry snapshot for the next broadcast.
-    void pushTelemetry(const TelemetryData& data);
-
-    /// Broadcast a raw NMEA sentence to all connected WebSocket clients.
-    /// Sends {"type":"nmea","line":"<sentence>"} immediately.
-    /// Thread-safe: may be called from any thread.
-    void broadcastNmea(const std::string& line);
-
-    /// Broadcast a logger line to all connected WebSocket clients.
-    /// Sends {"type":"log","text":"..."} via the same queued channel as telemetry.
-    /// Thread-safe: may be called from any thread.
-    void broadcastLog(const std::string& text);
-
-    // ── Command registration ──────────────────────────────────────────────────
-
-    /// Register the callback invoked on each incoming WebSocket command.
-    /// Called from Crow's I/O thread — the callback must be thread-safe.
-    void onCommand(CommandCallback cb);
-
-    /// Register the callback for POST /api/sim/<action> requests.
-    /// Only active in --sim mode; not called if unregistered.
-    void onSimCommand(SimCommandCallback cb);
-
-    /// Register the callback for POST /api/diag/<action> requests (C.10b).
-    /// Callback may block and returns the JSON response body synchronously.
-    void onDiag(DiagCallback cb);
-
-    /// Register callbacks for GET/PUT /api/schedule (C.11).
-    void onScheduleGet(ScheduleGetCallback cb);
-    void onSchedulePut(SchedulePutCallback cb);
-    void onHistoryEventsGet(HistoryGetCallback cb);
-    void onHistorySessionsGet(HistoryGetCallback cb);
-    void onStatisticsSummaryGet(StatisticsGetCallback cb);
-
-    // ── Map API ───────────────────────────────────────────────────────────────
-
-    /// Set the path of the map JSON file served by GET /api/map and written
-    /// by POST /api/map.  Must be called before start().
-    void setMapPath(const std::string& mapPath);
-
-    /// Register a callback invoked after POST /api/map saves the new map file.
-    /// The callback should reload the map into the running Robot instance.
-    /// Returns true on success (reported back to the HTTP caller).
-    using MapReloadCallback = std::function<bool()>;
-    void onMapGet(MapGetCallback cb);
-    void onMapReload(MapReloadCallback cb);
-
-    /// Set the path of the missions JSON file served by /api/missions.
-    /// Must be called before start().
-    void setMissionPath(const std::string& missionPath);
-
-    /// Set the path of the OTA update script used by POST /api/ota/*.
-    /// When empty (default), the OTA endpoints return 503.
-    void setOtaScriptPath(const std::string& path);
-
-    /// Set the path of the STM flash helper script used by POST /api/stm/*.
-    /// When empty (default), the STM probe endpoint returns 503.
-    void setStmFlashScriptPath(const std::string& path);
-    void onStmFlashStateChange(StmFlashStateCallback cb);
-
-    // ── Testable helper ───────────────────────────────────────────────────────
-
-    /// Serialize to the frozen telemetry JSON format (no trailing newline).
-    /// Pure function — no side effects. Used by both the push loop and tests.
-    static std::string buildTelemetryJson(const TelemetryData& data);
-
-    /// Testable auth helpers for REST and WebSocket command paths.
-    static bool isHttpAuthorizedForToken(const std::string& apiToken,
-                                         const std::string& xApiToken,
-                                         const std::string& authorizationHeader);
-    static bool isWsCommandAuthorizedForToken(const std::string& apiToken,
-                                              const nlohmann::json& payload);
-
-private:
-    std::shared_ptr<Config> config_;
-    std::shared_ptr<Logger> logger_;
-
-    std::atomic<bool> running_{false};
-    std::thread       serverThread_;
-    std::future<void> crowFuture_;
-
-    std::string webRoot_;   ///< path to webui/dist (empty = no static serving)
-
-    // Latest telemetry snapshot (written by pushTelemetry, read by push loop)
-    mutable std::mutex telemetryMutex_;
-    TelemetryData      latestTelemetry_;
-    bool               hasNewTelemetry_ = false;
-
-    // NMEA queue: broadcastNmea() enqueues here; only serverThread_ dequeues+sends
-    // (BUG-005: prevents concurrent send_text() calls from Robot + push threads)
-    std::mutex               nmeaMutex_;
-    std::queue<std::string>  nmeaQueue_;
-    std::mutex               logMutex_;
-    std::queue<std::string>  logQueue_;
-
-    // WebSocket command callback
-    std::mutex      cmdMutex_;
-    CommandCallback commandCallback_;
-
-    // Simulator command callback (POST /api/sim/*)
-    std::mutex         simCmdMutex_;
-    SimCommandCallback simCommandCallback_;
-
-    // Diagnostic callback (POST /api/diag/*) — C.10b
-    std::mutex    diagCbMutex_;
-    DiagCallback  diagCallback_;
-
-    // Schedule callbacks (GET/PUT /api/schedule) — C.11
-    std::mutex            schedCbMutex_;
-    ScheduleGetCallback   schedGetCb_;
-    SchedulePutCallback   schedPutCb_;
-    std::mutex            historyCbMutex_;
-    HistoryGetCallback    historyEventsGetCb_;
-    HistoryGetCallback    historySessionsGetCb_;
-    StatisticsGetCallback statisticsSummaryGetCb_;
-
-    // OTA update script path + running flag (POST /api/ota/*)
-    std::string       otaScriptPath_;
-    std::atomic<bool> otaRunning_{false};
-    std::string       stmFlashScriptPath_;
-    std::atomic<bool> stmFlashRunning_{false};
-    std::mutex        stmFlashStateMutex_;
-    StmFlashStateCallback stmFlashStateCb_;
-
-    // Map file path + reload callback (GET/POST /api/map)
-    std::string      mapPath_;
-    std::string      missionPath_;
-    std::mutex       mapReloadMutex_;
-    std::mutex       mapCatalogMutex_;
-    MapGetCallback   mapGetCallback_;
-    MapReloadCallback mapReloadCallback_;
-
-    // Pimpl: hides all Crow types from this header
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-
-    static constexpr const char* TAG              = "WsServer";
-    static constexpr int         PUSH_INTERVAL_MS = 100;
-
-    void setupHttpRoutes();
-
-    std::filesystem::path mapsDir() const;
-    std::filesystem::path mapsCatalogPath() const;
-    bool ensureMapsCatalogLocked(std::string* err = nullptr);
-    bool syncActiveMapSnapshotLocked(const nlohmann::json& mapDoc, std::string* err = nullptr);
-    bool activateMapByIdLocked(const std::string& mapId, std::string* err = nullptr);
-    nlohmann::json loadMapsCatalogLocked() const;
-    bool saveMapsCatalogLocked(const nlohmann::json& catalog, std::string* err = nullptr) const;
-};
 
 } // namespace sunray

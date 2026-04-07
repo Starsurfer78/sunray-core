@@ -64,6 +64,19 @@ set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow)
 
+# Clipper2 — robust polygon offset/clipping (C++ only, used in MowRoutePlanner)
+FetchContent_Declare(
+    Clipper2
+    GIT_REPOSITORY https://github.com/AngusJohnson/Clipper2.git
+    GIT_TAG        Clipper2_1.4.0
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  CPP
+)
+set(CLIPPER2_UTILS    OFF CACHE BOOL "" FORCE)
+set(CLIPPER2_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CLIPPER2_TESTS    OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(Clipper2)
+
 # ── Platform detection ────────────────────────────────────────────────────────
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(WARNING "sunray-core is designed to run on Linux (Raspberry Pi). "

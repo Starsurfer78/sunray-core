@@ -30,6 +30,7 @@ add_library(sunray_core STATIC
     navigation/Planner.cpp
     navigation/Map.cpp
     navigation/MowRoutePlanner.cpp
+    navigation/RouteValidator.cpp
     navigation/LineTracker.cpp
     navigation/GridMap.cpp
     Schedule.cpp
@@ -48,6 +49,7 @@ target_link_libraries(sunray_core PUBLIC
     sunray_hal            # HardwareInterface.h (interface only, no implementation)
     nlohmann_json::nlohmann_json
     Crow::Crow            # WebSocketServer.cpp (pimpl: crow.h only in .cpp)
+    Clipper2              # MowRoutePlanner.cpp — polygon offset
 )
 
 # ── Optional: libmosquitto for MqttClient ────────────────────────────────────
