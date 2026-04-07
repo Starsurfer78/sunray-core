@@ -25,7 +25,10 @@
   let showPerimeter = true
   let showZones = true
   let showPaths = true
-  let showErrors = true
+
+  // Debug-Modus: zeigt Übergänge, Fehler-Segmente, Validator-Details
+  // User-Modus (Standard): nur Coverage-Bahnen, kein technischer Ballast
+  let debugMode = false
 
   const width = 820
   const height = 520
@@ -172,16 +175,27 @@
   let plannerError = ''
   let plannerRequestId = 0
 
-  // Semantische Farben — recovery ist grau (normales Fallback, kein Fehler)
+  // User-Ansicht: nur Coverage-Bahnen sichtbar, ruhige Grüntöne
+  const coverageColor: Partial<Record<RouteSemantic, string>> = {
+    coverage_edge:   '#34d399',   // emerald — Randmähen
+    coverage_infill: '#4ade80',   // green   — Innenbahnen
+  }
+
+  // Debug-Ansicht: alle Semantiken mit technischen Farben
   const semanticColor: Record<RouteSemantic, string> = {
-    coverage_edge:       '#22d3ee',   // cyan  — Randmähen
-    coverage_infill:     '#4ade80',   // green — Innenbahnen
-    transit_within_zone: '#f59e0b',   // amber — Übergang innerhalb Zone
-    transit_inter_zone:  '#38bdf8',   // sky   — Übergang zwischen Zonen
-    dock_approach:       '#fbbf24',   // yellow — Andocken
-    recovery:            '#64748b',   // slate — Fallback-Pfad (kein Fehler!)
+    coverage_edge:       '#34d399',   // emerald
+    coverage_infill:     '#4ade80',   // green
+    transit_within_zone: '#f59e0b',   // amber
+    transit_inter_zone:  '#38bdf8',   // sky
+    dock_approach:       '#fbbf24',   // yellow
+    recovery:            '#64748b',   // slate
     unknown:             '#475569',   // muted
   }
+
+  // Nur Coverage-Runs für die User-Ansicht
+  $: coverageRuns = semanticRuns.filter(
+    r => r.semantic === 'coverage_edge' || r.semantic === 'coverage_infill'
+  )
 
   interface SemanticRun {
     semantic: RouteSemantic
@@ -360,7 +374,7 @@
     <button class="layer-btn" class:off={!showPerimeter} type="button" on:click={() => showPerimeter = !showPerimeter}>Perimeter</button>
     <button class="layer-btn" class:off={!showZones}     type="button" on:click={() => showZones     = !showZones}>Zonen</button>
     <button class="layer-btn" class:off={!showPaths}     type="button" on:click={() => showPaths     = !showPaths}>Bahnen</button>
-    <button class="layer-btn err" class:off={!showErrors} type="button" on:click={() => showErrors   = !showErrors}>Fehler</button>
+    <button class="layer-btn dbg" class:active={debugMode} type="button" on:click={() => debugMode = !debugMode}>Debug</button>
   </div>
 
   <!-- Zonen-Legende oben links (unterhalb Layer-Bar) -->
@@ -454,16 +468,16 @@
       />
     {/if}
 
-    <!-- 2. No-Go-Flächen -->
+    <!-- 2. No-Go-Flächen — subtil, kein dominanter Stroke in User-Ansicht -->
     {#if showPerimeter && exclusions.length > 0}
       {#each exclusions as exclusion}
         {#if exclusion.length >= 3}
           <polygon
             points={polyPoints(exclusion, bounds)}
-            fill="rgba(220, 38, 38, 0.15)"
-            stroke="#f87171"
-            stroke-width="0.8"
-            stroke-dasharray="4 3"
+            fill="rgba(220, 38, 38, 0.09)"
+            stroke={debugMode ? '#f87171' : 'rgba(248,113,113,0.25)'}
+            stroke-width={debugMode ? 0.8 : 0.5}
+            stroke-dasharray={debugMode ? '4 3' : '3 4'}
             stroke-linejoin="round"
           />
         {/if}
@@ -536,8 +550,27 @@
       </g>
     {/if}
 
-    <!-- 5. Mähbahnen — geklippt am Perimeter minus No-Go -->
-    {#if showPaths && hasPreviewRoute}
+    <!-- 5a. User-Ansicht: nur Coverage-Bahnen (Rand + Infill), kein Transit-Ballast -->
+    {#if showPaths && hasPreviewRoute && !debugMode}
+      <g clip-path={perimeter.length >= 3 ? 'url(#mow-clip)' : undefined}>
+        {#each coverageRuns as run}
+          {#if run.points.length >= 2}
+            <polyline
+              points={polyPoints(run.points, bounds)}
+              fill="none"
+              stroke={coverageColor[run.semantic] ?? '#4ade80'}
+              stroke-opacity="0.9"
+              stroke-width="0.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          {/if}
+        {/each}
+      </g>
+    {/if}
+
+    <!-- 5b. Debug-Ansicht: alle semantischen Runs mit technischen Farben -->
+    {#if showPaths && hasPreviewRoute && debugMode}
       <g clip-path={perimeter.length >= 3 ? 'url(#mow-clip)' : undefined}>
         {#each semanticRuns as run}
           {#if run.points.length >= 2}
@@ -555,8 +588,8 @@
       </g>
     {/if}
 
-    <!-- 6. Fehler — nur die konkreten Problemsegmente, nicht alles rot -->
-    {#if showErrors}
+    <!-- 6. Debug-Layer: Fehler-Segmente und Marker — nur in Debug-Ansicht -->
+    {#if debugMode}
       {#each invalidSegments as seg}
         <polyline
           points={polyPoints(seg, bounds)}
@@ -571,7 +604,6 @@
       <!-- Marker nur am ersten Fehlerpunkt -->
       {#if errorMarkers.length > 0}
         {@const proj = project(errorMarkers[0].point, bounds)}
-        <!-- Kreuz-Markierung -->
         <line x1={proj.x - 5} y1={proj.y - 5} x2={proj.x + 5} y2={proj.y + 5} stroke="#ef4444" stroke-width="1.5" />
         <line x1={proj.x + 5} y1={proj.y - 5} x2={proj.x - 5} y2={proj.y + 5} stroke="#ef4444" stroke-width="1.5" />
         <circle cx={proj.x} cy={proj.y} r="7" fill="none" stroke="#ef4444" stroke-width="1" stroke-opacity="0.5" />
@@ -639,8 +671,9 @@
 
   .layer-btn:hover { border-color: #3b82f6; }
   .layer-btn.off { opacity: 0.38; color: #475569; }
-  .layer-btn.err { color: #fca5a5; border-color: rgba(239,68,68,0.3); }
-  .layer-btn.err:hover { border-color: #ef4444; }
+  .layer-btn.dbg { color: #94a3b8; border-color: rgba(148,163,184,0.25); }
+  .layer-btn.dbg:hover { border-color: #64748b; }
+  .layer-btn.dbg.active { color: #f59e0b; border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.08); }
 
   /* ── Zonen-Legende ─────────────────────────────────────────── */
   .ms-legend {
