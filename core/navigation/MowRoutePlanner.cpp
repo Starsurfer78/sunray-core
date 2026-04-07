@@ -22,9 +22,16 @@ struct Segment {
 };
 
 struct PreparedCoverageArea {
-    PolygonPoints zone;
-    PolygonPoints perimeter;
+    PolygonPoints zone;       // raw zone polygon (normalised)
+    PolygonPoints perimeter;  // raw perimeter polygon
     std::vector<PolygonPoints> exclusions;
+
+    // Explicit working area: zone ∩ perimeter − hardExclusions.
+    // All coverage steps (headland, infill, transitions) MUST use this,
+    // not the raw zone, so they all operate on the same surface.
+    std::vector<PolygonPoints> workingArea;
+    // Largest polygon from workingArea — used as A* constraint zone.
+    PolygonPoints primaryWorkingPoly;
 };
 
 static bool samePoint(const Point& a, const Point& b, float eps = 1e-4f) {
@@ -73,6 +80,8 @@ static PreparedCoverageArea prepareCoverageArea(const Zone& zone, const Map& map
         PolygonPoints normalized = normalizePolygon(exclusion);
         if (normalized.size() >= 3) prepared.exclusions.push_back(std::move(normalized));
     }
+    // workingArea and primaryWorkingPoly are filled by computeWorkingArea()
+    // after Clipper2 helpers are available (called from buildMissionMowRoutePreview).
     return prepared;
 }
 
@@ -140,6 +149,45 @@ static PolygonPoints offsetPolygonRounded(const PolygonPoints& poly, float inset
         if (a > bestArea) { bestArea = a; best = &result[i]; }
     }
     return fromClipperPath(*best);
+}
+
+/// Compute workingArea = zone ∩ perimeter − hardExclusions using Clipper2.
+/// Returns all result polygons (may be multiple if exclusions split the zone).
+/// Must be called after toClipperPath / fromClipperPath are defined.
+static std::vector<PolygonPoints> computeWorkingArea(
+    const PolygonPoints& zone,
+    const PolygonPoints& perimeter,
+    const std::vector<PolygonPoints>& exclusions)
+{
+    if (zone.size() < 3) return {};
+
+    Clipper2Lib::PathsD work;
+    work.push_back(toClipperPath(zone));
+
+    // Step 1: zone ∩ perimeter
+    if (perimeter.size() >= 3) {
+        Clipper2Lib::PathsD perimPaths;
+        perimPaths.push_back(toClipperPath(perimeter));
+        work = Clipper2Lib::Intersect(work, perimPaths, Clipper2Lib::FillRule::NonZero);
+        if (work.empty()) return {};
+    }
+
+    // Step 2: subtract each hard exclusion
+    for (const auto& excl : exclusions) {
+        if (excl.size() < 3) continue;
+        Clipper2Lib::PathsD exclPaths;
+        exclPaths.push_back(toClipperPath(excl));
+        work = Clipper2Lib::Difference(work, exclPaths, Clipper2Lib::FillRule::NonZero);
+        if (work.empty()) return {};
+    }
+
+    std::vector<PolygonPoints> result;
+    result.reserve(work.size());
+    for (const auto& path : work) {
+        PolygonPoints poly = fromClipperPath(path);
+        if (poly.size() >= 3) result.push_back(std::move(poly));
+    }
+    return result;
 }
 
 static std::vector<Interval> normalizeIntervals(std::vector<Interval> intervals) {
@@ -360,17 +408,15 @@ static bool pointInPolygonLocal(const PolygonPoints& poly, float px, float py) {
     return inside;
 }
 
-/// Clip contour to runs that stay inside the zone polygon and outside exclusions.
-/// Uses the zone polygon directly instead of the global isInsideAllowedArea() (which
-/// checks against the perimeter) so headland tracks are not incorrectly clipped when
-/// the zone polygon overlaps or is coincident with the perimeter boundary.
-static std::vector<PolygonPoints> clipContourToAllowedRuns(
+/// Clip contour to runs that lie within the working area (zone ∩ perimeter − exclusions).
+/// workingAreaPolys may contain multiple polygons (e.g. when exclusions split the zone).
+/// A point is allowed if it falls inside ANY of the working-area polygons.
+static std::vector<PolygonPoints> clipContourToWorkingArea(
     const PolygonPoints& contour,
-    const PolygonPoints& zonePoly,
-    const std::vector<PolygonPoints>& exclusions) {
-
+    const std::vector<PolygonPoints>& workingAreaPolys)
+{
     std::vector<PolygonPoints> runs;
-    if (contour.size() < 2) return runs;
+    if (contour.size() < 2 || workingAreaPolys.empty()) return runs;
 
     PolygonPoints current;
     const size_t n = contour.size();
@@ -382,17 +428,13 @@ static std::vector<PolygonPoints> clipContourToAllowedRuns(
 
         for (int step = 0; step <= steps; ++step) {
             const float t = static_cast<float>(step) / static_cast<float>(steps);
-            const Point p{
-                a.x + (b.x - a.x) * t,
-                a.y + (b.y - a.y) * t,
-            };
-            // Allow if inside the zone polygon and not inside any exclusion.
-            bool allowed = pointInPolygonLocal(zonePoly, p.x, p.y);
-            if (allowed) {
-                for (const auto& ex : exclusions) {
-                    if (pointInPolygonLocal(ex, p.x, p.y)) { allowed = false; break; }
-                }
+            const Point p{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
+
+            bool allowed = false;
+            for (const auto& poly : workingAreaPolys) {
+                if (pointInPolygonLocal(poly, p.x, p.y)) { allowed = true; break; }
             }
+
             if (allowed) {
                 appendUniquePoint(current, p, 1e-3f);
             } else if (current.size() >= 2) {
@@ -403,10 +445,7 @@ static std::vector<PolygonPoints> clipContourToAllowedRuns(
             }
         }
     }
-
-    if (current.size() >= 2) {
-        runs.push_back(current);
-    }
+    if (current.size() >= 2) runs.push_back(current);
     return runs;
 }
 
@@ -576,41 +615,63 @@ RoutePlan buildMissionMowRoutePreview(const Map& map, const nlohmann::json& miss
         if (!zone || zone->polygon.size() < 3) continue;
 
         const ZoneSettings settings = applyForZone(*zone);
-        const PreparedCoverageArea prepared = prepareCoverageArea(*zone, map);
+        PreparedCoverageArea prepared = prepareCoverageArea(*zone, map);
         if (prepared.zone.size() < 3) continue;
+
+        // Compute workingArea = zone ∩ perimeter − exclusions.
+        // All coverage steps (headland, infill, transitions) MUST use primaryWorkingPoly
+        // so they all operate on the same mowable surface.
+        prepared.workingArea = computeWorkingArea(prepared.zone, prepared.perimeter, prepared.exclusions);
+        {
+            double bestArea = 0.0;
+            for (const auto& poly : prepared.workingArea) {
+                const double a = std::fabs(Clipper2Lib::Area(toClipperPath(poly)));
+                if (a > bestArea) { bestArea = a; prepared.primaryWorkingPoly = poly; }
+            }
+        }
+        if (prepared.primaryWorkingPoly.empty()) {
+            // Fallback: perimeter not set or zone wholly inside perimeter.
+            prepared.primaryWorkingPoly = prepared.zone;
+        }
+
         RoutePlan zoneRoute;
         zoneRoute.sourceMode = WayType::MOW;
         zoneRoute.active = false;
 
+        const PolygonPoints& workPoly = prepared.primaryWorkingPoly;
+
         if (settings.edgeMowing && settings.edgeRounds > 0) {
             for (int round = 1; round <= settings.edgeRounds; ++round) {
                 const float inset = (static_cast<float>(round) - 0.5f) * settings.stripWidth;
-                const PolygonPoints contour = offsetPolygonRounded(prepared.zone, inset);
+                // Offset the working area, not the raw zone — headland stays inside
+                // the real mowable surface (zone ∩ perimeter − exclusions).
+                const PolygonPoints contour = offsetPolygonRounded(workPoly, inset);
                 if (contour.empty()) continue;
-                // Pass zone polygon + exclusions so the headland contour is clipped
-                // against the zone itself, not the global perimeter. This prevents
-                // incorrect clipping when the zone polygon overlaps the perimeter.
                 const std::vector<PolygonPoints> contourRuns =
-                    clipContourToAllowedRuns(contour, prepared.zone, prepared.exclusions);
-                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings, prepared.zone, zoneId);
+                    clipContourToWorkingArea(contour, prepared.workingArea);
+                if (!contourRuns.empty()) appendContourRuns(zoneRoute, map, contourRuns, settings, workPoly, zoneId);
             }
         }
 
+        // Infill: inset from working area so stripes start inside headland boundary.
+        // Pass empty perimeter/exclusions — they are already baked into workPoly.
         const float infillInset = std::max(0.0f, static_cast<float>(settings.edgeRounds) * settings.stripWidth);
-        PolygonPoints infillZone = offsetPolygon(prepared.zone, infillInset);
+        const PolygonPoints infillZone = infillInset > 0.0f
+            ? offsetPolygon(workPoly, infillInset)
+            : PolygonPoints{};
         const std::vector<Segment> stripes = buildStripeSegments(
-            infillZone.empty() ? prepared.zone : infillZone,
-            prepared.perimeter,
-            prepared.exclusions,
+            infillZone.empty() ? workPoly : infillZone,
+            {},   // perimeter already in workPoly
+            {},   // exclusions already in workPoly
             settings.stripWidth,
             settings.angle);
         RoutePlan stripeRoute;
         stripeRoute.sourceMode = WayType::MOW;
         stripeRoute.active = false;
-        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, prepared.zone, zoneId);
+        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, workPoly, zoneId);
         if (!stripeRoute.points.empty()) {
             if (!zoneRoute.points.empty()) {
-                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings, prepared.zone, zoneId);
+                appendTransition(zoneRoute, map, zoneRoute.points.back().p, stripeRoute.points.front().p, settings, workPoly, zoneId);
             }
             zoneRoute = appendRoute(zoneRoute, stripeRoute);
         }
