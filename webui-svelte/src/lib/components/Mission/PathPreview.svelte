@@ -21,6 +21,12 @@
   let dragStartX = 0
   let dragStartY = 0
 
+  // Layer-Toggles
+  let showPerimeter = true
+  let showZones = true
+  let showPaths = true
+  let showErrors = true
+
   const width = 820
   const height = 520
   export const zoneColors = ['#a855f7', '#22d3ee', '#22c55e', '#f59e0b', '#f97316', '#38bdf8']
@@ -71,18 +77,20 @@
   }
 
   function labelWidth(text: string) {
-    return Math.max(44, Math.min(108, text.length * 5.2 + 10))
+    return Math.max(44, Math.min(120, text.length * 5.2 + 10))
   }
 
   function labelPosition(point: Point, bounds: Bounds, text: string) {
     const anchor = project(point, bounds)
-    const width = labelWidth(text)
+    const w = labelWidth(text)
     return {
       x: Math.max(8, Math.min(width - 8, anchor.x)),
       y: Math.max(12, Math.min(height - 10, anchor.y)),
-      width,
+      width: w,
     }
   }
+
+  // ── Zoom / Pan ────────────────────────────────────────────────────────────
 
   function startDrag(event: PointerEvent) {
     if (event.button !== 0) return
@@ -111,7 +119,6 @@
     event.preventDefault()
     const svg = event.currentTarget as SVGSVGElement
     const rect = svg.getBoundingClientRect()
-    // cursor in SVG-Viewport-Koordinaten
     const svgX = (event.clientX - rect.left) * (width / rect.width)
     const svgY = (event.clientY - rect.top) * (height / rect.height)
 
@@ -121,10 +128,9 @@
     const oldScale = baseScale * zoom
 
     const factor = event.deltaY < 0 ? 1.1 : 0.9
-    const newZoom = Math.max(0.5, Math.min(8, zoom * factor))
+    const newZoom = Math.max(0.3, Math.min(12, zoom * factor))
     const newScale = baseScale * newZoom
 
-    // Weltpunkt unter Cursor festhalten
     const worldX = (svgX - width / 2 - offsetX) / oldScale
     const worldY = (svgY - height / 2 - offsetY) / oldScale
     offsetX = svgX - width / 2 - worldX * newScale
@@ -132,13 +138,23 @@
     zoom = newZoom
   }
 
-  function zoomIn() {
-    zoom = Math.min(8, zoom * 1.2)
-  }
-  function zoomOut() {
-    zoom = Math.max(0.5, zoom * 0.8)
-  }
+  function zoomIn() { zoom = Math.min(12, zoom * 1.2) }
+  function zoomOut() { zoom = Math.max(0.3, zoom * 0.8) }
   function resetView() { zoom = 1; offsetX = 0; offsetY = 0 }
+
+  function jumpToPoint(pt: Point) {
+    const spanX = Math.max(1, bounds.maxX - bounds.minX)
+    const spanY = Math.max(1, bounds.maxY - bounds.minY)
+    const baseScale = Math.min((width - 120) / spanX, (height - 120) / spanY)
+    zoom = 4
+    const scale = baseScale * zoom
+    const midX = (bounds.minX + bounds.maxX) / 2
+    const midY = (bounds.minY + bounds.maxY) / 2
+    offsetX = -(pt.x - midX) * scale
+    offsetY =  (pt.y - midY) * scale
+  }
+
+  // ── Planner ───────────────────────────────────────────────────────────────
 
   $: missionZones = mission
     ? mission.zoneIds
@@ -146,7 +162,6 @@
         .filter((z): z is Zone => Boolean(z))
     : []
 
-  // Bounds: Perimeter wenn vorhanden, sonst Zonen
   $: viewPts = perimeter.length >= 3
     ? perimeter
     : missionZones.flatMap(z => z.polygon)
@@ -157,14 +172,15 @@
   let plannerError = ''
   let plannerRequestId = 0
 
+  // Semantische Farben — recovery ist grau (normales Fallback, kein Fehler)
   const semanticColor: Record<RouteSemantic, string> = {
-    coverage_edge:       '#22d3ee',   // cyan — headland
-    coverage_infill:     '#22c55e',   // green — stripes
-    transit_within_zone: '#f59e0b',   // amber — intra-zone transition
-    transit_inter_zone:  '#f97316',   // orange — inter-zone transition
-    dock_approach:       '#fbbf24',   // yellow — dock
-    recovery:            '#ef4444',   // red — recovery
-    unknown:             '#94a3b8',   // slate — legacy
+    coverage_edge:       '#22d3ee',   // cyan  — Randmähen
+    coverage_infill:     '#4ade80',   // green — Innenbahnen
+    transit_within_zone: '#f59e0b',   // amber — Übergang innerhalb Zone
+    transit_inter_zone:  '#38bdf8',   // sky   — Übergang zwischen Zonen
+    dock_approach:       '#fbbf24',   // yellow — Andocken
+    recovery:            '#64748b',   // slate — Fallback-Pfad (kein Fehler!)
+    unknown:             '#475569',   // muted
   }
 
   interface SemanticRun {
@@ -270,19 +286,16 @@
       const hasRouteError = response.routes.some((entry) => !entry.ok)
       const hasValidationError = response.routes.some((entry) => entry.valid === false)
       if (hasRouteError) {
-        plannerError = 'Die C++-Bahnplanung konnte nicht vollständig erzeugt werden.'
+        plannerError = 'Bahnplanung fehlgeschlagen'
       } else if (hasValidationError) {
-        const firstErr = response.routes.find(e => e.valid === false)?.error
-        plannerError = firstErr
-          ? `Route ungültig: ${firstErr}`
-          : 'Route enthält ungültige Segmente — Start gesperrt.'
+        plannerError = 'route_invalid'
       } else {
         plannerError = ''
       }
     } catch (err) {
       if (requestId !== plannerRequestId) return
       plannerRoutes = []
-      plannerError = err instanceof Error ? err.message : 'Planner-Vorschau fehlgeschlagen'
+      plannerError = err instanceof Error ? err.message : 'Verbindungsfehler'
     } finally {
       if (requestId === plannerRequestId) plannerLoading = false
     }
@@ -299,15 +312,58 @@
   $: hasPreviewRoute = previewRoute.length >= 2
   $: semanticRuns = routeSemanticRuns(previewEntry?.route)
   $: validationErrors = (previewEntry?.validationErrors ?? []) as RouteValidationError[]
-  $: invalidPoints = validationErrors
+
+  // Nur die ersten 3 Fehlerpunkte — kein roter Teppich
+  $: errorMarkers = validationErrors
+    .slice(0, 3)
     .filter(e => e.pointIndex >= 0 && previewEntry?.route?.points[e.pointIndex])
     .map(e => {
       const pt = previewEntry!.route!.points[e.pointIndex]
-      return { point: { x: pt.p[0], y: pt.p[1] }, message: e.message }
+      return { point: { x: pt.p[0], y: pt.p[1] }, message: e.message, zoneId: e.zoneId }
     })
+
+  // Fehlersegmente: zusammenhängende Runs von invalid-Indizes → rote Linie nur dort
+  $: invalidSegments = (() => {
+    if (validationErrors.length === 0) return []
+    const indices = new Set(validationErrors.map(e => e.pointIndex))
+    const pts = previewEntry?.route?.points ?? []
+    const segs: Point[][] = []
+    let seg: Point[] = []
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (indices.has(i) || indices.has(i + 1)) {
+        if (seg.length === 0) seg.push({ x: pts[i].p[0], y: pts[i].p[1] })
+        seg.push({ x: pts[i + 1].p[0], y: pts[i + 1].p[1] })
+      } else {
+        if (seg.length >= 2) segs.push(seg)
+        seg = []
+      }
+    }
+    if (seg.length >= 2) segs.push(seg)
+    return segs
+  })()
+
+  // Fehlerzusammenfassung für die UI
+  $: firstError = validationErrors[0]
+  $: firstErrorZone = firstError
+    ? missionZones.find(z => z.id === firstError.zoneId)
+    : null
+  $: errorSummary = firstError
+    ? `Übergang nicht planbar${firstErrorZone ? ` in Zone „${firstErrorZone.settings.name}"` : ''}`
+    : (plannerError && plannerError !== 'route_invalid' ? plannerError : '')
+  $: errorCount = validationErrors.length
 </script>
 
 <div class="preview-root">
+
+  <!-- Layer-Toggles oben links -->
+  <div class="layer-bar">
+    <button class="layer-btn" class:off={!showPerimeter} type="button" on:click={() => showPerimeter = !showPerimeter}>Perimeter</button>
+    <button class="layer-btn" class:off={!showZones}     type="button" on:click={() => showZones     = !showZones}>Zonen</button>
+    <button class="layer-btn" class:off={!showPaths}     type="button" on:click={() => showPaths     = !showPaths}>Bahnen</button>
+    <button class="layer-btn err" class:off={!showErrors} type="button" on:click={() => showErrors   = !showErrors}>Fehler</button>
+  </div>
+
+  <!-- Zonen-Legende oben links (unterhalb Layer-Bar) -->
   {#if missionZones.length > 0}
     <div class="ms-legend">
       {#each missionZones as zone, i}
@@ -325,24 +381,26 @@
     </div>
   {/if}
 
-  {#if missionZones.length > 0}
-    <button
-      type="button"
-      class="preview-btn"
-      disabled={plannerLoading}
-      on:click={() => void refreshPlannerPreview()}
-    >
-      {plannerLoading ? 'Wird berechnet…' : 'Vorschau berechnen'}
-    </button>
-  {/if}
-
-  {#if plannerLoading}
-    <div class="planner-status">Planner wird geprüft...</div>
-  {:else if plannerError}
-    <div class="planner-status error">{plannerError}</div>
-  {:else if missionZones.length > 0 && hasPreviewRoute}
-    <div class="planner-status ok">Route bereit</div>
-  {/if}
+  <!-- Statusbereich oben rechts -->
+  <div class="status-area">
+    {#if plannerLoading}
+      <div class="status-pill">Wird berechnet…</div>
+    {:else if plannerError === 'route_invalid' && errorCount > 0}
+      <div class="status-pill error">
+        <span class="err-icon">⚠</span>
+        <span>{errorCount} Fehler · {errorSummary}</span>
+        {#if errorMarkers.length > 0}
+          <button class="jump-btn" type="button" on:click={() => jumpToPoint(errorMarkers[0].point)}>
+            Zum Problem ↗
+          </button>
+        {/if}
+      </div>
+    {:else if plannerError}
+      <div class="status-pill error">{plannerError}</div>
+    {:else if hasPreviewRoute}
+      <div class="status-pill ok">Route bereit</div>
+    {/if}
+  </div>
 
   {#if missionZones.length === 0}
     <div class="empty">
@@ -368,11 +426,9 @@
         <path d="M30 0L0 0 0 30" fill="none" stroke="#1e3a5f" stroke-width="0.5" />
       </pattern>
       {#if perimeter.length >= 3}
-        <!-- Perimeter only — clips zone polygons -->
         <clipPath id="perimeter-clip">
           <polygon points={polyPoints(perimeter, bounds)} />
         </clipPath>
-        <!-- Perimeter minus exclusions (evenodd) — clips mow route -->
         <clipPath id="mow-clip" clip-rule="evenodd">
           <path d={toPathD(perimeter, bounds)} />
           {#each exclusions as exc}
@@ -385,29 +441,28 @@
     </defs>
 
     <rect x="-9999" y="-9999" width="19999" height="19999" fill="#070d18" />
-    <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#pp-grid)" opacity="0.8" />
+    <rect x="-9999" y="-9999" width="19999" height="19999" fill="url(#pp-grid)" opacity="0.6" />
 
-    <!-- Perimeter -->
-    {#if perimeter.length >= 3}
+    <!-- 1. Perimeter — stärkste Grundstruktur, immer sichtbar -->
+    {#if showPerimeter && perimeter.length >= 3}
       <polygon
         points={polyPoints(perimeter, bounds)}
-        fill="rgba(30, 58, 95, 0.06)"
-        stroke="#7c9ccf"
-        stroke-width="0.7"
-        stroke-dasharray="5 4"
+        fill="rgba(59, 130, 246, 0.07)"
+        stroke="#60a5fa"
+        stroke-width="1.6"
         stroke-linejoin="round"
       />
     {/if}
 
-    <!-- NoGo-Ausschlussflächen -->
-    {#if exclusions.length > 0}
+    <!-- 2. No-Go-Flächen -->
+    {#if showPerimeter && exclusions.length > 0}
       {#each exclusions as exclusion}
         {#if exclusion.length >= 3}
           <polygon
             points={polyPoints(exclusion, bounds)}
-            fill="rgba(220, 38, 38, 0.18)"
+            fill="rgba(220, 38, 38, 0.15)"
             stroke="#f87171"
-            stroke-width="0.7"
+            stroke-width="0.8"
             stroke-dasharray="4 3"
             stroke-linejoin="round"
           />
@@ -415,13 +470,13 @@
       {/each}
     {/if}
 
-    <!-- Docking-Pfad -->
+    <!-- 3. Docking-Pfad -->
     {#if dock.length >= 2}
       <polyline
         points={polyPoints(dock, bounds)}
         fill="none"
         stroke="#fbbf24"
-        stroke-width="1.0"
+        stroke-width="0.9"
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-dasharray="5 4"
@@ -430,69 +485,59 @@
       <circle cx={dockEnd.x} cy={dockEnd.y} r="3" fill="#fbbf24" />
     {/if}
 
-    <!-- Zonen — geklippt am Perimeter -->
-    <g clip-path={perimeter.length >= 3 ? 'url(#perimeter-clip)' : undefined}>
-      {#each missionZones as zone, i}
-        {@const color = zoneColors[i % zoneColors.length]}
-        {@const label = `${zone.settings.name} · ${(mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle)}°`}
-        {@const labelPos = labelPosition(polygonCenter(zone), bounds, label)}
+    <!-- 4. Zonen — geklippt am Perimeter, halbtransparent -->
+    {#if showZones}
+      <g clip-path={perimeter.length >= 3 ? 'url(#perimeter-clip)' : undefined}>
+        {#each missionZones as zone, i}
+          {@const color = zoneColors[i % zoneColors.length]}
+          {@const label = `${zone.settings.name} · ${(mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle)}°`}
+          {@const labelPos = labelPosition(polygonCenter(zone), bounds, label)}
 
-        <g
-          role="button"
-          tabindex="0"
-          aria-label={`Zone ${zone.settings.name} auswählen`}
-          on:click|stopPropagation={() => dispatch('selectzone', { zoneId: zone.id })}
-          on:keydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              dispatch('selectzone', { zoneId: zone.id })
-            }
-          }}
-        >
-          <polygon
-            points={polyPoints(zone.polygon, bounds)}
-            fill={selectedZoneId === zone.id ? `${color}30` : `${color}14`}
-            stroke={color}
-            stroke-width={selectedZoneId === zone.id ? 1.4 : 0.8}
-            stroke-dasharray="4 3"
-            stroke-linejoin="round"
-          />
-
-          <g>
+          <g
+            role="button"
+            tabindex="0"
+            aria-label={`Zone ${zone.settings.name} auswählen`}
+            on:click|stopPropagation={() => dispatch('selectzone', { zoneId: zone.id })}
+            on:keydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                dispatch('selectzone', { zoneId: zone.id })
+              }
+            }}
+          >
+            <polygon
+              points={polyPoints(zone.polygon, bounds)}
+              fill={selectedZoneId === zone.id ? `${color}28` : `${color}12`}
+              stroke={color}
+              stroke-width={selectedZoneId === zone.id ? 1.2 : 0.7}
+              stroke-dasharray="5 3"
+              stroke-linejoin="round"
+            />
             <rect
               x={labelPos.x - labelPos.width / 2}
               y={labelPos.y - 13}
               width={labelPos.width}
               height="14"
               rx="7"
-              fill="rgba(7, 13, 24, 0.72)"
-              stroke={selectedZoneId === zone.id ? color : 'rgba(148, 163, 184, 0.2)'}
+              fill="rgba(7, 13, 24, 0.75)"
+              stroke={selectedZoneId === zone.id ? color : 'rgba(148, 163, 184, 0.18)'}
               stroke-width="0.8"
             />
             <text
               x={labelPos.x}
               y={labelPos.y - 4}
               text-anchor="middle"
-              fill="#e2e8f0"
-              font-size="8.5"
+              fill="#cbd5e1"
+              font-size="8"
               font-weight="600"
-            >
-              {label}
-            </text>
+            >{label}</text>
           </g>
-        </g>
-      {/each}
-    </g>
+        {/each}
+      </g>
+    {/if}
 
-    <!-- Invalid route points (validation errors) -->
-    {#each invalidPoints as inv}
-      {@const proj = project(inv.point, bounds)}
-      <circle cx={proj.x} cy={proj.y} r="4" fill="none" stroke="#ef4444" stroke-width="1" />
-      <circle cx={proj.x} cy={proj.y} r="2" fill="#ef4444" />
-    {/each}
-
-    <!-- Route — geklippt am Perimeter minus No-Go-Flächen -->
-    {#if hasPreviewRoute}
+    <!-- 5. Mähbahnen — geklippt am Perimeter minus No-Go -->
+    {#if showPaths && hasPreviewRoute}
       <g clip-path={perimeter.length >= 3 ? 'url(#mow-clip)' : undefined}>
         {#each semanticRuns as run}
           {#if run.points.length >= 2}
@@ -500,8 +545,8 @@
               points={polyPoints(run.points, bounds)}
               fill="none"
               stroke={semanticColor[run.semantic]}
-              stroke-opacity="0.9"
-              stroke-width="0.9"
+              stroke-opacity="0.85"
+              stroke-width="0.8"
               stroke-linecap="round"
               stroke-linejoin="round"
             />
@@ -509,13 +554,49 @@
         {/each}
       </g>
     {/if}
+
+    <!-- 6. Fehler — nur die konkreten Problemsegmente, nicht alles rot -->
+    {#if showErrors}
+      {#each invalidSegments as seg}
+        <polyline
+          points={polyPoints(seg, bounds)}
+          fill="none"
+          stroke="#ef4444"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-opacity="0.9"
+        />
+      {/each}
+      <!-- Marker nur am ersten Fehlerpunkt -->
+      {#if errorMarkers.length > 0}
+        {@const proj = project(errorMarkers[0].point, bounds)}
+        <!-- Kreuz-Markierung -->
+        <line x1={proj.x - 5} y1={proj.y - 5} x2={proj.x + 5} y2={proj.y + 5} stroke="#ef4444" stroke-width="1.5" />
+        <line x1={proj.x + 5} y1={proj.y - 5} x2={proj.x - 5} y2={proj.y + 5} stroke="#ef4444" stroke-width="1.5" />
+        <circle cx={proj.x} cy={proj.y} r="7" fill="none" stroke="#ef4444" stroke-width="1" stroke-opacity="0.5" />
+      {/if}
+    {/if}
   </svg>
 
+  <!-- Zoom-Buttons -->
   <div class="ms-zoom">
     <button type="button" class="ms-zoom-btn" on:click={zoomIn}>+</button>
     <button type="button" class="ms-zoom-btn" on:click={zoomOut}>−</button>
     <button type="button" class="ms-zoom-btn" on:click={resetView}>⊙</button>
   </div>
+
+  <!-- Vorschau-Button -->
+  {#if missionZones.length > 0}
+    <button
+      type="button"
+      class="preview-btn"
+      disabled={plannerLoading}
+      on:click={() => void refreshPlannerPreview()}
+    >
+      {plannerLoading ? 'Wird berechnet…' : 'Vorschau berechnen'}
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -535,14 +616,41 @@
     user-select: none;
   }
 
-  .ms-legend {
+  /* ── Layer-Bar ─────────────────────────────────────────────── */
+  .layer-bar {
     position: absolute;
     top: 10px;
+    left: 10px;
+    z-index: 3;
+    display: flex;
+    gap: 4px;
+  }
+
+  .layer-btn {
+    background: rgba(15, 24, 41, 0.88);
+    border: 1px solid #1e3a5f;
+    color: #93c5fd;
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+
+  .layer-btn:hover { border-color: #3b82f6; }
+  .layer-btn.off { opacity: 0.38; color: #475569; }
+  .layer-btn.err { color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+  .layer-btn.err:hover { border-color: #ef4444; }
+
+  /* ── Zonen-Legende ─────────────────────────────────────────── */
+  .ms-legend {
+    position: absolute;
+    top: 38px;
     left: 10px;
     z-index: 2;
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
     pointer-events: auto;
   }
 
@@ -550,98 +658,121 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: rgba(15, 24, 41, 0.85);
+    background: rgba(15, 24, 41, 0.82);
     border: 1px solid #1e3a5f;
-    border-radius: 6px;
-    padding: 5px 9px;
-    font-size: 11px;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 10px;
     cursor: pointer;
     transition: border-color 0.15s;
     color: #e2e8f0;
   }
 
   .ms-leg-item:hover { border-color: #2563eb; }
-  .ms-leg-item.sel { border-color: #2563eb; background: rgba(12, 26, 58, 0.92); }
+  .ms-leg-item.sel   { border-color: #2563eb; background: rgba(12, 26, 58, 0.92); }
 
   .ms-leg-dot {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
-  .ms-leg-name { color: #e2e8f0; }
-  .ms-leg-angle { color: #475569; font-size: 10px; font-family: monospace; }
+  .ms-leg-name  { color: #e2e8f0; }
+  .ms-leg-angle { color: #475569; font-size: 9px; font-family: monospace; }
 
-  .planner-status {
+  /* ── Status-Bereich ────────────────────────────────────────── */
+  .status-area {
     position: absolute;
     top: 10px;
     right: 10px;
     z-index: 3;
-    padding: 5px 9px;
-    border-radius: 999px;
-    background: rgba(15, 24, 41, 0.88);
-    border: 1px solid rgba(251, 191, 36, 0.35);
-    color: #fde68a;
+    max-width: 340px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(15, 24, 41, 0.92);
+    border: 1px solid #1e3a5f;
+    color: #94a3b8;
     font-size: 10px;
+    line-height: 1.4;
   }
 
-  .planner-status.error {
-    border-color: rgba(248, 113, 113, 0.4);
-    color: #fecaca;
-  }
-
-  .planner-status.ok {
-    border-color: rgba(34, 197, 94, 0.35);
+  .status-pill.ok {
+    border-color: rgba(34, 197, 94, 0.4);
     color: #86efac;
   }
 
-  .preview-btn {
-    position: absolute;
-    bottom: 12px;
-    right: 12px;
-    z-index: 2;
-    background: #0f1829;
-    border: 1px solid #2563eb;
-    color: #60a5fa;
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-size: 12px;
+  .status-pill.error {
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+    flex-wrap: wrap;
+  }
+
+  .err-icon { font-size: 11px; flex-shrink: 0; }
+
+  .jump-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 9px;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.12s;
   }
 
-  .preview-btn:hover:not(:disabled) {
-    background: #1e3a5f;
-    border-color: #3b82f6;
-  }
+  .jump-btn:hover { background: rgba(239, 68, 68, 0.28); }
 
-  .preview-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
+  /* ── Zoom-Buttons ──────────────────────────────────────────── */
   .ms-zoom {
     position: absolute;
     bottom: 12px;
     left: 12px;
     display: flex;
-    gap: 5px;
+    gap: 4px;
     z-index: 2;
   }
 
   .ms-zoom-btn {
-    background: #0f1829;
+    background: rgba(15, 24, 41, 0.88);
     border: 1px solid #1e3a5f;
     color: #60a5fa;
-    border-radius: 6px;
-    padding: 5px 9px;
+    border-radius: 5px;
+    padding: 4px 9px;
     font-size: 13px;
     cursor: pointer;
   }
 
   .ms-zoom-btn:hover { border-color: #2563eb; }
 
+  /* ── Vorschau-Button ───────────────────────────────────────── */
+  .preview-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    z-index: 2;
+    background: rgba(15, 24, 41, 0.88);
+    border: 1px solid #2563eb;
+    color: #60a5fa;
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.14s;
+  }
+
+  .preview-btn:hover:not(:disabled) { background: #1e3a5f; }
+  .preview-btn:disabled { opacity: 0.45; cursor: default; }
+
+  /* ── Leer-Zustand ──────────────────────────────────────────── */
   .empty {
     position: absolute;
     inset: 0;
