@@ -39,6 +39,17 @@
   let sidebarCollapsed = false;
   let lastZoneSignature = "";
 
+  function describeBackendLoadError(scope: string, err: unknown): string {
+    const raw =
+      err instanceof Error
+        ? err.message
+        : `${scope} konnte nicht geladen werden`;
+    if (/500/.test(raw)) {
+      return `${scope}: Backend-Fehler 500. Ohne geladene Karten- und Missionsdaten bleibt die Vorschau in Missionen weitgehend leer.`;
+    }
+    return raw;
+  }
+
   function normalizePoints(
     points: Array<[number, number]> | Point[] | undefined,
   ): Point[] {
@@ -144,10 +155,7 @@
       });
       info = "Zonen aus Karte geladen";
     } catch (err) {
-      error =
-        err instanceof Error
-          ? err.message
-          : "Zonen konnten nicht geladen werden";
+      error = describeBackendLoadError("Karte", err);
     } finally {
       busy = false;
     }
@@ -164,7 +172,14 @@
       if (missions.length > 0) info = "Missionen vom Server geladen";
     } catch {
       backendOnline = false;
-      info = "Missionen lokal geladen";
+      info =
+        get(missionStore).missions.length > 0 ? "Missionen lokal geladen" : "";
+      if (!error) {
+        error = describeBackendLoadError(
+          "Missionen",
+          new Error("500 Internal Server Error"),
+        );
+      }
     }
   }
 
@@ -274,12 +289,16 @@
   function addZonesFromPicker(event: Event) {
     if (!selectedMission) return;
     const select = event.currentTarget as HTMLSelectElement;
-    const selectedIds = Array.from(select.selectedOptions).map((option) => option.value);
+    const selectedIds = Array.from(select.selectedOptions).map(
+      (option) => option.value,
+    );
     if (selectedIds.length === 0) return;
 
     const addIds = selectedIds.filter((zoneId) => {
       const zone = $mapStore.map.zones.find((entry) => entry.id === zoneId);
-      return !!zone && isZoneValid(zone) && !selectedMission.zoneIds.includes(zoneId);
+      return (
+        !!zone && isZoneValid(zone) && !selectedMission.zoneIds.includes(zoneId)
+      );
     });
     if (addIds.length === 0) return;
 
@@ -453,7 +472,9 @@
             disabled={selectedMissionZones.length === 0}
           >
             <option value="" disabled={selectedMissionZones.length > 0}>
-              {selectedMissionZones.length > 0 ? "Zone auswählen" : "Keine Zone in dieser Mission"}
+              {selectedMissionZones.length > 0
+                ? "Zone auswählen"
+                : "Keine Zone in dieser Mission"}
             </option>
             {#each selectedMissionZones as zone}
               <option value={zone.id}>{zone.settings.name}</option>
@@ -576,7 +597,10 @@
                 </option>
               {/each}
             </select>
-            <div class="ms-zone-picker-hint">Vorhandene Zonen auswählen und zur Mission hinzufügen (Mehrfachauswahl möglich).</div>
+            <div class="ms-zone-picker-hint">
+              Vorhandene Zonen auswählen und zur Mission hinzufügen
+              (Mehrfachauswahl möglich).
+            </div>
           </div>
           {#if selectedMission.zoneIds.length === 0}
             <div class="ms-empty-inline">
@@ -1187,5 +1211,4 @@
     color: #475569;
     padding: 4px 0;
   }
-
 </style>

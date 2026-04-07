@@ -138,6 +138,8 @@ namespace sunray
             return "coverage_infill";
         case sunray::nav::RouteSemantic::TRANSIT_WITHIN_ZONE:
             return "transit_within_zone";
+        case sunray::nav::RouteSemantic::TRANSIT_BETWEEN_COMPONENTS:
+            return "transit_between_components";
         case sunray::nav::RouteSemantic::TRANSIT_INTER_ZONE:
             return "transit_inter_zone";
         case sunray::nav::RouteSemantic::DOCK_APPROACH:
@@ -169,9 +171,47 @@ namespace sunray
                 {"sourceMode", encodeWayType(point.sourceMode)},
                 {"semantic", encodeRouteSemantic(point.semantic)},
                 {"zoneId", point.zoneId},
+                {"componentId", point.componentId},
             });
         }
         return out;
+    }
+
+    static nlohmann::json encodeRouteDebugJson(const sunray::nav::RoutePlan &route)
+    {
+        nlohmann::json semanticCounts = nlohmann::json::object();
+        nlohmann::json zoneOrder = nlohmann::json::array();
+        nlohmann::json componentOrder = nlohmann::json::array();
+        std::unordered_set<std::string> seenZones;
+        std::unordered_set<std::string> seenComponents;
+
+        for (const auto &point : route.points)
+        {
+            const std::string semantic = encodeRouteSemantic(point.semantic);
+            semanticCounts[semantic] = semanticCounts.value(semantic, 0) + 1;
+
+            if (!point.zoneId.empty() && seenZones.insert(point.zoneId).second)
+                zoneOrder.push_back(point.zoneId);
+
+            if (!point.componentId.empty() && seenComponents.insert(point.componentId).second)
+            {
+                componentOrder.push_back({
+                    {"componentId", point.componentId},
+                    {"zoneId", point.zoneId},
+                    {"firstSemantic", semantic},
+                });
+            }
+        }
+
+        return {
+            {"pointCount", static_cast<int>(route.points.size())},
+            {"active", route.active},
+            {"valid", route.valid},
+            {"invalidReason", route.invalidReason},
+            {"semanticCounts", semanticCounts},
+            {"zoneOrder", zoneOrder},
+            {"componentOrder", componentOrder},
+        };
     }
 
     static constexpr const char *kDefaultMapJson =
@@ -1036,6 +1076,7 @@ namespace sunray
                         {"valid",            vr.valid},
                         {"error",            errorMsg},
                         {"validationErrors", validationErrors},
+                        {"debug",            encodeRouteDebugJson(route)},
                         {"route",            encodeRoutePlanJson(route)},
                     });
                 } else {

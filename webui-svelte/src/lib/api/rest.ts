@@ -184,6 +184,7 @@ export type RouteSemantic =
   | 'coverage_edge'
   | 'coverage_infill'
   | 'transit_within_zone'
+  | 'transit_between_components'
   | 'transit_inter_zone'
   | 'dock_approach'
   | 'recovery'
@@ -198,6 +199,7 @@ export interface PlannerPreviewRoutePoint {
   sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
   semantic: RouteSemantic
   zoneId: string
+  componentId: string
 }
 
 export interface RouteValidationError {
@@ -213,6 +215,19 @@ export interface PlannerPreviewRoute {
   valid?: boolean
   error?: string
   validationErrors?: RouteValidationError[]
+  debug?: {
+    pointCount: number
+    active: boolean
+    valid: boolean
+    invalidReason: string
+    semanticCounts: Record<string, number>
+    zoneOrder: string[]
+    componentOrder: Array<{
+      componentId: string
+      zoneId: string
+      firstSemantic: string
+    }>
+  }
   route?: {
     active: boolean
     valid: boolean

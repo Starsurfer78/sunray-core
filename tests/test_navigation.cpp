@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,32 +38,37 @@ using Catch::Approx;
 
 // ── MockHardware ──────────────────────────────────────────────────────────────
 
-struct MockHardware : public HardwareInterface {
-    struct MotorCall { int left, right, mow; };
+struct MockHardware : public HardwareInterface
+{
+    struct MotorCall
+    {
+        int left, right, mow;
+    };
     std::vector<MotorCall> motorCalls;
 
-    bool         init()           override { return true; }
-    void         run()            override {}
-    void         setMotorPwm(int l, int r, int m) override { motorCalls.push_back({l,r,m}); }
-    void         resetMotorFault()  override {}
-    OdometryData readOdometry()  override { return {}; }
-    SensorData   readSensors()   override { return {}; }
-    BatteryData  readBattery()   override { return {}; }
-    ImuData      readImu()       override { return {}; }
-    void         calibrateImu()  override {}
-    void         setBuzzer(bool) override {}
-    void         setLed(LedId, LedState) override {}
-    void         keepPowerOn(bool) override {}
-    float        getCpuTemperature()    override { return 40.0f; }
-    std::string  getRobotId()           override { return "nav_test"; }
-    std::string  getMcuFirmwareName()   override { return "test"; }
-    std::string  getMcuFirmwareVersion()override { return "1.0"; }
+    bool init() override { return true; }
+    void run() override {}
+    void setMotorPwm(int l, int r, int m) override { motorCalls.push_back({l, r, m}); }
+    void resetMotorFault() override {}
+    OdometryData readOdometry() override { return {}; }
+    SensorData readSensors() override { return {}; }
+    BatteryData readBattery() override { return {}; }
+    ImuData readImu() override { return {}; }
+    void calibrateImu() override {}
+    void setBuzzer(bool) override {}
+    void setLed(LedId, LedState) override {}
+    void keepPowerOn(bool) override {}
+    float getCpuTemperature() override { return 40.0f; }
+    std::string getRobotId() override { return "nav_test"; }
+    std::string getMcuFirmwareName() override { return "test"; }
+    std::string getMcuFirmwareVersion() override { return "1.0"; }
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Write content to a temp file and return the path.
-static std::filesystem::path writeTmpMap(const std::string& json) {
+static std::filesystem::path writeTmpMap(const std::string &json)
+{
     auto p = std::filesystem::temp_directory_path() / "sunray_nav_test_map.json";
     std::ofstream f(p);
     f << json;
@@ -78,94 +84,100 @@ static std::filesystem::path writeTmpMap(const std::string& json) {
 //   - Second call: delta is integrated into pose
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("StateEstimator: zero odometry keeps position (0,0) and heading 0", "[state_est]") {
-    StateEstimator est;   // nullptr config → uses built-in defaults
+TEST_CASE("StateEstimator: zero odometry keeps position (0,0) and heading 0", "[state_est]")
+{
+    StateEstimator est; // nullptr config → uses built-in defaults
 
     OdometryData odo;
     odo.mcuConnected = true;
-    odo.leftTicks    = 0;
-    odo.rightTicks   = 0;
+    odo.leftTicks = 0;
+    odo.rightTicks = 0;
 
-    est.update(odo, 20);   // prime (consumed)
-    est.update(odo, 20);   // integrate zeros
+    est.update(odo, 20); // prime (consumed)
+    est.update(odo, 20); // integrate zeros
 
-    REQUIRE(est.x()       == Approx(0.0f).margin(1e-5f));
-    REQUIRE(est.y()       == Approx(0.0f).margin(1e-5f));
+    REQUIRE(est.x() == Approx(0.0f).margin(1e-5f));
+    REQUIRE(est.y() == Approx(0.0f).margin(1e-5f));
     REQUIRE(est.heading() == Approx(0.0f).margin(1e-5f));
 }
 
-TEST_CASE("StateEstimator: forward drive increases x by ~0.4 m", "[state_est]") {
+TEST_CASE("StateEstimator: forward drive increases x by ~0.4 m", "[state_est]")
+{
     // Keep the step below the 0.5 m sanity guard. With the unified built-in
     // defaults (320 ticks/rev, 205 mm wheel), 78 ticks are about 0.157 m.
     StateEstimator est;
 
     OdometryData prime;
     prime.mcuConnected = true;
-    est.update(prime, 20);   // prime
+    est.update(prime, 20); // prime
 
     OdometryData fwd;
     fwd.mcuConnected = true;
-    fwd.leftTicks    = 78;
-    fwd.rightTicks   = 78;
+    fwd.leftTicks = 78;
+    fwd.rightTicks = 78;
     est.update(fwd, 20);
 
-    REQUIRE(est.x()       == Approx(0.157f).margin(0.02f));
-    REQUIRE(est.y()       == Approx(0.0f).margin(0.01f));
+    REQUIRE(est.x() == Approx(0.157f).margin(0.02f));
+    REQUIRE(est.y() == Approx(0.0f).margin(0.01f));
     REQUIRE(est.heading() == Approx(0.0f).margin(0.01f));
 }
 
-TEST_CASE("StateEstimator: in-place rotation ~90 degrees turns heading to pi/2", "[state_est]") {
+TEST_CASE("StateEstimator: in-place rotation ~90 degrees turns heading to pi/2", "[state_est]")
+{
     // With the unified built-in defaults (320 ticks/rev, 205 mm wheel,
     // 390 mm wheel base), 87 ticks difference corresponds to about 0.45 rad.
     StateEstimator est;
 
     OdometryData prime;
     prime.mcuConnected = true;
-    est.update(prime, 20);   // prime
+    est.update(prime, 20); // prime
 
     OdometryData rot;
     rot.mcuConnected = true;
-    rot.leftTicks    = 0;
-    rot.rightTicks   = 87;
+    rot.leftTicks = 0;
+    rot.rightTicks = 87;
     est.update(rot, 20);
 
     REQUIRE(est.heading() == Approx(0.449f).margin(0.03f));
 }
 
-TEST_CASE("StateEstimator: sanity guard discards frame with >0.5 m delta", "[state_est]") {
+TEST_CASE("StateEstimator: sanity guard discards frame with >0.5 m delta", "[state_est]")
+{
     // 5000 ticks ≈ 25.8 m >> 0.5 m limit → position must stay at (0,0).
     StateEstimator est;
 
     OdometryData prime;
     prime.mcuConnected = true;
-    est.update(prime, 20);   // prime
+    est.update(prime, 20); // prime
 
     OdometryData huge;
     huge.mcuConnected = true;
-    huge.leftTicks    = 5000;
-    huge.rightTicks   = 5000;
+    huge.leftTicks = 5000;
+    huge.rightTicks = 5000;
     est.update(huge, 20);
 
     REQUIRE(est.x() == Approx(0.0f).margin(1e-5f));
     REQUIRE(est.y() == Approx(0.0f).margin(1e-5f));
 }
 
-TEST_CASE("StateEstimator: reset() returns pose to (0,0,0)", "[state_est]") {
+TEST_CASE("StateEstimator: reset() returns pose to (0,0,0)", "[state_est]")
+{
     StateEstimator est;
     est.setPose(3.5f, -2.1f, 1.2f);
 
-    REQUIRE(est.x()       == Approx(3.5f));
-    REQUIRE(est.y()       == Approx(-2.1f));
+    REQUIRE(est.x() == Approx(3.5f));
+    REQUIRE(est.y() == Approx(-2.1f));
 
     est.reset();
 
-    REQUIRE(est.x()       == Approx(0.0f).margin(1e-5f));
-    REQUIRE(est.y()       == Approx(0.0f).margin(1e-5f));
+    REQUIRE(est.x() == Approx(0.0f).margin(1e-5f));
+    REQUIRE(est.y() == Approx(0.0f).margin(1e-5f));
     REQUIRE(est.heading() == Approx(0.0f).margin(1e-5f));
     REQUIRE_FALSE(est.gpsHasFix());
 }
 
-TEST_CASE("StateEstimator: repeated straight motion keeps heading and lateral drift stable", "[state_est]") {
+TEST_CASE("StateEstimator: repeated straight motion keeps heading and lateral drift stable", "[state_est]")
+{
     StateEstimator est;
 
     OdometryData prime;
@@ -177,7 +189,8 @@ TEST_CASE("StateEstimator: repeated straight motion keeps heading and lateral dr
     fwd.leftTicks = 20;
     fwd.rightTicks = 20;
 
-    for (int i = 0; i < 25; ++i) {
+    for (int i = 0; i < 25; ++i)
+    {
         est.update(fwd, 20);
     }
 
@@ -186,7 +199,8 @@ TEST_CASE("StateEstimator: repeated straight motion keeps heading and lateral dr
     REQUIRE(est.heading() == Approx(0.0f).margin(0.05f));
 }
 
-TEST_CASE("StateEstimator: repeated curved motion accumulates heading and lateral displacement consistently", "[state_est]") {
+TEST_CASE("StateEstimator: repeated curved motion accumulates heading and lateral displacement consistently", "[state_est]")
+{
     StateEstimator est;
 
     OdometryData prime;
@@ -198,7 +212,8 @@ TEST_CASE("StateEstimator: repeated curved motion accumulates heading and latera
     curve.leftTicks = 10;
     curve.rightTicks = 20;
 
-    for (int i = 0; i < 20; ++i) {
+    for (int i = 0; i < 20; ++i)
+    {
         est.update(curve, 20);
     }
 
@@ -224,7 +239,8 @@ TEST_CASE("StateEstimator: repeated curved motion accumulates heading and latera
 //   angular > 0 → pwmLeft < pwmRight   (turns left)
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("LineTracker: reset clears internal state", "[line_track]") {
+TEST_CASE("LineTracker: reset clears internal state", "[line_track]")
+{
     LineTracker tracker;
     tracker.reset();
 
@@ -233,12 +249,14 @@ TEST_CASE("LineTracker: reset clears internal state", "[line_track]") {
     REQUIRE_FALSE(tracker.angleToTargetFits());
 }
 
-TEST_CASE("LineTracker: default construction is stable", "[line_track]") {
+TEST_CASE("LineTracker: default construction is stable", "[line_track]")
+{
     LineTracker tracker;
     REQUIRE_NOTHROW(tracker.reset());
 }
 
-TEST_CASE("LineTracker: repeated reset remains stable", "[line_track]") {
+TEST_CASE("LineTracker: repeated reset remains stable", "[line_track]")
+{
     LineTracker tracker;
     tracker.reset();
     tracker.reset();
@@ -247,17 +265,18 @@ TEST_CASE("LineTracker: repeated reset remains stable", "[line_track]") {
     REQUIRE(tracker.targetDist() == Approx(0.0f).margin(1e-6f));
 }
 
-TEST_CASE("LineTracker: map progression data can be prepared safely", "[line_track]") {
+TEST_CASE("LineTracker: map progression data can be prepared safely", "[line_track]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]],"mow":[[1,1],[2,1],[3,1]]})");
 
-    Map          map;
+    Map map;
 
     REQUIRE(map.load(tmpPath));
     std::filesystem::remove(tmpPath);
 
     REQUIRE(map.startMowing(0.0f, 0.0f));   // nearest to origin → index 0, target=(1,1)
-    const int idxBefore = map.mowPointsIdx;  // 0
+    const int idxBefore = map.mowPointsIdx; // 0
     REQUIRE(map.nextPoint(true, map.targetPoint.x, map.targetPoint.y));
     REQUIRE(map.mowPointsIdx == idxBefore + 1);
 }
@@ -266,7 +285,8 @@ TEST_CASE("LineTracker: map progression data can be prepared safely", "[line_tra
 // Map Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("OpenLoopDriveController: zero command maps to zero PWM", "[drive]") {
+TEST_CASE("OpenLoopDriveController: zero command maps to zero PWM", "[drive]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     cfg.set("motor_set_speed_ms", 0.5f);
     cfg.set("wheel_base_m", 0.4f);
@@ -276,7 +296,8 @@ TEST_CASE("OpenLoopDriveController: zero command maps to zero PWM", "[drive]") {
     REQUIRE(pwm.right == 0);
 }
 
-TEST_CASE("OpenLoopDriveController: forward command maps symmetrically", "[drive]") {
+TEST_CASE("OpenLoopDriveController: forward command maps symmetrically", "[drive]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     cfg.set("motor_set_speed_ms", 0.5f);
     cfg.set("wheel_base_m", 0.4f);
@@ -286,7 +307,8 @@ TEST_CASE("OpenLoopDriveController: forward command maps symmetrically", "[drive
     REQUIRE(pwm.right == 127);
 }
 
-TEST_CASE("OpenLoopDriveController: positive angular command slows left and speeds right", "[drive]") {
+TEST_CASE("OpenLoopDriveController: positive angular command slows left and speeds right", "[drive]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     cfg.set("motor_set_speed_ms", 0.5f);
     cfg.set("wheel_base_m", 0.4f);
@@ -296,7 +318,8 @@ TEST_CASE("OpenLoopDriveController: positive angular command slows left and spee
     REQUIRE(pwm.right == 204);
 }
 
-TEST_CASE("OpenLoopDriveController: output is clamped to PWM range", "[drive]") {
+TEST_CASE("OpenLoopDriveController: output is clamped to PWM range", "[drive]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     cfg.set("motor_set_speed_ms", 0.3f);
     cfg.set("wheel_base_m", 0.39f);
@@ -308,7 +331,8 @@ TEST_CASE("OpenLoopDriveController: output is clamped to PWM range", "[drive]") 
     REQUIRE(pwm.right <= 255);
 }
 
-TEST_CASE("DifferentialDriveController: zero command resets to zero PWM", "[drive][pid]") {
+TEST_CASE("DifferentialDriveController: zero command resets to zero PWM", "[drive][pid]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     control::DifferentialDriveController controller;
     OdometryData odom;
@@ -319,7 +343,8 @@ TEST_CASE("DifferentialDriveController: zero command resets to zero PWM", "[driv
     REQUIRE(pwm.right == 0);
 }
 
-TEST_CASE("DifferentialDriveController: falls back to open loop without odometry", "[drive][pid]") {
+TEST_CASE("DifferentialDriveController: falls back to open loop without odometry", "[drive][pid]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     cfg.set("motor_set_speed_ms", 0.5f);
     cfg.set("wheel_base_m", 0.4f);
@@ -333,7 +358,8 @@ TEST_CASE("DifferentialDriveController: falls back to open loop without odometry
     REQUIRE(pwm.right == openLoop.right);
 }
 
-TEST_CASE("DifferentialDriveController: PID correction raises PWM when measured speed is too low", "[drive][pid]") {
+TEST_CASE("DifferentialDriveController: PID correction raises PWM when measured speed is too low", "[drive][pid]")
+{
     Config cfg("/tmp/sunray_drive_controller_test_config.json");
     cfg.set("motor_set_speed_ms", 0.3f);
     cfg.set("wheel_base_m", 0.39f);
@@ -355,12 +381,14 @@ TEST_CASE("DifferentialDriveController: PID correction raises PWM when measured 
     REQUIRE(pwm.right >= openLoop.right);
 }
 
-TEST_CASE("Map: load() with non-existent path returns false", "[map]") {
+TEST_CASE("Map: load() with non-existent path returns false", "[map]")
+{
     Map map;
     REQUIRE_FALSE(map.load("/tmp/sunray_no_such_map_99999.json"));
 }
 
-TEST_CASE("Map: load() with valid JSON stores mow points", "[map]") {
+TEST_CASE("Map: load() with valid JSON stores mow points", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]],"mow":[[1,1],[2,1],[3,1]]})");
 
@@ -374,7 +402,8 @@ TEST_CASE("Map: load() with valid JSON stores mow points", "[map]") {
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: load() keeps zones even when mow points are missing", "[map]") {
+TEST_CASE("Map: load() keeps zones even when mow points are missing", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
           "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -405,7 +434,8 @@ TEST_CASE("Map: load() keeps zones even when mow points are missing", "[map]") {
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: load() reads planner, dockMeta, exclusionMeta and zone planner fields", "[map]") {
+TEST_CASE("Map: load() reads planner, dockMeta, exclusionMeta and zone planner fields", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
           "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -460,7 +490,8 @@ TEST_CASE("Map: load() reads planner, dockMeta, exclusionMeta and zone planner f
     REQUIRE(map.zones()[0].settings.clearance == Approx(0.35f));
 }
 
-TEST_CASE("Map: load() with inconsistent JSON returns false and clears state", "[map]") {
+TEST_CASE("Map: load() with inconsistent JSON returns false and clears state", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]],"mow":[{"p":[1]}]})");
 
@@ -473,7 +504,8 @@ TEST_CASE("Map: load() with inconsistent JSON returns false and clears state", "
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: startMowing() returns false when no mow route is available", "[map]") {
+TEST_CASE("Map: startMowing() returns false when no mow route is available", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]],"dock":[[0,0]]})");
 
@@ -484,78 +516,36 @@ TEST_CASE("Map: startMowing() returns false when no mow route is available", "[m
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: nextPoint() advances through mow points in order", "[map]") {
+TEST_CASE("Map: nextPoint() advances through mow points in order", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]],"mow":[[1,1],[2,1],[3,1]]})");
 
     Map map;
     REQUIRE(map.load(tmpPath));
-    REQUIRE(map.startMowing(0.0f, 0.0f));   // nearest to origin = (1,1), index 0
+    REQUIRE(map.startMowing(0.0f, 0.0f)); // nearest to origin = (1,1), index 0
     std::filesystem::remove(tmpPath);
 
-    REQUIRE(map.mowPointsIdx   == 0);
-    REQUIRE(map.targetPoint.x  == Approx(1.0f));
-    REQUIRE(map.targetPoint.y  == Approx(1.0f));
+    REQUIRE(map.mowPointsIdx == 0);
+    REQUIRE(map.targetPoint.x == Approx(1.0f));
+    REQUIRE(map.targetPoint.y == Approx(1.0f));
 
     // Advance to second point
     REQUIRE(map.nextPoint(true, 1.0f, 1.0f));
-    REQUIRE(map.mowPointsIdx   == 1);
-    REQUIRE(map.targetPoint.x  == Approx(2.0f));
+    REQUIRE(map.mowPointsIdx == 1);
+    REQUIRE(map.targetPoint.x == Approx(2.0f));
 
     // Advance to third point
     REQUIRE(map.nextPoint(true, 2.0f, 1.0f));
-    REQUIRE(map.mowPointsIdx   == 2);
-    REQUIRE(map.targetPoint.x  == Approx(3.0f));
+    REQUIRE(map.mowPointsIdx == 2);
+    REQUIRE(map.targetPoint.x == Approx(3.0f));
 
     // At last point: nextPoint returns false (no further points)
     REQUIRE_FALSE(map.nextPoint(true, 3.0f, 1.0f));
 }
 
-TEST_CASE("Map: startMowingZones() filters mow points to requested zone", "[map]") {
-    auto tmpPath = writeTmpMap(
-        R"({
-            "perimeter":[[0,0],[10,0],[10,10],[0,10]],
-            "mow":[[1,1],[2,1],[8,8]],
-            "zones":[
-                {"id":"zone-a","order":1,"polygon":[[0,0],[4,0],[4,4],[0,4]]},
-                {"id":"zone-b","order":2,"polygon":[[6,6],[10,6],[10,10],[6,10]]}
-            ]
-        })");
-
-    Map map;
-    REQUIRE(map.load(tmpPath));
-    REQUIRE(map.startMowingZones(0.0f, 0.0f, {"zone-b"}));
-    REQUIRE(map.mowRoutePlan().points.size() == 1);
-    REQUIRE(map.mowRoutePlan().points[0].p.x == Approx(8.0f));
-    REQUIRE(map.mowRoutePlan().points[0].p.y == Approx(8.0f));
-    REQUIRE(map.targetPoint.x == Approx(8.0f));
-    REQUIRE(map.targetPoint.y == Approx(8.0f));
-
-    std::filesystem::remove(tmpPath);
-}
-
-TEST_CASE("Map: startMowingZones() falls back to all mow points for unknown zone", "[map]") {
-    auto tmpPath = writeTmpMap(
-        R"({
-            "perimeter":[[0,0],[10,0],[10,10],[0,10]],
-            "mow":[[1,1],[2,1],[8,8]],
-            "zones":[
-                {"id":"zone-a","order":1,"polygon":[[0,0],[4,0],[4,4],[0,4]]},
-                {"id":"zone-b","order":2,"polygon":[[6,6],[10,6],[10,10],[6,10]]}
-            ]
-        })");
-
-    Map map;
-    REQUIRE(map.load(tmpPath));
-    REQUIRE(map.startMowingZones(0.0f, 0.0f, {"does-not-exist"}));
-    REQUIRE(map.mowRoutePlan().points.size() == 3);
-    REQUIRE(map.targetPoint.x == Approx(1.0f));
-    REQUIRE(map.targetPoint.y == Approx(1.0f));
-
-    std::filesystem::remove(tmpPath);
-}
-
-TEST_CASE("Map: startPlannedMowing() activates provided route", "[map]") {
+TEST_CASE("Map: startPlannedMowing() activates provided route", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -569,9 +559,9 @@ TEST_CASE("Map: startPlannedMowing() activates provided route", "[map]") {
     route.sourceMode = WayType::MOW;
     route.active = true;
     route.points = {
-        RoutePoint{Point{1.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW},
-        RoutePoint{Point{3.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW},
-        RoutePoint{Point{5.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW},
+        RoutePoint{Point{1.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::UNKNOWN, {}, {}},
+        RoutePoint{Point{3.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::UNKNOWN, {}, {}},
+        RoutePoint{Point{5.0f, 1.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::UNKNOWN, {}, {}},
     };
 
     REQUIRE(map.startPlannedMowing(2.8f, 1.0f, route));
@@ -582,7 +572,8 @@ TEST_CASE("Map: startPlannedMowing() activates provided route", "[map]") {
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: currentTrackingSegment applies dock final align and reverse policy", "[map]") {
+TEST_CASE("Map: currentTrackingSegment applies dock final align and reverse policy", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -620,7 +611,8 @@ TEST_CASE("Map: currentTrackingSegment applies dock final align and reverse poli
     REQUIRE(segmentFacingEast.kidnapTolerance_m == Approx(0.85f));
 }
 
-TEST_CASE("Map: currentTrackingSegment without dockMeta keeps normal dock behavior", "[map]") {
+TEST_CASE("Map: currentTrackingSegment without dockMeta keeps normal dock behavior", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -645,7 +637,8 @@ TEST_CASE("Map: currentTrackingSegment without dockMeta keeps normal dock behavi
     REQUIRE(segment.sourceMode == WayType::DOCK);
 }
 
-TEST_CASE("Map: load/save preserves capture metadata", "[map]") {
+TEST_CASE("Map: load/save preserves capture metadata", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -679,7 +672,8 @@ TEST_CASE("Map: load/save preserves capture metadata", "[map]") {
     std::filesystem::remove(savedPath);
 }
 
-TEST_CASE("Map: save() exports generated mow route from zones", "[map]") {
+TEST_CASE("Map: save() exports generated mow route from zones", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
           "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -717,7 +711,8 @@ TEST_CASE("Map: save() exports generated mow route from zones", "[map]") {
     std::filesystem::remove(savedPath);
 }
 
-TEST_CASE("Planner: edge rounds are sampled with curved corners", "[map]") {
+TEST_CASE("Planner: edge rounds are sampled with curved corners", "[map]")
+{
     // Zone 6x6 m, stripWidth 0.5 m — headland inset (0.25 m) well within zone bounds
     Map map;
     REQUIRE(map.loadJson(nlohmann::json::parse(R"({
@@ -749,7 +744,8 @@ TEST_CASE("Planner: edge rounds are sampled with curved corners", "[map]") {
     REQUIRE(route.points.size() > 6);
 }
 
-TEST_CASE("Planner: mission route stays outside exclusion areas", "[map]") {
+TEST_CASE("Planner: mission route stays outside exclusion areas", "[map]")
+{
     Map map;
     REQUIRE(map.loadJson(nlohmann::json::parse(R"({
       "perimeter":[[0,0],[12,0],[12,12],[0,12]],
@@ -779,7 +775,8 @@ TEST_CASE("Planner: mission route stays outside exclusion areas", "[map]") {
 
     const auto route = buildMissionMowRoutePreview(map, mission);
     REQUIRE_FALSE(route.points.empty());
-    for (const auto& point : route.points) {
+    for (const auto &point : route.points)
+    {
         const bool clearlyInsideExclusion =
             point.p.x > 5.05f && point.p.x < 6.95f &&
             point.p.y > 5.05f && point.p.y < 6.95f;
@@ -787,7 +784,8 @@ TEST_CASE("Planner: mission route stays outside exclusion areas", "[map]") {
     }
 }
 
-TEST_CASE("Map: isInsideAllowedArea returns true for point inside perimeter", "[map]") {
+TEST_CASE("Map: isInsideAllowedArea returns true for point inside perimeter", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]]})");
 
@@ -798,7 +796,8 @@ TEST_CASE("Map: isInsideAllowedArea returns true for point inside perimeter", "[
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: isInsideAllowedArea returns false for point outside perimeter", "[map]") {
+TEST_CASE("Map: isInsideAllowedArea returns false for point outside perimeter", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[0,0],[10,0],[10,10],[0,10]]})");
 
@@ -810,7 +809,8 @@ TEST_CASE("Map: isInsideAllowedArea returns false for point outside perimeter", 
     std::filesystem::remove(tmpPath);
 }
 
-TEST_CASE("Map: isInsideAllowedArea returns false for point inside exclusion", "[map]") {
+TEST_CASE("Map: isInsideAllowedArea returns false for point inside exclusion", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[0,0],[10,0],[10,10],[0,10]],
@@ -829,10 +829,11 @@ TEST_CASE("Map: isInsideAllowedArea returns false for point inside exclusion", "
 // On-The-Fly Obstacle Tests (C.7)
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Map: addObstacle stores obstacle with metadata", "[obstacle]") {
+TEST_CASE("Map: addObstacle stores obstacle with metadata", "[obstacle]")
+{
     Map map;
     REQUIRE(map.addObstacle(3.0f, 4.0f, 1000u));
-    const auto& obs = map.obstacles();
+    const auto &obs = map.obstacles();
     REQUIRE(obs.size() == 1);
     REQUIRE(obs[0].center.x == Approx(3.0f));
     REQUIRE(obs[0].center.y == Approx(4.0f));
@@ -841,44 +842,49 @@ TEST_CASE("Map: addObstacle stores obstacle with metadata", "[obstacle]") {
     REQUIRE_FALSE(obs[0].persistent);
 }
 
-TEST_CASE("Map: addObstacle merges nearby hits into same obstacle", "[obstacle]") {
+TEST_CASE("Map: addObstacle merges nearby hits into same obstacle", "[obstacle]")
+{
     Map map;
     map.addObstacle(3.0f, 4.0f, 1000u);
-    map.addObstacle(3.2f, 4.1f, 2000u);  // within 0.5 m merge radius
+    map.addObstacle(3.2f, 4.1f, 2000u); // within 0.5 m merge radius
     REQUIRE(map.obstacles().size() == 1);
     REQUIRE(map.obstacles()[0].hitCount == 2);
-    REQUIRE(map.obstacles()[0].detectedAt_ms == 2000u);  // refreshed
+    REQUIRE(map.obstacles()[0].detectedAt_ms == 2000u); // refreshed
 }
 
-TEST_CASE("Map: addObstacle adds separate obstacle when far enough", "[obstacle]") {
+TEST_CASE("Map: addObstacle adds separate obstacle when far enough", "[obstacle]")
+{
     Map map;
     map.addObstacle(3.0f, 4.0f, 1000u);
-    map.addObstacle(8.0f, 8.0f, 2000u);  // >0.5 m away
+    map.addObstacle(8.0f, 8.0f, 2000u); // >0.5 m away
     REQUIRE(map.obstacles().size() == 2);
 }
 
-TEST_CASE("Map: clearAutoObstacles removes non-persistent, keeps persistent", "[obstacle]") {
+TEST_CASE("Map: clearAutoObstacles removes non-persistent, keeps persistent", "[obstacle]")
+{
     Map map;
-    map.addObstacle(1.0f, 1.0f, 1000u, false);   // auto
-    map.addObstacle(2.0f, 2.0f, 1000u, true);    // persistent
+    map.addObstacle(1.0f, 1.0f, 1000u, false); // auto
+    map.addObstacle(2.0f, 2.0f, 1000u, true);  // persistent
     REQUIRE(map.obstacles().size() == 2);
     map.clearAutoObstacles();
     REQUIRE(map.obstacles().size() == 1);
     REQUIRE(map.obstacles()[0].persistent);
 }
 
-TEST_CASE("Map: cleanupExpiredObstacles removes old auto obstacles", "[obstacle]") {
+TEST_CASE("Map: cleanupExpiredObstacles removes old auto obstacles", "[obstacle]")
+{
     Map map;
-    map.addObstacle(1.0f, 1.0f, 0u,       false);   // auto, age = 4000 s
-    map.addObstacle(2.0f, 2.0f, 3000000u, false);   // auto, age = 1000 s
-    map.addObstacle(3.0f, 3.0f, 0u,       true);    // persistent (never removed)
+    map.addObstacle(1.0f, 1.0f, 0u, false);       // auto, age = 4000 s
+    map.addObstacle(2.0f, 2.0f, 3000000u, false); // auto, age = 1000 s
+    map.addObstacle(3.0f, 3.0f, 0u, true);        // persistent (never removed)
     // expire after 3600 s (3 600 000 ms)
     map.cleanupExpiredObstacles(4000000u, 3600000u);
     // obstacle at t=0 is 4000 s old → removed; t=3000000 is 1000 s → kept; persistent → kept
     REQUIRE(map.obstacles().size() == 2);
 }
 
-TEST_CASE("Map: clearObstacles removes everything", "[obstacle]") {
+TEST_CASE("Map: clearObstacles removes everything", "[obstacle]")
+{
     Map map;
     map.addObstacle(1.0f, 1.0f, 1000u, false);
     map.addObstacle(2.0f, 2.0f, 1000u, true);
@@ -886,7 +892,8 @@ TEST_CASE("Map: clearObstacles removes everything", "[obstacle]") {
     REQUIRE(map.obstacles().empty());
 }
 
-TEST_CASE("GridMap: planPath routes around occupied obstacle and keeps exact destination", "[gridmap]") {
+TEST_CASE("GridMap: planPath routes around occupied obstacle and keeps exact destination", "[gridmap]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,0],[2,0]]})");
 
@@ -900,7 +907,7 @@ TEST_CASE("GridMap: planPath routes around occupied obstacle and keeps exact des
     grid.build(map, 0.0f, 0.0f);
 
     const Point src{-2.0f, 0.0f};
-    const Point dst{ 2.0f, 0.0f};
+    const Point dst{2.0f, 0.0f};
     const auto path = grid.planPath(src, dst);
 
     REQUIRE_FALSE(path.empty());
@@ -908,14 +915,17 @@ TEST_CASE("GridMap: planPath routes around occupied obstacle and keeps exact des
     REQUIRE(path.back().y == Approx(dst.y).margin(1e-5f));
 
     bool tookDetour = false;
-    for (const auto& p : path) {
+    for (const auto &p : path)
+    {
         REQUIRE(map.isInsideAllowedArea(p.x, p.y));
-        if (std::fabs(p.y) > 0.2f) tookDetour = true;
+        if (std::fabs(p.y) > 0.2f)
+            tookDetour = true;
     }
     REQUIRE(tookDetour);
 }
 
-TEST_CASE("GridMap: planPath selects nearest free cell when destination is blocked", "[gridmap]") {
+TEST_CASE("GridMap: planPath returns empty path when destination is blocked", "[gridmap]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,0],[2,0]]})");
 
@@ -929,15 +939,33 @@ TEST_CASE("GridMap: planPath selects nearest free cell when destination is block
     grid.build(map, 0.0f, 0.0f);
 
     const Point src{-2.0f, 0.0f};
-    const Point dst{ 2.0f, 0.0f};
+    const Point dst{2.0f, 0.0f};
     const auto path = grid.planPath(src, dst);
 
-    REQUIRE_FALSE(path.empty());
-    REQUIRE(path.back().distanceTo(dst) < 1.0f);
-    REQUIRE(map.isInsideAllowedArea(path.back().x, path.back().y));
+    REQUIRE(path.empty());
 }
 
-TEST_CASE("GridMap: planPath returns empty path when no free cell exists", "[gridmap]") {
+TEST_CASE("GridMap: planPath returns empty path when destination is out of bounds", "[gridmap]")
+{
+    auto tmpPath = writeTmpMap(
+        R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,0],[2,0]]})");
+
+    Map map;
+    REQUIRE(map.load(tmpPath));
+    std::filesystem::remove(tmpPath);
+
+    GridMap grid;
+    grid.build(map, 0.0f, 0.0f, 0.2f, 20, 20, 0.2f, WayType::MOW);
+
+    const Point src{0.0f, 0.0f};
+    const Point dst{20.0f, 20.0f};
+    const auto path = grid.planPath(src, dst);
+
+    REQUIRE(path.empty());
+}
+
+TEST_CASE("GridMap: planPath returns empty path when no free cell exists", "[gridmap]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[-1,-1],[1,-1],[1,1],[-1,1]],
@@ -955,7 +983,8 @@ TEST_CASE("GridMap: planPath returns empty path when no free cell exists", "[gri
     REQUIRE(path.empty());
 }
 
-TEST_CASE("GridMap: planPath handles obstacle inflation at perimeter edge", "[gridmap]") {
+TEST_CASE("GridMap: planPath handles obstacle inflation at perimeter edge", "[gridmap]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-4.5,0],[4.5,0]]})");
 
@@ -970,12 +999,14 @@ TEST_CASE("GridMap: planPath handles obstacle inflation at perimeter edge", "[gr
 
     const auto path = grid.planPath({-4.5f, 0.0f}, {4.5f, 0.0f});
     REQUIRE_FALSE(path.empty());
-    for (const auto& p : path) {
+    for (const auto &p : path)
+    {
         REQUIRE(map.isInsideAllowedArea(p.x, p.y));
     }
 }
 
-TEST_CASE("GridMap: planPath avoids exclusion polygons", "[gridmap]") {
+TEST_CASE("GridMap: planPath avoids exclusion polygons", "[gridmap]")
+{
     auto tmpPath = writeTmpMap(
         R"({
             "perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],
@@ -991,16 +1022,19 @@ TEST_CASE("GridMap: planPath avoids exclusion polygons", "[gridmap]") {
     grid.build(map, 0.0f, 0.0f);
 
     const Point src{-2.0f, 0.0f};
-    const Point dst{ 2.0f, 0.0f};
+    const Point dst{2.0f, 0.0f};
     const auto path = grid.planPath(src, dst);
 
     REQUIRE_FALSE(path.empty());
 
     bool touchedExclusion = false;
     bool tookDetour = false;
-    for (const auto& p : path) {
-        if (!map.isInsideAllowedArea(p.x, p.y)) touchedExclusion = true;
-        if (std::fabs(p.y) > 0.2f) tookDetour = true;
+    for (const auto &p : path)
+    {
+        if (!map.isInsideAllowedArea(p.x, p.y))
+            touchedExclusion = true;
+        if (std::fabs(p.y) > 0.2f)
+            tookDetour = true;
     }
 
     REQUIRE_FALSE(touchedExclusion);
@@ -1012,24 +1046,28 @@ TEST_CASE("GridMap: planPath avoids exclusion polygons", "[gridmap]") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 static nlohmann::json makeSimpleZoneMap(float zx0, float zy0, float zx1, float zy1,
-                                        float stripWidth = 0.5f, int edgeRounds = 1) {
+                                        float stripWidth = 0.5f, int edgeRounds = 1)
+{
     return nlohmann::json::parse(R"({
       "perimeter":[[-20,-20],[20,-20],[20,20],[-20,20]],
       "zones":[{
         "id":"z1","order":1,
-        "polygon":[[)" + std::to_string(zx0) + "," + std::to_string(zy0) + "],[" +
-            std::to_string(zx1) + "," + std::to_string(zy0) + "],[" +
-            std::to_string(zx1) + "," + std::to_string(zy1) + "],[" +
-            std::to_string(zx0) + "," + std::to_string(zy1) + R"(]],
+        "polygon":[[)" + std::to_string(zx0) +
+                                 "," + std::to_string(zy0) + "],[" +
+                                 std::to_string(zx1) + "," + std::to_string(zy0) + "],[" +
+                                 std::to_string(zx1) + "," + std::to_string(zy1) + "],[" +
+                                 std::to_string(zx0) + "," + std::to_string(zy1) + R"(]],
         "settings":{
-          "name":"T","stripWidth":)" + std::to_string(stripWidth) +
-          R"(,"angle":0,"edgeMowing":true,"edgeRounds":)" + std::to_string(edgeRounds) +
-          R"(,"speed":1.0,"pattern":"stripe","reverseAllowed":false,"clearance":0.1}
+          "name":"T","stripWidth":)" +
+                                 std::to_string(stripWidth) +
+                                 R"(,"angle":0,"edgeMowing":true,"edgeRounds":)" + std::to_string(edgeRounds) +
+                                 R"(,"speed":1.0,"pattern":"stripe","reverseAllowed":false,"clearance":0.1}
       }]
     })");
 }
 
-TEST_CASE("Coverage: rectangle zone produces both COVERAGE_EDGE and COVERAGE_INFILL points", "[coverage]") {
+TEST_CASE("Coverage: rectangle zone produces both COVERAGE_EDGE and COVERAGE_INFILL points", "[coverage]")
+{
     Map map;
     REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
 
@@ -1038,17 +1076,21 @@ TEST_CASE("Coverage: rectangle zone produces both COVERAGE_EDGE and COVERAGE_INF
 
     REQUIRE_FALSE(route.points.empty());
 
-    bool hasEdge   = false;
+    bool hasEdge = false;
     bool hasInfill = false;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_EDGE)   hasEdge   = true;
-        if (p.semantic == RouteSemantic::COVERAGE_INFILL) hasInfill = true;
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE)
+            hasEdge = true;
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL)
+            hasInfill = true;
     }
     REQUIRE(hasEdge);
     REQUIRE(hasInfill);
 }
 
-TEST_CASE("Coverage: all mow points have a non-empty zoneId", "[coverage]") {
+TEST_CASE("Coverage: all mow points have a non-empty zoneId", "[coverage]")
+{
     Map map;
     REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
 
@@ -1056,16 +1098,19 @@ TEST_CASE("Coverage: all mow points have a non-empty zoneId", "[coverage]") {
     const auto route = buildMissionMowRoutePreview(map, mission);
 
     REQUIRE_FALSE(route.points.empty());
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.sourceMode == WayType::MOW &&
             (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-             p.semantic == RouteSemantic::COVERAGE_INFILL)) {
+             p.semantic == RouteSemantic::COVERAGE_INFILL))
+        {
             REQUIRE_FALSE(p.zoneId.empty());
         }
     }
 }
 
-TEST_CASE("Coverage: no UNKNOWN semantic on coverage or transit points", "[coverage]") {
+TEST_CASE("Coverage: all coverage points have a non-empty componentId", "[coverage]")
+{
     Map map;
     REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
 
@@ -1073,14 +1118,37 @@ TEST_CASE("Coverage: no UNKNOWN semantic on coverage or transit points", "[cover
     const auto route = buildMissionMowRoutePreview(map, mission);
 
     REQUIRE_FALSE(route.points.empty());
-    for (const auto& p : route.points) {
-        if (p.sourceMode == WayType::MOW) {
+    for (const auto &p : route.points)
+    {
+        if (p.sourceMode == WayType::MOW &&
+            (p.semantic == RouteSemantic::COVERAGE_EDGE ||
+             p.semantic == RouteSemantic::COVERAGE_INFILL))
+        {
+            REQUIRE_FALSE(p.componentId.empty());
+        }
+    }
+}
+
+TEST_CASE("Coverage: no UNKNOWN semantic on coverage or transit points", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    for (const auto &p : route.points)
+    {
+        if (p.sourceMode == WayType::MOW)
+        {
             REQUIRE(p.semantic != RouteSemantic::UNKNOWN);
         }
     }
 }
 
-TEST_CASE("Coverage: route stays within zone polygon for intra-zone transitions", "[coverage]") {
+TEST_CASE("Coverage: route stays within zone polygon for intra-zone transitions", "[coverage]")
+{
     Map map;
     REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 5, 5)));
 
@@ -1089,9 +1157,11 @@ TEST_CASE("Coverage: route stays within zone polygon for intra-zone transitions"
 
     REQUIRE_FALSE(route.points.empty());
     // TRANSIT_WITHIN_ZONE points must stay inside zone
-    const auto& zonePoly = map.zones().front().polygon;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::TRANSIT_WITHIN_ZONE) {
+    const auto &zonePoly = map.zones().front().polygon;
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::TRANSIT_WITHIN_ZONE)
+        {
             // Allow 5 cm tolerance for boundary points
             const float margin = 0.05f;
             const float cx = (0.0f + 5.0f) / 2.0f;
@@ -1100,12 +1170,15 @@ TEST_CASE("Coverage: route stays within zone polygon for intra-zone transitions"
             REQUIRE(p.p.x < 5.0f + margin);
             REQUIRE(p.p.y > -margin);
             REQUIRE(p.p.y < 5.0f + margin);
-            (void)cx; (void)cy; (void)zonePoly;
+            (void)cx;
+            (void)cy;
+            (void)zonePoly;
         }
     }
 }
 
-TEST_CASE("Coverage: zone near perimeter boundary produces headland contour", "[coverage]") {
+TEST_CASE("Coverage: zone near perimeter boundary produces headland contour", "[coverage]")
+{
     // Zone almost touching perimeter — headland inset should not produce empty contour
     Map map;
     REQUIRE(map.loadJson(nlohmann::json::parse(R"({
@@ -1124,13 +1197,19 @@ TEST_CASE("Coverage: zone near perimeter boundary produces headland contour", "[
     const auto route = buildMissionMowRoutePreview(map, mission);
 
     bool hasEdge = false;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_EDGE) { hasEdge = true; break; }
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE)
+        {
+            hasEdge = true;
+            break;
+        }
     }
     REQUIRE(hasEdge);
 }
 
-TEST_CASE("Coverage: infill does not enter exclusion zone", "[coverage]") {
+TEST_CASE("Coverage: infill does not enter exclusion zone", "[coverage]")
+{
     Map map;
     REQUIRE(map.loadJson(nlohmann::json::parse(R"({
       "perimeter":[[-10,-10],[10,-10],[10,10],[-10,10]],
@@ -1149,8 +1228,10 @@ TEST_CASE("Coverage: infill does not enter exclusion zone", "[coverage]") {
     const auto route = buildMissionMowRoutePreview(map, mission);
 
     REQUIRE_FALSE(route.points.empty());
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             // Must not be deep inside the exclusion [1,1]-[3,3]
             const bool deepInside =
                 p.p.x > 1.1f && p.p.x < 2.9f &&
@@ -1160,7 +1241,8 @@ TEST_CASE("Coverage: infill does not enter exclusion zone", "[coverage]") {
     }
 }
 
-TEST_CASE("Coverage: RouteValidator passes for simple rectangle zone", "[coverage]") {
+TEST_CASE("Coverage: RouteValidator passes for simple rectangle zone", "[coverage]")
+{
     Map map;
     REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
 
@@ -1182,7 +1264,8 @@ TEST_CASE("Coverage: RouteValidator passes for simple rectangle zone", "[coverag
 
 // ── Working-Area Tests (workingArea = zone ∩ perimeter − exclusions) ─────────
 
-TEST_CASE("WorkingArea A: zone extends beyond perimeter — all route points inside perimeter", "[coverage]") {
+TEST_CASE("WorkingArea A: zone extends beyond perimeter — all route points inside perimeter", "[coverage]")
+{
     // Zone [0,0]-[14,10] deliberately extends past perimeter [2,1]-[12,9].
     // workingArea = zone ∩ perimeter = [2,1]-[12,9]
     // Every coverage point must remain inside the perimeter.
@@ -1205,9 +1288,11 @@ TEST_CASE("WorkingArea A: zone extends beyond perimeter — all route points ins
     REQUIRE_FALSE(route.points.empty());
     // All coverage (headland + infill) points must be inside perimeter [2,1]-[12,9]
     const float margin = 0.08f;
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             REQUIRE(p.p.x >= 2.0f - margin);
             REQUIRE(p.p.x <= 12.0f + margin);
             REQUIRE(p.p.y >= 1.0f - margin);
@@ -1216,7 +1301,8 @@ TEST_CASE("WorkingArea A: zone extends beyond perimeter — all route points ins
     }
 }
 
-TEST_CASE("WorkingArea B: hard NoGo in zone centre — headland and infill avoid it", "[coverage]") {
+TEST_CASE("WorkingArea B: hard NoGo in zone centre — headland and infill avoid it", "[coverage]")
+{
     // Zone [0,0]-[10,10], NoGo [3,3]-[7,7] in the centre.
     // workingArea = zone − exclusion (two L-shaped regions around the hole).
     Map map;
@@ -1239,9 +1325,11 @@ TEST_CASE("WorkingArea B: hard NoGo in zone centre — headland and infill avoid
     REQUIRE_FALSE(route.points.empty());
     // No coverage point may lie deep inside the exclusion [3,3]-[7,7]
     const float margin = 0.1f;
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             const bool deepInside =
                 p.p.x > 3.0f + margin && p.p.x < 7.0f - margin &&
                 p.p.y > 3.0f + margin && p.p.y < 7.0f - margin;
@@ -1250,15 +1338,66 @@ TEST_CASE("WorkingArea B: hard NoGo in zone centre — headland and infill avoid
     }
     // Route must still produce coverage (zone is not fully excluded)
     bool hasCoverage = false;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_INFILL) { hasCoverage = true; break; }
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
+            hasCoverage = true;
+            break;
+        }
     }
     REQUIRE(hasCoverage);
 }
 
-TEST_CASE("WorkingArea C: vertical exclusion splits zone — coverage in both halves", "[coverage]") {
+TEST_CASE("WorkingArea B2: soft NoGo remains mowable geometry and does not carve a hole", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-1,-1],[11,-1],[11,11],[-1,11]],
+      "exclusions":[[[3,3],[7,3],[7,7],[3,7]]],
+      "exclusionMeta":[{"type":"soft","clearance":0.2,"costScale":1.5}],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[10,0],[10,10],[0,10]],
+        "settings":{
+          "name":"SoftNoGoZone","stripWidth":0.5,"angle":0,"edgeMowing":false,
+          "edgeRounds":0,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+
+    bool spansSoftCenter = false;
+    for (std::size_t pointIndex = 1; pointIndex < route.points.size(); ++pointIndex)
+    {
+        const auto &prevPoint = route.points[pointIndex - 1];
+        const auto &point = route.points[pointIndex];
+        if (prevPoint.semantic != RouteSemantic::COVERAGE_INFILL ||
+            point.semantic != RouteSemantic::COVERAGE_INFILL)
+            continue;
+        if (std::fabs(prevPoint.p.y - point.p.y) > 1e-3f)
+            continue;
+        if (prevPoint.p.y > 4.0f && prevPoint.p.y < 6.0f &&
+            std::min(prevPoint.p.x, point.p.x) < 4.0f &&
+            std::max(prevPoint.p.x, point.p.x) > 6.0f)
+        {
+            spansSoftCenter = true;
+            break;
+        }
+    }
+
+    REQUIRE(spansSoftCenter);
+}
+
+TEST_CASE("WorkingArea C: outside-zone perimeter corridor is not a legal component bypass", "[coverage]")
+{
     // Zone [0,0]-[10,8], vertical exclusion [4,0]-[6,8] splits it into left [0-4] and right [6-10].
-    // workingArea has 2 components; each must receive coverage.
+    // The perimeter is larger than the zone, so an unconstrained planner could bypass outside the zone.
+    // TRANSIT_BETWEEN_COMPONENTS must remain zone-bound and therefore fail here.
     Map map;
     REQUIRE(map.loadJson(nlohmann::json::parse(R"({
       "perimeter":[[-1,-1],[11,-1],[11,9],[-1,9]],
@@ -1277,19 +1416,119 @@ TEST_CASE("WorkingArea C: vertical exclusion splits zone — coverage in both ha
     const auto route = buildMissionMowRoutePreview(map, mission);
 
     REQUIRE_FALSE(route.points.empty());
-    bool coverageLeft  = false; // x < 3.5 (left half)
-    bool coverageRight = false; // x > 6.5 (right half)
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
-            if (p.p.x < 3.5f) coverageLeft  = true;
-            if (p.p.x > 6.5f) coverageRight = true;
+    REQUIRE_FALSE(route.valid);
+
+    bool coverageLeft = false;
+    bool coverageRight = false;
+    bool hasBetweenComponents = false;
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
+            if (p.p.x < 3.5f)
+                coverageLeft = true;
+            if (p.p.x > 6.5f)
+                coverageRight = true;
         }
+        if (p.semantic == RouteSemantic::TRANSIT_BETWEEN_COMPONENTS)
+            hasBetweenComponents = true;
     }
     REQUIRE(coverageLeft);
-    REQUIRE(coverageRight);
+    REQUIRE_FALSE(coverageRight);
+    REQUIRE_FALSE(hasBetweenComponents);
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.hasError(RouteErrorCode::ROUTE_INVALID_TRANSITION));
 }
 
-TEST_CASE("WorkingArea D: angled zone near perimeter — headland stays in working area", "[coverage]") {
+TEST_CASE("RouteValidator: missing componentId on coverage point is rejected", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    for (auto &point : route.points)
+    {
+        if (point.semantic == RouteSemantic::COVERAGE_EDGE ||
+            point.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
+            point.componentId.clear();
+            break;
+        }
+    }
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.hasError(RouteErrorCode::MISSING_COMPONENT_ID));
+}
+
+TEST_CASE("RouteValidator: explicit between-component transit inside zone is accepted", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    RoutePlan route;
+    route.sourceMode = WayType::MOW;
+    route.active = true;
+    route.points = {
+        RoutePoint{{0.8f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
+        RoutePoint{{2.0f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::TRANSIT_BETWEEN_COMPONENTS, "z1", {}},
+        RoutePoint{{3.2f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c2"},
+    };
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.valid);
+}
+
+TEST_CASE("RouteValidator: direct coverage jump between components is rejected", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(makeSimpleZoneMap(0, 0, 4, 4)));
+
+    RoutePlan route;
+    route.sourceMode = WayType::MOW;
+    route.active = true;
+    route.points = {
+        RoutePoint{{0.8f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
+        RoutePoint{{3.2f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c2"},
+    };
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.hasError(RouteErrorCode::INVALID_COMPONENT_TRANSITION));
+}
+
+TEST_CASE("RouteValidator: recovery segment leaving zone surface is rejected", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+            "perimeter":[[0,0],[4,0],[4,4],[0,4]],
+            "zones":[{
+                "id":"z1","order":1,
+                "polygon":[[0,0],[4,0],[4,4],[0,4]],
+                "settings":{
+                    "name":"ValidatorZone","stripWidth":0.5,"angle":0,"edgeMowing":false,
+                    "edgeRounds":0,"speed":1.0,"pattern":"stripe",
+                    "reverseAllowed":false,"clearance":0.1}
+            }]
+        })")));
+
+    RoutePlan route;
+    route.sourceMode = WayType::MOW;
+    route.active = true;
+    route.points = {
+        RoutePoint{{1.0f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
+        RoutePoint{{4.6f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::RECOVERY, "z1", "z1:c1"},
+    };
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.hasError(RouteErrorCode::TRANSIT_OUTSIDE_ZONE));
+    REQUIRE(result.hasError(RouteErrorCode::SEGMENT_OUTSIDE_ALLOWED_ZONE));
+}
+
+TEST_CASE("WorkingArea D: angled zone near perimeter — headland stays in working area", "[coverage]")
+{
     // Zone is a parallelogram-ish polygon that overlaps the perimeter at one corner.
     // workingArea = intersection; headland must stay inside.
     Map map;
@@ -1310,9 +1549,11 @@ TEST_CASE("WorkingArea D: angled zone near perimeter — headland stays in worki
 
     REQUIRE_FALSE(route.points.empty());
     const float margin = 0.1f;
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             // All coverage must remain inside perimeter [0,0]-[10,10]
             REQUIRE(p.p.x >= 0.0f - margin);
             REQUIRE(p.p.x <= 10.0f + margin);
@@ -1322,13 +1563,19 @@ TEST_CASE("WorkingArea D: angled zone near perimeter — headland stays in worki
     }
     // Headland must exist (zone is large enough after clipping)
     bool hasEdge = false;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_EDGE) { hasEdge = true; break; }
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_EDGE)
+        {
+            hasEdge = true;
+            break;
+        }
     }
     REQUIRE(hasEdge);
 }
 
-TEST_CASE("WorkingArea E: non-rectangular exclusion — hole ring filtered, no coverage inside hole", "[coverage]") {
+TEST_CASE("WorkingArea E: non-rectangular exclusion — hole ring filtered, no coverage inside hole", "[coverage]")
+{
     // Diamond-shaped exclusion inside zone: vertices (5,1),(9,5),(5,9),(1,5).
     // Clipper2 Difference returns a hole ring (Area < 0) for the diamond boundary.
     // computeWorkingArea must filter it — hole must never become a coverage component.
@@ -1353,9 +1600,11 @@ TEST_CASE("WorkingArea E: non-rectangular exclusion — hole ring filtered, no c
 
     // Diamond: center (5,5), half-extents 4 in each direction.
     // Point is well inside if |x-5| + |y-5| < 3.0 (inset margin of 1.0 from edge).
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             const bool deepInsideDiamond =
                 std::abs(p.p.x - 5.0f) + std::abs(p.p.y - 5.0f) < 3.0f;
             REQUIRE_FALSE(deepInsideDiamond);
@@ -1363,16 +1612,23 @@ TEST_CASE("WorkingArea E: non-rectangular exclusion — hole ring filtered, no c
     }
     // Coverage must exist in the corners (outside the diamond)
     bool hasCornerCoverage = false;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             // Top-right corner: x>7, y>7 — clearly outside diamond
-            if (p.p.x > 7.0f && p.p.y > 7.0f) { hasCornerCoverage = true; break; }
+            if (p.p.x > 7.0f && p.p.y > 7.0f)
+            {
+                hasCornerCoverage = true;
+                break;
+            }
         }
     }
     REQUIRE(hasCornerCoverage);
 }
 
-TEST_CASE("WorkingArea F: two exclusions in one zone — all holes respected", "[coverage]") {
+TEST_CASE("WorkingArea F: two exclusions in one zone — all holes respected", "[coverage]")
+{
     // Zone [0,0]-[12,8], two square NoGos: [1,1]-[4,4] and [8,1]-[11,4].
     // Headland and infill must avoid both holes independently.
     // Coverage must still exist between the two exclusions and above them.
@@ -1399,9 +1655,11 @@ TEST_CASE("WorkingArea F: two exclusions in one zone — all holes respected", "
     REQUIRE_FALSE(route.points.empty());
 
     const float margin = 0.1f;
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             // Must not be inside first exclusion [1,1]-[4,4]
             const bool inFirst =
                 p.p.x > 1.0f + margin && p.p.x < 4.0f - margin &&
@@ -1417,20 +1675,25 @@ TEST_CASE("WorkingArea F: two exclusions in one zone — all holes respected", "
     // Coverage must exist between the two holes (x=3.5..8.5, y=1..5) and above them (y>5).
     // Stripe endpoints land at x≈4.0 and x≈8.0, so use loose bounds.
     bool coverageBetween = false;
-    bool coverageAbove   = false;
-    for (const auto& p : route.points) {
+    bool coverageAbove = false;
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_INFILL ||
-            p.semantic == RouteSemantic::COVERAGE_EDGE) {
+            p.semantic == RouteSemantic::COVERAGE_EDGE)
+        {
             if (p.p.x > 3.5f && p.p.x < 8.5f &&
-                p.p.y > 1.0f && p.p.y < 5.0f) coverageBetween = true;
-            if (p.p.y > 5.0f)                  coverageAbove   = true;
+                p.p.y > 1.0f && p.p.y < 5.0f)
+                coverageBetween = true;
+            if (p.p.y > 5.0f)
+                coverageAbove = true;
         }
     }
     REQUIRE(coverageBetween);
     REQUIRE(coverageAbove);
 }
 
-TEST_CASE("WorkingArea G: narrow passage just over strip width — stable, no micro-components", "[coverage]") {
+TEST_CASE("WorkingArea G: narrow passage just over strip width — stable, no micro-components", "[coverage]")
+{
     // Zone [0,0]-[10,10].
     // Two exclusions create a narrow vertical corridor (1.4 m wide) between y=3.5 and y=6.5.
     // Corridor width (1.4 m) is just under 3 strip widths (3×0.5=1.5) but clearly above one.
@@ -1459,9 +1722,11 @@ TEST_CASE("WorkingArea G: narrow passage just over strip width — stable, no mi
     REQUIRE_FALSE(route.points.empty());
 
     const float margin = 0.12f;
-    for (const auto& p : route.points) {
+    for (const auto &p : route.points)
+    {
         if (p.semantic == RouteSemantic::COVERAGE_EDGE ||
-            p.semantic == RouteSemantic::COVERAGE_INFILL) {
+            p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
             // Must not be inside left exclusion [0,3.5]-[4.3,6.5]
             const bool inLeft =
                 p.p.x > 0.0f + margin && p.p.x < 4.3f - margin &&
@@ -1475,19 +1740,160 @@ TEST_CASE("WorkingArea G: narrow passage just over strip width — stable, no mi
         }
     }
     // Coverage must exist in the open top area (y > 7.5) and bottom area (y < 2.5)
-    bool coverageTop    = false;
+    bool coverageTop = false;
     bool coverageBottom = false;
-    for (const auto& p : route.points) {
-        if (p.semantic == RouteSemantic::COVERAGE_INFILL) {
-            if (p.p.y > 7.5f) coverageTop    = true;
-            if (p.p.y < 2.5f) coverageBottom = true;
+    for (const auto &p : route.points)
+    {
+        if (p.semantic == RouteSemantic::COVERAGE_INFILL)
+        {
+            if (p.p.y > 7.5f)
+                coverageTop = true;
+            if (p.p.y < 2.5f)
+                coverageBottom = true;
         }
     }
     REQUIRE(coverageTop);
     REQUIRE(coverageBottom);
 }
 
-TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridmap]") {
+TEST_CASE("WorkingArea H: fully clipped zone produces no fallback coverage", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+            "perimeter":[[0,0],[1,0],[1,1],[0,1]],
+            "zones":[{
+                "id":"z1","order":1,
+                "polygon":[[3,3],[5,3],[5,5],[3,5]],
+                "settings":{
+                    "name":"Outside","stripWidth":0.5,"angle":0,"edgeMowing":true,
+                    "edgeRounds":1,"speed":1.0,"pattern":"stripe",
+                    "reverseAllowed":false,"clearance":0.1}
+            }]
+        })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE(route.points.empty());
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.hasError(RouteErrorCode::ROUTE_EMPTY));
+}
+
+TEST_CASE("WorkingArea I: split components keep deterministic left-to-right ids", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+            "perimeter":[[-1,-1],[11,-1],[11,9],[-1,9]],
+            "exclusions":[[[4,0],[6,0],[6,8],[4,8]]],
+            "zones":[{
+                "id":"z1","order":1,
+                "polygon":[[0,0],[10,0],[10,8],[0,8]],
+                "settings":{
+                    "name":"SplitZone","stripWidth":0.6,"angle":0,"edgeMowing":false,
+                    "edgeRounds":0,"speed":1.0,"pattern":"stripe",
+                    "reverseAllowed":false,"clearance":0.1}
+            }]
+        })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+
+    std::string leftComponentId;
+    std::string rightComponentId;
+    for (const auto &point : route.points)
+    {
+        if (point.semantic != RouteSemantic::COVERAGE_INFILL)
+            continue;
+        if (point.p.x < 3.5f && leftComponentId.empty())
+            leftComponentId = point.componentId;
+        if (point.p.x > 6.5f && rightComponentId.empty())
+            rightComponentId = point.componentId;
+    }
+
+    REQUIRE(leftComponentId == "z1:c1");
+    REQUIRE(rightComponentId == "z1:c2");
+}
+
+TEST_CASE("WorkingArea J: no legal component bypass keeps route invalid without fake transit", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[0,0],[10,0],[10,8],[0,8]],
+      "exclusions":[[[4,0],[6,0],[6,8],[4,8]]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[10,0],[10,8],[0,8]],
+        "settings":{
+          "name":"BlockedSplit","stripWidth":0.6,"angle":0,"edgeMowing":false,
+          "edgeRounds":0,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE_FALSE(route.points.empty());
+    REQUIRE_FALSE(route.valid);
+
+    bool hasBetweenComponents = false;
+    bool hasRightCoverage = false;
+    for (const auto &point : route.points)
+    {
+        if (point.semantic == RouteSemantic::TRANSIT_BETWEEN_COMPONENTS)
+            hasBetweenComponents = true;
+        if (point.semantic == RouteSemantic::COVERAGE_INFILL && point.p.x > 6.5f)
+            hasRightCoverage = true;
+    }
+
+    REQUIRE_FALSE(hasBetweenComponents);
+    REQUIRE_FALSE(hasRightCoverage);
+
+    const auto result = nav::RouteValidator::validate(map, route);
+    REQUIRE(result.hasError(RouteErrorCode::ROUTE_INVALID_TRANSITION));
+}
+
+TEST_CASE("WorkingArea K: inset split keeps infill coverage on all surviving polygons", "[coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[-1,-1],[11,-1],[11,7],[-1,7]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[4.4,0],[4.4,2.6],[5.6,2.6],[5.6,0],[10,0],[10,6],[5.6,6],[5.6,3.4],[4.4,3.4],[4.4,6],[0,6]],
+        "settings":{
+          "name":"InsetSplit","stripWidth":0.5,"angle":0,"edgeMowing":true,
+          "edgeRounds":1,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    nlohmann::json mission = {{"zoneIds", {"z1"}}, {"overrides", nlohmann::json::object()}};
+    const auto route = buildMissionMowRoutePreview(map, mission);
+
+    REQUIRE(route.valid);
+    REQUIRE_FALSE(route.points.empty());
+
+    bool leftInfill = false;
+    bool rightInfill = false;
+    for (const auto &point : route.points)
+    {
+        if (point.semantic != RouteSemantic::COVERAGE_INFILL)
+            continue;
+        if (point.p.x < 4.0f)
+            leftInfill = true;
+        if (point.p.x > 6.0f)
+            rightInfill = true;
+    }
+
+    REQUIRE(leftInfill);
+    REQUIRE(rightInfill);
+}
+
+TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridmap]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[-2,-2],[2,2]]})");
 
@@ -1501,9 +1907,9 @@ TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridma
     const std::vector<Point> rawPath{
         {-2.0f, -2.0f},
         {-1.0f, -1.0f},
-        { 0.0f,  0.0f},
-        { 1.0f,  1.0f},
-        { 2.0f,  2.0f},
+        {0.0f, 0.0f},
+        {1.0f, 1.0f},
+        {2.0f, 2.0f},
     };
 
     const auto smoothed = grid.smoothPath(rawPath);
@@ -1515,7 +1921,8 @@ TEST_CASE("GridMap: smoothPath removes visible intermediate waypoints", "[gridma
     REQUIRE(smoothed.back().y == Approx(rawPath.back().y).margin(1e-5f));
 }
 
-TEST_CASE("Map: replanToCurrentTarget returns to MOW route after free path is consumed", "[map]") {
+TEST_CASE("Map: replanToCurrentTarget returns to MOW route after free path is consumed", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"mow":[[1,0],[3,0],[4,0]]})");
 
@@ -1531,7 +1938,8 @@ TEST_CASE("Map: replanToCurrentTarget returns to MOW route after free path is co
     REQUIRE(map.wayMode == WayType::FREE);
 
     int guard = 0;
-    while (map.wayMode == WayType::FREE && guard++ < 32) {
+    while (map.wayMode == WayType::FREE && guard++ < 32)
+    {
         REQUIRE(map.nextPoint(false, map.targetPoint.x, map.targetPoint.y));
     }
 
@@ -1541,7 +1949,8 @@ TEST_CASE("Map: replanToCurrentTarget returns to MOW route after free path is co
     REQUIRE(map.targetPoint.y == Approx(resumeTarget.y).margin(1e-5f));
 }
 
-TEST_CASE("Map: startDocking returns to DOCK route after free approach path is consumed", "[map]") {
+TEST_CASE("Map: startDocking returns to DOCK route after free approach path is consumed", "[map]")
+{
     auto tmpPath = writeTmpMap(
         R"({"perimeter":[[-5,-5],[5,-5],[5,5],[-5,5]],"dock":[[3,0],[4,0]]})");
 
@@ -1553,7 +1962,8 @@ TEST_CASE("Map: startDocking returns to DOCK route after free approach path is c
     REQUIRE(map.wayMode == WayType::FREE);
 
     int guard = 0;
-    while (map.wayMode == WayType::FREE && guard++ < 32) {
+    while (map.wayMode == WayType::FREE && guard++ < 32)
+    {
         REQUIRE(map.nextPoint(false, map.targetPoint.x, map.targetPoint.y));
     }
 
@@ -1563,27 +1973,71 @@ TEST_CASE("Map: startDocking returns to DOCK route after free approach path is c
     REQUIRE(map.isDocking());
 }
 
+TEST_CASE("Map: replanToCurrentTarget preserves zone context and marks recovery route", "[map][coverage]")
+{
+    Map map;
+    REQUIRE(map.loadJson(nlohmann::json::parse(R"({
+      "perimeter":[[0,0],[6,0],[6,6],[0,6]],
+      "zones":[{
+        "id":"z1","order":1,
+        "polygon":[[0,0],[6,0],[6,6],[0,6]],
+        "settings":{
+          "name":"RecoveryZone","stripWidth":0.5,"angle":0,"edgeMowing":false,
+          "edgeRounds":0,"speed":1.0,"pattern":"stripe",
+          "reverseAllowed":false,"clearance":0.1}
+      }]
+    })")));
+
+    RoutePlan route;
+    route.sourceMode = WayType::MOW;
+    route.active = true;
+    route.points = {
+        RoutePoint{{3.0f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
+        RoutePoint{{5.0f, 1.0f}, false, false, false, 0.1f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
+    };
+
+    REQUIRE(map.startPlannedMowing(0.5f, 1.0f, route));
+    REQUIRE(map.addObstacle(1.8f, 1.0f, 1000u, true));
+    REQUIRE(map.replanToCurrentTarget(0.5f, 1.0f));
+    REQUIRE(map.wayMode == WayType::FREE);
+
+    const auto &recovery = map.freeRoutePlan();
+    REQUIRE_FALSE(recovery.points.empty());
+    for (const auto &point : recovery.points)
+    {
+        REQUIRE(point.semantic == RouteSemantic::RECOVERY);
+        REQUIRE(point.zoneId == "z1");
+        REQUIRE(point.componentId == "z1:c1");
+        REQUIRE(point.p.x >= -0.15f);
+        REQUIRE(point.p.x <= 6.15f);
+        REQUIRE(point.p.y >= -0.15f);
+        REQUIRE(point.p.y <= 6.15f);
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EKF Tests (E.1)
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("EKF: predict step accumulates position uncertainty over time", "[ekf]") {
+TEST_CASE("EKF: predict step accumulates position uncertainty over time", "[ekf]")
+{
     // After odometry-only operation, position uncertainty must grow because
     // the process noise Q adds to the covariance every step.
-    StateEstimator est;   // nullptr config → built-in defaults
+    StateEstimator est; // nullptr config → built-in defaults
 
-    const float unc0 = est.posUncertainty();  // initial ~0.141 m (sqrt(0.01+0.01))
+    const float unc0 = est.posUncertainty(); // initial ~0.141 m (sqrt(0.01+0.01))
 
     OdometryData prime;
     prime.mcuConnected = true;
-    est.update(prime, 20);  // prime — consumes first frame
+    est.update(prime, 20); // prime — consumes first frame
 
     OdometryData fwd;
     fwd.mcuConnected = true;
-    fwd.leftTicks    = 39;   // ~0.0785 m forward per step with built-in defaults
-    fwd.rightTicks   = 39;
+    fwd.leftTicks = 39; // ~0.0785 m forward per step with built-in defaults
+    fwd.rightTicks = 39;
 
-    for (int i = 0; i < 20; ++i) est.update(fwd, 20);
+    for (int i = 0; i < 20; ++i)
+        est.update(fwd, 20);
 
     // Position must have grown (20 × ~0.0785 m)
     REQUIRE(est.x() == Approx(1.57f).margin(0.15f));
@@ -1593,20 +2047,21 @@ TEST_CASE("EKF: predict step accumulates position uncertainty over time", "[ekf]
     REQUIRE(est.fusionMode() == "Odo");
 }
 
-TEST_CASE("EKF: GPS update pulls position toward measurement", "[ekf]") {
+TEST_CASE("EKF: GPS update pulls position toward measurement", "[ekf]")
+{
     // Start at origin, drive ~0.0785 m east, then inject GPS saying (2, 0).
     // The EKF must move x toward 2 but not jump there immediately.
     StateEstimator est;
 
     OdometryData prime;
     prime.mcuConnected = true;
-    est.update(prime, 20);  // prime
+    est.update(prime, 20); // prime
 
     OdometryData fwd;
     fwd.mcuConnected = true;
-    fwd.leftTicks    = 39;
-    fwd.rightTicks   = 39;
-    est.update(fwd, 20);  // odometry says x ≈ 0.0785
+    fwd.leftTicks = 39;
+    fwd.rightTicks = 39;
+    est.update(fwd, 20); // odometry says x ≈ 0.0785
 
     REQUIRE(est.x() == Approx(0.0785f).margin(0.02f));
 
@@ -1615,12 +2070,13 @@ TEST_CASE("EKF: GPS update pulls position toward measurement", "[ekf]") {
 
     // State must move toward GPS measurement
     REQUIRE(est.x() > x_before);
-    REQUIRE(est.x() < 2.0f + 1e-3f);  // Kalman gain < 1 → never overshoots
+    REQUIRE(est.x() < 2.0f + 1e-3f); // Kalman gain < 1 → never overshoots
     REQUIRE(est.gpsHasFix());
     REQUIRE(est.fusionMode() == "EKF+GPS");
 }
 
-TEST_CASE("EKF: GPS failover clears fix after timeout", "[ekf]") {
+TEST_CASE("EKF: GPS failover clears fix after timeout", "[ekf]")
+{
     // After a GPS fix is established, stop delivering fixes and run the
     // predict loop for > 5000 ms (default ekf_gps_failover_ms).
     // gpsHasFix() must become false and fusionMode() must leave EKF+GPS.
@@ -1628,14 +2084,15 @@ TEST_CASE("EKF: GPS failover clears fix after timeout", "[ekf]") {
 
     OdometryData odo;
     odo.mcuConnected = true;
-    est.update(odo, 20);  // prime
+    est.update(odo, 20); // prime
 
     // Establish a GPS fix
     est.updateGps(0.0f, 0.0f, true, false);
     REQUIRE(est.gpsHasFix());
 
     // Run 6000 ms of odometry with no further GPS updates (>5000 ms default)
-    for (int i = 0; i < 300; ++i) est.update(odo, 20);
+    for (int i = 0; i < 300; ++i)
+        est.update(odo, 20);
 
     // Fix must be cleared by failover logic in update()
     REQUIRE_FALSE(est.gpsHasFix());

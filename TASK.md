@@ -80,6 +80,48 @@ Ungültige Missionen sind nicht startbar.
 - [ ] Live-Hardwaretest mit F9P durchführen: korrigierte Signale, RTCM-Alter und Dashboard-Anzeige unter Realbedingungen prüfen.
 - [ ] RTK-Warnschwellen nach Realmessung feinjustieren: insbesondere RTCM-Warnschwelle und Verhalten bei fehlenden korrigierten Signalen.
 
+## Nächster Hauptblock: Komponenten und Transitionen
+
+- [x] Working-Area-Komponenten als explizites Planungsmodell einführen.
+- [x] RoutePoint um componentId erweitern.
+- [x] Transit-Semantik um TRANSIT_BETWEEN_COMPONENTS ergänzen.
+- [x] Coverage-Reihenfolge zuerst lokal innerhalb einer Komponente optimieren.
+- [x] Inter-Komponenten-Transitionen über explizite Policy statt implizit behandeln.
+- [x] RouteValidator um Regeln für unzulässige Komponentenwechsel erweitern.
+
+### Geplante Tests
+
+- [x] Test H - Zwei echte Working-Area-Komponenten, global legal verbindbar.
+- [x] Test I - Zwei echte Komponenten, nicht legal verbindbar.
+- [x] Test J - Mehrere Komponenten mit stabiler, reproduzierbarer Reihenfolge.
+
+## Planner-Konsolidierung (Stand 2026-04-07)
+
+### P1
+
+- [x] Working-Area-Fallback entfernen
+- [x] Offset/Inset auf Polygonmengen umbauen
+- [x] Grid-Endpunktlogik hart machen
+- [x] Runtime-Replan semantikfähig machen
+- [x] Legacy-Startpfade hart trennen: NavToStart und Mow bauen keine Route mehr implizit auf; gültige Startpfade aktivieren die Route vor dem Op-Wechsel
+- [x] Legacy-Map-Zonenstartpfad entfernen: zonenbasierte Starts laufen nur noch über die kompilierte Missionsroute
+
+### P1.5
+
+- [x] Komponentenidentität stabil halten
+- [x] componentId nicht implizit von Clipper-Reihenfolge ableiten
+- [x] deterministische Sortierung pro Build garantieren
+
+### P2
+
+- [x] Validator auf Planner-Regeln anheben
+- [x] Komponentenreihenfolge fachlich definieren
+- [x] Debug-Ausgaben entlang der Planner-Kette schärfen
+
+### P3
+
+- [x] UI-Debug-Layer ausbauen
+
 ## Projektstand (2026-04-04)
 
 ### Backend (C++ / Raspberry Pi)

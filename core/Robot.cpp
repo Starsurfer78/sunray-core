@@ -1006,11 +1006,30 @@ namespace sunray
         return nlohmann::json::object();
     }
 
+    namespace
+    {
+        nlohmann::json adHocZoneMissionDocument(const std::vector<std::string> &zoneIds)
+        {
+            nlohmann::json mission = nlohmann::json::object();
+            mission["id"] = "adhoc-zones";
+            mission["name"] = "Ad-hoc Zone Start";
+            mission["zoneIds"] = zoneIds;
+            mission["overrides"] = nlohmann::json::object();
+            return mission;
+        }
+    }
+
     void Robot::startMowing()
     {
         if (!canStartMowingMission())
             return;
         clearActiveMissionTracking();
+        if (!map_.startMowing(stateEst_.x(), stateEst_.y()))
+        {
+            rejectStartMowingMission("start_rejected_no_mow_points",
+                                     "Start verweigert: Mähroute konnte nicht aktiviert werden");
+            return;
+        }
 
         unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                                                  : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
@@ -1026,7 +1045,21 @@ namespace sunray
 
     void Robot::startMowingZones(const std::vector<std::string> &zoneIds)
     {
-        if (!canStartMowingMission())
+        if (!map_.isLoaded())
+        {
+            rejectStartMowingMission("start_rejected_no_map",
+                                     "Start verweigert: keine aktive Karte geladen");
+            return;
+        }
+        if (zoneIds.empty())
+        {
+            startMowing();
+            return;
+        }
+
+        const nlohmann::json missionDoc = adHocZoneMissionDocument(zoneIds);
+        const nav::RoutePlan plannedRoute = nav::buildMissionMowRoutePreview(map_, missionDoc);
+        if (!canStartPlannedMission(plannedRoute))
             return;
         clearActiveMissionTracking();
 
@@ -1037,7 +1070,17 @@ namespace sunray
                                   stateEst_.x(), stateEst_.y(), stateEst_.heading(),
                                   age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
         armMissionResumeGuard();
-        map_.startMowingZones(stateEst_.x(), stateEst_.y(), zoneIds);
+        activeMissionId_.clear();
+        activeMissionZoneIds_ = zoneIds;
+        activeMissionZoneIndex_ = 0;
+        if (!map_.startPlannedMowing(stateEst_.x(), stateEst_.y(), plannedRoute))
+        {
+            rejectStartMowingMission("start_rejected_no_mow_points",
+                                     "Start verweigert: Zonenroute konnte nicht aktiviert werden");
+            clearActiveMissionTracking();
+            return;
+        }
+        refreshActiveMissionProgress();
         recordEvent("info", "operator_command", "operator_start_mowing_zones",
                     "Zonen-Mähauftrag wurde gestartet");
         opMgr_.changeOperationTypeByOperator(ctx, "Mow");
