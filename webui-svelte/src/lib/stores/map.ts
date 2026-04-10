@@ -1,4 +1,13 @@
 import { writable } from 'svelte/store'
+import {
+  clamp,
+  orientation,
+  onSegment,
+  segmentsIntersect,
+  hasSelfIntersection,
+  type Segment,
+} from '../utils/mapHelpers'
+import { createId } from '../utils/idGenerator'
 
 export interface Point {
   x: number
@@ -69,11 +78,7 @@ export type MapLoadDocument = Omit<Partial<RobotMap>, 'planner' | 'dockMeta'> & 
   dockMeta?: Partial<DockMeta>
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
-}
 
-type Segment = { a: Point; b: Point }
 
 const defaultPlannerSettings: PlannerSettings = {
   defaultClearance: 0.25,
@@ -109,13 +114,6 @@ const initialState: MapState = {
   selectedZoneId: null,
   selectedExclusionIndex: null,
   dirty: false,
-}
-
-function createId(prefix: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `${prefix}-${crypto.randomUUID()}`
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function createZone(id: string, order: number): Zone {
@@ -172,51 +170,7 @@ function normalizeExclusionMeta(meta: ExclusionMeta[] | undefined, exclusionCoun
   return normalized
 }
 
-function orientation(a: Point, b: Point, c: Point) {
-  return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
-}
 
-function onSegment(a: Point, b: Point, c: Point) {
-  return (
-    Math.min(a.x, c.x) <= b.x &&
-    b.x <= Math.max(a.x, c.x) &&
-    Math.min(a.y, c.y) <= b.y &&
-    b.y <= Math.max(a.y, c.y)
-  )
-}
-
-function segmentsIntersect(s1: Segment, s2: Segment) {
-  const o1 = orientation(s1.a, s1.b, s2.a)
-  const o2 = orientation(s1.a, s1.b, s2.b)
-  const o3 = orientation(s2.a, s2.b, s1.a)
-  const o4 = orientation(s2.a, s2.b, s1.b)
-
-  if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true
-  if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true
-  if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true
-  if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true
-
-  return (o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0)
-}
-
-function hasSelfIntersection(points: Point[]) {
-  if (points.length < 4) return false
-
-  const segments: Segment[] = points.map((point, index) => ({
-    a: point,
-    b: points[(index + 1) % points.length],
-  }))
-
-  for (let i = 0; i < segments.length; i += 1) {
-    for (let j = i + 1; j < segments.length; j += 1) {
-      const adjacent = j === i + 1 || (i === 0 && j === segments.length - 1)
-      if (adjacent) continue
-      if (segmentsIntersect(segments[i], segments[j])) return true
-    }
-  }
-
-  return false
-}
 
 function wouldCreateSelfIntersection(points: Point[], point: Point) {
   return hasSelfIntersection([...points, point])

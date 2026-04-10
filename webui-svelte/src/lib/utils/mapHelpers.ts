@@ -58,7 +58,7 @@ export function orientation(a: Point, b: Point, c: Point): number {
 /**
  * Check if point b lies on segment (a, c) when they are collinear.
  */
-function onSegment(a: Point, b: Point, c: Point): boolean {
+export function onSegment(a: Point, b: Point, c: Point): boolean {
     return (
         Math.min(a.x, c.x) <= b.x &&
         b.x <= Math.max(a.x, c.x) &&

@@ -1,17 +1,21 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
-  import { missionStore, type Mission, type MissionZoneOverrides } from '../../stores/missions'
-  import type { Zone } from '../../stores/map'
+  import { createEventDispatcher } from "svelte";
+  import {
+    missionStore,
+    type Mission,
+    type MissionZoneOverrides,
+  } from "../../stores/missions";
+  import type { Zone } from "../../stores/map";
 
-  export let mission: Mission
-  export let zone: Zone | null = null
-  export let color: string = '#a855f7'
-  export let showHeader: boolean = true
+  export let mission: Mission;
+  export let zone: Zone | null = null;
+  export let color: string = "#a855f7";
+  export let showHeader: boolean = true;
 
   const dispatch = createEventDispatcher<{
-    close: void
-    save: void
-  }>()
+    close: void;
+    save: void;
+  }>();
 
   const systemDefaults: Required<MissionZoneOverrides> = {
     stripWidth: 0.18,
@@ -19,25 +23,28 @@
     edgeMowing: true,
     edgeRounds: 1,
     speed: 1.0,
-    pattern: 'stripe',
-  }
+    pattern: "stripe",
+  };
 
-  function effectiveValue<K extends keyof MissionZoneOverrides>(key: K): MissionZoneOverrides[K] {
-    if (!zone) return systemDefaults[key]
-    const override = mission.overrides[zone.id] ?? {}
-    return override[key] ?? systemDefaults[key]
-  }
-
-  function updateOverride<K extends 'stripWidth' | 'angle' | 'edgeMowing' | 'edgeRounds' | 'speed'>(
+  function effectiveValue<K extends keyof MissionZoneOverrides>(
     key: K,
-    value: K extends 'edgeMowing' ? boolean : number,
-  ) {
-    if (!zone) return
-    missionStore.updateMissionZoneOverride(mission.id, zone.id, { [key]: value })
+  ): MissionZoneOverrides[K] {
+    if (!zone) return systemDefaults[key];
+    const override = mission.overrides[zone.id] ?? {};
+    return override[key] ?? systemDefaults[key];
   }
 
-  $: edgeMowing = (effectiveValue('edgeMowing') ?? true) as boolean
-  $: currentAngle = (effectiveValue('angle') ?? 0) as number
+  function updateOverride<
+    K extends "stripWidth" | "angle" | "edgeMowing" | "edgeRounds" | "speed",
+  >(key: K, value: K extends "edgeMowing" ? boolean : number) {
+    if (!zone) return;
+    missionStore.updateMissionZoneOverride(mission.id, zone.id, {
+      [key]: value,
+    });
+  }
+
+  $: edgeMowing = (effectiveValue("edgeMowing") ?? true) as boolean;
+  $: currentAngle = (effectiveValue("angle") ?? 0) as number;
 </script>
 
 {#if zone}
@@ -46,12 +53,17 @@
       <div class="ms-set-header">
         <span class="ms-set-zone-dot" style="background:{color}"></span>
         <span class="ms-set-title">{zone.name}</span>
-        <span class="ms-set-hint">Einstellungen gelten für diese Zone in der aktuellen Mission</span>
-        <button type="button" class="ms-set-close" on:click={() => dispatch('close')}>✕</button>
+        <span class="ms-set-hint"
+          >Einstellungen gelten für diese Zone in der aktuellen Mission</span
+        >
+        <button
+          type="button"
+          class="ms-set-close"
+          on:click={() => dispatch("close")}>✕</button
+        >
       </div>
     {/if}
     <div class="ms-set-body">
-
       <div class="ms-set-field">
         <span class="ms-set-lbl">Schnittbreite</span>
         <input
@@ -61,8 +73,12 @@
           max="1"
           step="0.01"
           style="width:76px"
-          value={effectiveValue('stripWidth') ?? 0.18}
-          on:input={(e) => updateOverride('stripWidth', Number((e.currentTarget as HTMLInputElement).value))}
+          value={effectiveValue("stripWidth") ?? 0.18}
+          on:input={(e) =>
+            updateOverride(
+              "stripWidth",
+              Number((e.currentTarget as HTMLInputElement).value),
+            )}
         />
       </div>
 
@@ -76,7 +92,11 @@
             min="0"
             max="179"
             value={currentAngle}
-            on:input={(e) => updateOverride('angle', Number((e.currentTarget as HTMLInputElement).value))}
+            on:input={(e) =>
+              updateOverride(
+                "angle",
+                Number((e.currentTarget as HTMLInputElement).value),
+              )}
           />
           <span class="ms-ang-val">{currentAngle}°</span>
         </div>
@@ -91,11 +111,15 @@
             <input
               type="checkbox"
               checked={edgeMowing}
-              on:change={(e) => updateOverride('edgeMowing', (e.currentTarget as HTMLInputElement).checked)}
+              on:change={(e) =>
+                updateOverride(
+                  "edgeMowing",
+                  (e.currentTarget as HTMLInputElement).checked,
+                )}
             />
             <span class="ms-toggle-slider"></span>
           </label>
-          <span class="ms-toggle-lbl">{edgeMowing ? 'An' : 'Aus'}</span>
+          <span class="ms-toggle-lbl">{edgeMowing ? "An" : "Aus"}</span>
         </div>
       </div>
 
@@ -109,8 +133,12 @@
           step="1"
           style="width:60px"
           disabled={!edgeMowing}
-          value={effectiveValue('edgeRounds') ?? 1}
-          on:input={(e) => updateOverride('edgeRounds', Number((e.currentTarget as HTMLInputElement).value))}
+          value={effectiveValue("edgeRounds") ?? 1}
+          on:input={(e) =>
+            updateOverride(
+              "edgeRounds",
+              Number((e.currentTarget as HTMLInputElement).value),
+            )}
         />
       </div>
 
@@ -125,16 +153,23 @@
           max="3"
           step="0.1"
           style="width:76px"
-          value={effectiveValue('speed') ?? 1}
-          on:input={(e) => updateOverride('speed', Number((e.currentTarget as HTMLInputElement).value))}
+          value={effectiveValue("speed") ?? 1}
+          on:input={(e) =>
+            updateOverride(
+              "speed",
+              Number((e.currentTarget as HTMLInputElement).value),
+            )}
         />
       </div>
 
       <div class="ms-set-vdiv"></div>
-
     </div>
     <div class="ms-set-actions">
-      <button type="button" class="ms-set-action primary" on:click={() => dispatch('save')}>Speichern</button>
+      <button
+        type="button"
+        class="ms-set-action primary"
+        on:click={() => dispatch("save")}>Speichern</button
+      >
     </div>
   </div>
 {/if}
@@ -188,7 +223,9 @@
     line-height: 1;
   }
 
-  .ms-set-close:hover { color: #94a3b8; }
+  .ms-set-close:hover {
+    color: #94a3b8;
+  }
 
   .ms-set-body {
     display: flex;
@@ -222,8 +259,14 @@
     width: 80px;
   }
 
-  .ms-set-in:focus { outline: none; border-color: #2563eb; }
-  .ms-set-in:disabled { opacity: 0.45; cursor: not-allowed; }
+  .ms-set-in:focus {
+    outline: none;
+    border-color: #2563eb;
+  }
+  .ms-set-in:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 
   .ms-set-vdiv {
     width: 1px;
@@ -239,7 +282,7 @@
     width: 180px;
   }
 
-  .ms-ang-row input[type='range'] {
+  .ms-ang-row input[type="range"] {
     flex: 1;
     accent-color: #60a5fa;
     height: 3px;
@@ -288,7 +331,7 @@
   }
 
   .ms-toggle-slider::before {
-    content: '';
+    content: "";
     position: absolute;
     height: 11px;
     width: 11px;
@@ -299,7 +342,9 @@
     transition: 0.2s;
   }
 
-  .ms-toggle input:checked + .ms-toggle-slider { background: #2563eb; }
+  .ms-toggle input:checked + .ms-toggle-slider {
+    background: #2563eb;
+  }
 
   .ms-toggle input:checked + .ms-toggle-slider::before {
     transform: translateX(13px);

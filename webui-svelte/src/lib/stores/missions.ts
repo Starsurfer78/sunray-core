@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store'
 import type { Zone } from './map'
+import { createMissionId } from '../utils/idGenerator'
 
 export interface MissionSchedule {
   enabled: boolean
@@ -39,13 +40,6 @@ interface MissionState {
 }
 
 const STORAGE_KEY = 'sunray_svelte_missions'
-
-function createMissionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `mission-${crypto.randomUUID()}`
-  }
-  return `mission-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
 
 function defaultSchedule(): MissionSchedule {
   return {
