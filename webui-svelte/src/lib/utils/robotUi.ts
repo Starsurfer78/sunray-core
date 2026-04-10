@@ -1,6 +1,7 @@
 import type { Telemetry } from "../api/types";
 import type { ConnectionState } from "../stores/connection";
 import type { RobotMap } from "../stores/map";
+import { BATTERY_MIN_V, BATTERY_MAX_V } from "../stores/telemetry";
 
 export type UiTone = "success" | "warning" | "error" | "info";
 
@@ -31,7 +32,7 @@ export function humanizeReason(reason: string): string {
 }
 
 export function batteryPercentFromVoltage(voltage: number): number {
-  const raw = ((voltage - 22) / (29.4 - 22)) * 100;
+  const raw = ((voltage - BATTERY_MIN_V) / (BATTERY_MAX_V - BATTERY_MIN_V)) * 100;
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 

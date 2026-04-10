@@ -7,27 +7,10 @@
   import { getMapDocument, type MapZone } from "../api/rest";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
+  import { normalizePoints, normalizeZone } from "../utils/mapHelpers";
 
   let sidebarCollapsed = false;
   let mapCanvas: MapCanvas;
-
-  function normalizePoints(
-    points: Array<[number, number]> | Point[] | undefined,
-  ): Point[] {
-    if (!points) return [];
-    return points.map((point) =>
-      Array.isArray(point) ? { x: point[0], y: point[1] } : point,
-    );
-  }
-
-  function normalizeZone(zone: MapZone, index: number): Zone {
-    return {
-      id: zone.id,
-      name: zone.name ?? `Zone ${index + 1}`,
-      order: zone.order ?? index + 1,
-      polygon: normalizePoints(zone.polygon),
-    };
-  }
 
   async function loadOverviewMap() {
     try {
@@ -39,7 +22,7 @@
           normalizePoints(exclusion as Array<[number, number]>),
         ),
         zones: (map.zones ?? []).map((zone, index) =>
-          normalizeZone(zone, index),
+          normalizeZone(zone as MapZone, index),
         ),
       });
     } catch {

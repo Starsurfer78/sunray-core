@@ -135,6 +135,7 @@ namespace sunray
         using SchedulePutCallback = std::function<nlohmann::json(const nlohmann::json &)>;
         using MapGetCallback = std::function<nlohmann::json()>;
         using HistoryGetCallback = std::function<nlohmann::json(unsigned limit)>;
+        using HistoryClearCallback = std::function<nlohmann::json()>;
         using StatisticsGetCallback = std::function<nlohmann::json()>;
         using StmFlashStateCallback = std::function<void(bool active, uint64_t recoveryGraceMs)>;
 
@@ -210,6 +211,7 @@ namespace sunray
         void onSchedulePut(SchedulePutCallback cb);
         void onHistoryEventsGet(HistoryGetCallback cb);
         void onHistorySessionsGet(HistoryGetCallback cb);
+        void onHistoryClear(HistoryClearCallback cb);
         void onStatisticsSummaryGet(StatisticsGetCallback cb);
 
         // ── Map API ───────────────────────────────────────────────────────────────
@@ -303,6 +305,7 @@ namespace sunray
         std::mutex historyCbMutex_;
         HistoryGetCallback historyEventsGetCb_;
         HistoryGetCallback historySessionsGetCb_;
+        HistoryClearCallback historyClearCb_;
         StatisticsGetCallback statisticsSummaryGetCb_;
 
         // OTA update script path + running flag (POST /api/ota/*)

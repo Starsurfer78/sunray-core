@@ -19,6 +19,13 @@
   import { toast } from "../stores/notificationStore";
   import { withLoading } from "../stores/loadingState";
   import { sendCmd } from "../api/websocket";
+  import {
+    normalizePoints,
+    normalizeZone,
+    orientation,
+    segmentsIntersect,
+    hasSelfIntersection,
+  } from "../utils/mapHelpers";
 
   const weekDays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   const zoneColors = [
@@ -48,70 +55,6 @@
       return `${scope}: Backend-Fehler 500. Ohne geladene Karten- und Missionsdaten bleibt die Vorschau in Missionen weitgehend leer.`;
     }
     return raw;
-  }
-
-  function normalizePoints(
-    points: Array<[number, number]> | Point[] | undefined,
-  ): Point[] {
-    if (!points) return [];
-    return points.map((point) =>
-      Array.isArray(point) ? { x: point[0], y: point[1] } : point,
-    );
-  }
-
-  function normalizeZone(zone: MapZone, index: number): Zone {
-    return {
-      id: zone.id,
-      name: zone.name ?? `Zone ${index + 1}`,
-      order: zone.order ?? index + 1,
-      polygon: normalizePoints(zone.polygon),
-    };
-  }
-
-  type Segment = { a: Point; b: Point };
-
-  function orientation(a: Point, b: Point, c: Point) {
-    return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
-  }
-
-  function onSegment(a: Point, b: Point, c: Point) {
-    return (
-      Math.min(a.x, c.x) <= b.x &&
-      b.x <= Math.max(a.x, c.x) &&
-      Math.min(a.y, c.y) <= b.y &&
-      b.y <= Math.max(a.y, c.y)
-    );
-  }
-
-  function segmentsIntersect(s1: Segment, s2: Segment) {
-    const o1 = orientation(s1.a, s1.b, s2.a);
-    const o2 = orientation(s1.a, s1.b, s2.b);
-    const o3 = orientation(s2.a, s2.b, s1.a);
-    const o4 = orientation(s2.a, s2.b, s1.b);
-
-    if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true;
-    if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true;
-    if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true;
-    if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true;
-
-    return o1 > 0 !== o2 > 0 && o3 > 0 !== o4 > 0;
-  }
-
-  function hasSelfIntersection(points: Point[]) {
-    if (points.length < 4) return false;
-    const segments: Segment[] = points.map((point, index) => ({
-      a: point,
-      b: points[(index + 1) % points.length],
-    }));
-
-    for (let i = 0; i < segments.length; i += 1) {
-      for (let j = i + 1; j < segments.length; j += 1) {
-        const adjacent = j === i + 1 || (i === 0 && j === segments.length - 1);
-        if (adjacent) continue;
-        if (segmentsIntersect(segments[i], segments[j])) return true;
-      }
-    }
-    return false;
   }
 
   function isZoneValid(zone: Zone) {

@@ -1,103 +1,107 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import Dashboard from './lib/pages/Dashboard.svelte'
-  import History from './lib/pages/History.svelte'
-  import Map from './lib/pages/Map.svelte'
-  import Mission from './lib/pages/Mission.svelte'
-  import Settings from './lib/pages/Settings.svelte'
-  import StatusBar from './lib/components/StatusBar.svelte'
-  import GlobalInfoPanel from './lib/components/GlobalInfoPanel.svelte'
-  import NotificationDisplay from './lib/components/NotificationDisplay.svelte'
-  import LoadingStateDisplay from './lib/components/LoadingStateDisplay.svelte'
-  import { sendCmd, startTelemetry, stopTelemetry } from './lib/api/websocket'
-  import { telemetry } from './lib/stores/telemetry'
-  import { connection } from './lib/stores/connection'
-  import { joystickOpen } from './lib/stores/joystick'
-  import { mapInfoOpen } from './lib/stores/mapInfo'
-  import { toast } from './lib/stores/notificationStore'
+  import { onMount } from "svelte";
+  import Dashboard from "./lib/pages/Dashboard.svelte";
+  import History from "./lib/pages/History.svelte";
+  import Map from "./lib/pages/Map.svelte";
+  import Mission from "./lib/pages/Mission.svelte";
+  import Settings from "./lib/pages/Settings.svelte";
+  import StatusBar from "./lib/components/StatusBar.svelte";
+  import GlobalInfoPanel from "./lib/components/GlobalInfoPanel.svelte";
+  import NotificationDisplay from "./lib/components/NotificationDisplay.svelte";
+  import LoadingStateDisplay from "./lib/components/LoadingStateDisplay.svelte";
+  import { sendCmd, startTelemetry, stopTelemetry } from "./lib/api/websocket";
+  import { telemetry } from "./lib/stores/telemetry";
+  import { connection } from "./lib/stores/connection";
+  import { joystickOpen } from "./lib/stores/joystick";
+  import { mapInfoOpen } from "./lib/stores/mapInfo";
+  import { toast } from "./lib/stores/notificationStore";
 
-  type View = 'dashboard' | 'history' | 'map' | 'mission' | 'settings'
-  type NavItem = { id: View | null; label: string; enabled: boolean }
+  type View = "dashboard" | "history" | "map" | "mission" | "settings";
+  type NavItem = { id: View | null; label: string; enabled: boolean };
 
-  let currentView: View = 'dashboard'
-  let lastGlobalErrorKey = ''
+  let currentView: View = "dashboard";
+  let lastGlobalErrorKey = "";
 
   const navItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', enabled: true },
-    { id: 'map', label: 'Karten', enabled: true },
-    { id: 'mission', label: 'Missionen', enabled: true },
-    { id: 'history', label: 'Verlauf', enabled: true },
-    { id: null, label: 'Simulator', enabled: false },
-  ]
+    { id: "dashboard", label: "Dashboard", enabled: true },
+    { id: "map", label: "Karten", enabled: true },
+    { id: "mission", label: "Missionen", enabled: true },
+    { id: "history", label: "Verlauf", enabled: true },
+  ];
 
   function triggerEmergencyStop() {
     if (!$connection.connected) {
-      toast.warning('NOTAUS nicht gesendet: keine Live-Verbindung')
-      return
+      toast.warning("NOTAUS nicht gesendet: keine Live-Verbindung");
+      return;
     }
 
-    const sent = sendCmd('stop')
+    const sent = sendCmd("stop");
     if (!sent) {
-      toast.error('NOTAUS nicht gesendet: Verbindung nicht bereit')
-      return
+      toast.error("NOTAUS nicht gesendet: Verbindung nicht bereit");
+      return;
     }
 
-    toast.success('✓ NOTAUS gesendet - Roboter stoppt sofort')
+    toast.success("✓ NOTAUS gesendet - Roboter stoppt sofort");
   }
 
   function humanizeReason(reason: string) {
     return reason
-      .replace(/^ERR_/, '')
-      .replace(/_/g, ' ')
+      .replace(/^ERR_/, "")
+      .replace(/_/g, " ")
       .toLowerCase()
-      .replace(/^\w/, (c) => c.toUpperCase())
+      .replace(/^\w/, (c) => c.toUpperCase());
   }
 
   $: globalError =
-    $telemetry.op === 'Error'
-      ? ($telemetry.error_code || humanizeReason($telemetry.event_reason || 'Unbekannter Fehler'))
-      : ''
+    $telemetry.op === "Error"
+      ? $telemetry.error_code ||
+        humanizeReason($telemetry.event_reason || "Unbekannter Fehler")
+      : "";
 
   $: globalErrorDetail =
-    $telemetry.op === 'Error' && $telemetry.event_reason
+    $telemetry.op === "Error" && $telemetry.event_reason
       ? humanizeReason($telemetry.event_reason)
-      : ''
+      : "";
 
   $: {
     const errorKey = globalError
       ? `${globalError}|${globalErrorDetail}|${$connection.connected}`
-      : ''
+      : "";
 
-    if (globalError && $connection.connected && errorKey !== lastGlobalErrorKey) {
-      lastGlobalErrorKey = errorKey
+    if (
+      globalError &&
+      $connection.connected &&
+      errorKey !== lastGlobalErrorKey
+    ) {
+      lastGlobalErrorKey = errorKey;
       toast.error(globalError, 8000, {
-        label: 'Roboter zurücksetzen',
+        label: "Roboter zurücksetzen",
         handler: () => {
-          sendCmd('reset')
-          toast.info('Reset-Befehl gesendet...')
+          sendCmd("reset");
+          toast.info("Reset-Befehl gesendet...");
         },
-      })
+      });
     } else if (!globalError) {
-      lastGlobalErrorKey = ''
+      lastGlobalErrorKey = "";
     }
   }
 
   function toggleJoystick() {
-    joystickOpen.update((open) => !open)
+    joystickOpen.update((open) => !open);
   }
 
   function toggleMapInfo() {
-    mapInfoOpen.update((open) => !open)
+    mapInfoOpen.update((open) => !open);
   }
 
   function openSettings() {
-    currentView = 'settings'
+    currentView = "settings";
   }
 
   onMount(() => {
-    startTelemetry()
-    return () => stopTelemetry()
-  })
+    startTelemetry();
+    return () => stopTelemetry();
+  });
 </script>
 
 <main class="app-shell">
@@ -125,7 +129,7 @@
             class:future={!item.enabled}
             disabled={!item.enabled}
             on:click={() => {
-              if (item.id) currentView = item.id
+              if (item.id) currentView = item.id;
             }}
           >
             {item.label}
@@ -137,16 +141,14 @@
         type="button"
         class="topbar-joystick"
         class:active={$joystickOpen}
-        disabled={currentView !== 'dashboard'}
-        title={
-          currentView !== 'dashboard'
-            ? 'Joystick ist im Dashboard verfügbar'
-            : !$connection.connected
-              ? 'Joystick ohne Live-Verbindung nur als UI-Vorschau'
-              : $joystickOpen
-                ? 'Joystick ausblenden'
-                : 'Joystick einblenden'
-        }
+        disabled={currentView !== "dashboard"}
+        title={currentView !== "dashboard"
+          ? "Joystick ist im Dashboard verfügbar"
+          : !$connection.connected
+            ? "Joystick ohne Live-Verbindung nur als UI-Vorschau"
+            : $joystickOpen
+              ? "Joystick ausblenden"
+              : "Joystick einblenden"}
         on:click={toggleJoystick}
       >
         <span aria-hidden="true">🕹</span>
@@ -155,7 +157,7 @@
       <button
         type="button"
         class="topbar-tool-btn"
-        class:active={currentView === 'settings'}
+        class:active={currentView === "settings"}
         title="Einstellungen und Diagnose"
         on:click={openSettings}
       >
@@ -166,11 +168,7 @@
         type="button"
         class="topbar-info-btn"
         class:active={$mapInfoOpen}
-        title={
-          $mapInfoOpen
-            ? 'Info ausblenden'
-            : 'Info einblenden'
-        }
+        title={$mapInfoOpen ? "Info ausblenden" : "Info einblenden"}
         on:click={toggleMapInfo}
       >
         <span aria-hidden="true">i</span>
@@ -180,28 +178,28 @@
 
   <section class="view">
     <GlobalInfoPanel {currentView} />
-    {#if currentView === 'dashboard'}
+    {#if currentView === "dashboard"}
       <Dashboard />
-    {:else if currentView === 'map'}
+    {:else if currentView === "map"}
       <Map />
-    {:else if currentView === 'mission'}
+    {:else if currentView === "mission"}
       <Mission />
-    {:else if currentView === 'history'}
+    {:else if currentView === "history"}
       <History />
-    {:else if currentView === 'settings'}
+    {:else if currentView === "settings"}
       <Settings />
     {/if}
   </section>
 
   <nav class="bottom-nav" aria-label="Hauptnavigation Mobile">
-    {#each navItems.filter(i => i.id !== null) as item}
+    {#each navItems.filter((i) => i.id !== null) as item}
       <button
         type="button"
         class:active={item.id !== null && currentView === item.id}
         class:future={!item.enabled}
         disabled={!item.enabled}
         on:click={() => {
-          if (item.id) currentView = item.id
+          if (item.id) currentView = item.id;
         }}
       >
         {item.label}
@@ -217,7 +215,7 @@
     margin: 0;
     background: #0a0f1a;
     color: #e2e8f0;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   }
 
   .app-shell {
@@ -225,8 +223,11 @@
     display: grid;
     grid-template-rows: auto 1fr;
     overflow: hidden;
-    background:
-      radial-gradient(circle at top, rgba(30, 58, 95, 0.38), transparent 34%),
+    background: radial-gradient(
+        circle at top,
+        rgba(30, 58, 95, 0.38),
+        transparent 34%
+      ),
       #0a0f1a;
   }
 

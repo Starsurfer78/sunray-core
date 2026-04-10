@@ -438,6 +438,12 @@ namespace sunray
         historySessionsGetCb_ = std::move(cb);
     }
 
+    void WebSocketServer::onHistoryClear(HistoryClearCallback cb)
+    {
+        std::lock_guard<std::mutex> lk(historyCbMutex_);
+        historyClearCb_ = std::move(cb);
+    }
+
     void WebSocketServer::onStatisticsSummaryGet(StatisticsGetCallback cb)
     {
         std::lock_guard<std::mutex> lk(historyCbMutex_);
@@ -1977,6 +1983,22 @@ namespace sunray
                 res.set_header("Content-Disposition", "attachment; filename=\"sunray-history.db\"");
                 return res;
             });
+
+        // ── POST /api/history/clear ───────────────────────────────────────────────
+        CROW_ROUTE(app, "/api/history/clear").methods(crow::HTTPMethod::POST)([this, isAuthorized](const crow::request &req) -> crow::response
+                                                                              {
+                if (!isAuthorized(req))
+                    return crow::response(401, R"({"error":"unauthorized"})");
+                nlohmann::json result;
+                {
+                    std::lock_guard<std::mutex> lk(historyCbMutex_);
+                    result = historyClearCb_
+                        ? historyClearCb_()
+                        : nlohmann::json{{"ok", false}, {"error", "history clear callback not set"}};
+                }
+                crow::response res(result.value("ok", true) ? 200 : 503, result.dump());
+                res.set_header("Content-Type", "application/json");
+                return res; });
 
         // ── GET /api/statistics/summary ───────────────────────────────────────────
         CROW_ROUTE(app, "/api/statistics/summary")(

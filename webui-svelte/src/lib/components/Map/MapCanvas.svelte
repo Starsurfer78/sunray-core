@@ -62,6 +62,10 @@
   let pointerCaptured = false;
   let hasAutoFit = false;
 
+  // Import clamp helper, but define a scoped version to keep MapCanvas geometry utilities isolated.
+  // This avoids importing mapHelpers just for one function when there are better local patterns.
+  // If it's used frequently, we can refactor later.
+
   function clamp(value: number, min: number, max: number) {
     return Math.max(min, Math.min(max, value));
   }

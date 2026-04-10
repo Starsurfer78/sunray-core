@@ -19,8 +19,13 @@
   import { telemetry } from "../stores/telemetry";
   import { diagnostics } from "../stores/diagnostics";
   import { getRecoveryNotice, humanizeReason } from "../utils/robotUi";
+  import {
+    getConfigDocument,
+    updateConfigDocument,
+    type ConfigUpdateResponse,
+  } from "../api/rest";
 
-  type Section = "general" | "diagnostics";
+  type Section = "general" | "diagnostics" | "robot" | "mqtt";
 
   let sidebarCollapsed = false;
   let activeSection: Section = "general";
@@ -38,6 +43,18 @@
   let stmDetailTitle = "";
   let stmDetailBody = "";
 
+  // Robot config state
+  let robotConfig: Record<string, any> | null = null;
+  let robotConfigDirty = false;
+  let robotConfigError = "";
+  let robotConfigSaving = false;
+
+  // MQTT config state
+  let mqttConfig: Record<string, any> | null = null;
+  let mqttConfigDirty = false;
+  let mqttConfigError = "";
+  let mqttConfigSaving = false;
+
   $: recoveryNotice = getRecoveryNotice($telemetry);
 
   function openStmDetail(title: string, body: string) {
@@ -51,12 +68,75 @@
     try {
       stmUploadInfo = await getStmUploadedFirmware();
     } catch (error) {
-      stmUploadError = error instanceof Error ? error.message : "STM-Uploadstatus konnte nicht geladen werden";
+      stmUploadError =
+        error instanceof Error
+          ? error.message
+          : "STM-Uploadstatus konnte nicht geladen werden";
+    }
+  }
+
+  async function loadRobotConfig() {
+    robotConfigError = "";
+    try {
+      const config = await getConfigDocument();
+      robotConfig = config;
+      robotConfigDirty = false;
+    } catch (error) {
+      robotConfigError =
+        error instanceof Error
+          ? error.message
+          : "Konfiguration konnte nicht geladen werden";
+    }
+  }
+
+  async function loadMqttConfig() {
+    mqttConfigError = "";
+    try {
+      const config = await getConfigDocument();
+      mqttConfig = config;
+      mqttConfigDirty = false;
+    } catch (error) {
+      mqttConfigError =
+        error instanceof Error
+          ? error.message
+          : "Konfiguration konnte nicht geladen werden";
+    }
+  }
+
+  async function saveRobotConfig() {
+    if (!robotConfig) return;
+    robotConfigSaving = true;
+    robotConfigError = "";
+    try {
+      await updateConfigDocument(robotConfig);
+      robotConfigDirty = false;
+    } catch (error) {
+      robotConfigError =
+        error instanceof Error ? error.message : "Speichern fehlgeschlagen";
+    } finally {
+      robotConfigSaving = false;
+    }
+  }
+
+  async function saveMqttConfig() {
+    if (!mqttConfig) return;
+    mqttConfigSaving = true;
+    mqttConfigError = "";
+    try {
+      await updateConfigDocument(mqttConfig);
+      mqttConfigDirty = false;
+    } catch (error) {
+      mqttConfigError =
+        error instanceof Error ? error.message : "Speichern fehlgeschlagen";
+    } finally {
+      mqttConfigSaving = false;
     }
   }
 
   onMount(() => {
     void loadStmUploadInfo();
+    void loadRobotConfig();
+    void loadMqttConfig();
   });
 
   async function runStmProbe() {
@@ -67,7 +147,8 @@
       stmProbeResult = await stmProbe();
       openStmDetail(stmProbeHeading, stmProbeResult.detail);
     } catch (error) {
-      stmProbeError = error instanceof Error ? error.message : "STM-Probe fehlgeschlagen";
+      stmProbeError =
+        error instanceof Error ? error.message : "STM-Probe fehlgeschlagen";
       openStmDetail("Keine flashfähige Verbindung", stmProbeError);
     } finally {
       stmProbeBusy = false;
@@ -84,7 +165,10 @@
       await loadStmUploadInfo();
       selectedStmFile = null;
     } catch (error) {
-      stmUploadError = error instanceof Error ? error.message : "STM-Firmware konnte nicht hochgeladen werden";
+      stmUploadError =
+        error instanceof Error
+          ? error.message
+          : "STM-Firmware konnte nicht hochgeladen werden";
     } finally {
       stmUploadBusy = false;
     }
@@ -92,7 +176,10 @@
 
   async function handleStmFlash() {
     if (!stmUploadInfo?.exists || stmFlashBusy) return;
-    if (!window.confirm("STM32 wirklich mit der hochgeladenen Firmware flashen?")) return;
+    if (
+      !window.confirm("STM32 wirklich mit der hochgeladenen Firmware flashen?")
+    )
+      return;
 
     stmFlashBusy = true;
     stmFlashError = "";
@@ -100,11 +187,14 @@
     try {
       stmFlashResult = await flashUploadedStm();
       openStmDetail(
-        stmFlashResult.ok ? "STM-Flash erfolgreich" : "STM-Flash fehlgeschlagen",
+        stmFlashResult.ok
+          ? "STM-Flash erfolgreich"
+          : "STM-Flash fehlgeschlagen",
         stmFlashResult.detail,
       );
     } catch (error) {
-      stmFlashError = error instanceof Error ? error.message : "STM-Flash fehlgeschlagen";
+      stmFlashError =
+        error instanceof Error ? error.message : "STM-Flash fehlgeschlagen";
       openStmDetail("STM-Flash fehlgeschlagen", stmFlashError);
     } finally {
       stmFlashBusy = false;
@@ -118,40 +208,60 @@
         ? "Flashfähige Verbindung erkannt"
         : "Keine flashfähige Verbindung";
   $: stmFlashAllowed = $telemetry.op === "Idle" || $telemetry.op === "Charge";
-  $: stmFlashBlockedReason =
-    !stmUploadInfo?.exists
-      ? "Zuerst eine .bin hochladen."
-      : !stmFlashAllowed
-        ? "Flash nur aus Idle oder Charge."
-        : "";
+  $: stmFlashBlockedReason = !stmUploadInfo?.exists
+    ? "Zuerst eine .bin hochladen."
+    : !stmFlashAllowed
+      ? "Flash nur aus Idle oder Charge."
+      : "";
 </script>
 
-<PageLayout {sidebarCollapsed} on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}>
+<PageLayout
+  {sidebarCollapsed}
+  on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
+>
   <div class="settings-page">
-
     <div class="hero">
       <div>
-        <span class="eyebrow">{activeSection === "general" ? "Allgemein" : "Diagnose"}</span>
-        <h1>{activeSection === "general" ? "Systemstatus und Update" : "Hardware und Kalibrierung"}</h1>
-        <p>{activeSection === "general" ? "OTA, Versionen und STM32-Firmware." : "Live-Sensorik und Servicefunktionen gebündelt."}</p>
+        <span class="eyebrow"
+          >{activeSection === "general" ? "Allgemein" : "Diagnose"}</span
+        >
+        <h1>
+          {activeSection === "general"
+            ? "Systemstatus und Update"
+            : "Hardware und Kalibrierung"}
+        </h1>
+        <p>
+          {activeSection === "general"
+            ? "OTA, Versionen und STM32-Firmware."
+            : "Live-Sensorik und Servicefunktionen gebündelt."}
+        </p>
       </div>
     </div>
 
     {#if activeSection === "general"}
-
       <section class="stats-grid">
         <article class="stat-card">
           <span class="label">Runtime</span>
           <strong>{$telemetry.runtime_health || "ok"}</strong>
-          <span class="muted">Op: {$telemetry.op || "—"} · Phase: {$telemetry.state_phase || "—"}</span>
+          <span class="muted"
+            >Op: {$telemetry.op || "—"} · Phase: {$telemetry.state_phase ||
+              "—"}</span
+          >
           <span class="muted">Resume: {$telemetry.resume_target || "—"}</span>
         </article>
 
         <article class="stat-card">
           <span class="label">Version</span>
           <strong>{$telemetry.pi_v || "—"}</strong>
-          <span class="muted">MCU: {$telemetry.mcu_v || "—"} · GPS: {$telemetry.gps_text || "—"}</span>
-          <span class="muted">History: {$telemetry.history_backend_ready ? "bereit" : "nicht bereit"}</span>
+          <span class="muted"
+            >MCU: {$telemetry.mcu_v || "—"} · GPS: {$telemetry.gps_text ||
+              "—"}</span
+          >
+          <span class="muted"
+            >History: {$telemetry.history_backend_ready
+              ? "bereit"
+              : "nicht bereit"}</span
+          >
         </article>
 
         <article class="stat-card">
@@ -175,28 +285,43 @@
         </div>
 
         <div class="stm-steps">
-
           <div class="stm-step">
             <span class="step-num">1</span>
             <div class="step-body">
               <strong>SWD-Verbindung prüfen</strong>
-              <p>Testet ob Alfred aktuell eine flashfähige Verbindung zum STM32 aufbauen kann.</p>
+              <p>
+                Testet ob Alfred aktuell eine flashfähige Verbindung zum STM32
+                aufbauen kann.
+              </p>
               <div class="step-actions">
-                <button type="button" class="btn" disabled={stmProbeBusy} on:click={runStmProbe}>
+                <button
+                  type="button"
+                  class="btn"
+                  disabled={stmProbeBusy}
+                  on:click={runStmProbe}
+                >
                   {stmProbeBusy ? "Prüfe …" : "SWD prüfen"}
                 </button>
                 {#if stmProbeResult || stmProbeError}
                   <button
                     type="button"
                     class="btn-ghost"
-                    on:click={() => openStmDetail(stmProbeHeading, stmProbeResult?.detail ?? stmProbeError)}
+                    on:click={() =>
+                      openStmDetail(
+                        stmProbeHeading,
+                        stmProbeResult?.detail ?? stmProbeError,
+                      )}
                   >
                     Ausgabe ansehen
                   </button>
                 {/if}
               </div>
               {#if stmProbeResult}
-                <div class="result-row" class:ok={stmProbeResult.ok} class:err={!stmProbeResult.ok}>
+                <div
+                  class="result-row"
+                  class:ok={stmProbeResult.ok}
+                  class:err={!stmProbeResult.ok}
+                >
                   {stmProbeHeading}
                 </div>
               {:else if stmProbeError}
@@ -221,7 +346,11 @@
                       selectedStmFile = input.files?.[0] ?? null;
                     }}
                   />
-                  <span>{selectedStmFile ? selectedStmFile.name : "Datei wählen …"}</span>
+                  <span
+                    >{selectedStmFile
+                      ? selectedStmFile.name
+                      : "Datei wählen …"}</span
+                  >
                 </label>
                 <button
                   type="button"
@@ -238,7 +367,11 @@
                 <div class="result-row ok">
                   {stmUploadInfo.original_name || "rm18-upload.bin"} ·
                   {Math.round((stmUploadInfo.size_bytes ?? 0) / 1024)} KB ·
-                  {stmUploadInfo.uploaded_at_ms ? new Date(stmUploadInfo.uploaded_at_ms).toLocaleString("de-DE") : "—"}
+                  {stmUploadInfo.uploaded_at_ms
+                    ? new Date(stmUploadInfo.uploaded_at_ms).toLocaleString(
+                        "de-DE",
+                      )
+                    : "—"}
                 </div>
               {:else}
                 <div class="result-row">Noch keine Firmware hochgeladen.</div>
@@ -250,7 +383,10 @@
             <span class="step-num">3</span>
             <div class="step-body">
               <strong>Hochgeladene Firmware flashen</strong>
-              <p>Nur aus <code>Idle</code> oder <code>Charge</code> und nach erfolgreichem Upload.</p>
+              <p>
+                Nur aus <code>Idle</code> oder <code>Charge</code> und nach erfolgreichem
+                Upload.
+              </p>
               <div class="step-actions">
                 <button
                   type="button"
@@ -267,10 +403,13 @@
                   <button
                     type="button"
                     class="btn-ghost"
-                    on:click={() => openStmDetail(
-                      stmFlashResult?.ok ? "STM-Flash erfolgreich" : "STM-Flash fehlgeschlagen",
-                      stmFlashResult?.detail ?? ""
-                    )}
+                    on:click={() =>
+                      openStmDetail(
+                        stmFlashResult?.ok
+                          ? "STM-Flash erfolgreich"
+                          : "STM-Flash fehlgeschlagen",
+                        stmFlashResult?.detail ?? "",
+                      )}
                   >
                     Ausgabe ansehen
                   </button>
@@ -281,12 +420,9 @@
               {/if}
             </div>
           </div>
-
         </div>
       </div>
-
-    {:else}
-
+    {:else if activeSection === "diagnostics"}
       <div class="diag-summary">
         <div class={`state-card ${recoveryNotice.tone}`}>
           <span class="label">Betriebszustand</span>
@@ -301,7 +437,8 @@
             <span class="text-err">{$diagnostics.error}</span>
           {:else if $diagnostics.lastResult}
             <span class="text-ok">
-              {$diagnostics.lastResult.message ?? ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
+              {$diagnostics.lastResult.message ??
+                ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
             </span>
           {:else}
             <span class="muted">Noch kein Ergebnis</span>
@@ -319,7 +456,276 @@
         <TickCalibration />
         <DirectionValidation />
       </div>
+    {:else if activeSection === "robot"}
+      <div class="hero">
+        <div>
+          <span class="eyebrow">Roboter-Einstellungen</span>
+          <h1>Motor- und Dock-Konfiguration</h1>
+          <p>
+            Verhalten des Antriebssystems, automatischer Dock und
+            Sensorkalibrierung.
+          </p>
+        </div>
+      </div>
 
+      {#if robotConfig}
+        <section class="config-section">
+          <div class="config-group">
+            <h3>Antrieb</h3>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.invert_left_motor}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Linken Motor invertieren
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.invert_right_motor}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Rechten Motor invertieren
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Ticks pro Radumdrehung:
+                <input
+                  type="number"
+                  bind:value={robotConfig.ticks_per_revolution}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h3>Dock</h3>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.dock_auto_start}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Nach Laden automatisch weitermähen
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.dock_front_side}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Mit Vorderseite einkapseln
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Max. Dock-Dauer (ms):
+                <input
+                  type="number"
+                  bind:value={robotConfig.dock_max_duration_ms}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h3>Sensoren</h3>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.enable_lift_detection}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Hubsensor aktivwirt
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.lift_obstacle_avoidance}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Hindernisausweichen beim Hubsensor
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={robotConfig.enable_tilt_detection}
+                  on:change={() => (robotConfigDirty = true)}
+                />
+                Kipp-Erkennung aktivieren
+              </label>
+            </div>
+          </div>
+
+          {#if robotConfigError}
+            <div class="error-msg">{robotConfigError}</div>
+          {/if}
+
+          <div class="action-buttons">
+            <button
+              type="button"
+              class="btn"
+              disabled={!robotConfigDirty || robotConfigSaving}
+              on:click={saveRobotConfig}
+            >
+              {robotConfigSaving ? "Speichert …" : "Speichern"}
+            </button>
+          </div>
+        </section>
+      {:else}
+        <div class="error-msg">Konfiguration lädt …</div>
+      {/if}
+    {:else if activeSection === "mqtt"}
+      <div class="hero">
+        <div>
+          <span class="eyebrow">MQTT-Integration</span>
+          <h1>Telemetrie und Remote-Commands</h1>
+          <p>Verbindung zu MQTT-Broker für Echtzeit-Daten und Steuerung.</p>
+        </div>
+      </div>
+
+      {#if mqttConfig}
+        <section class="config-section">
+          <div class="config-group">
+            <h3>Verbindung</h3>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={mqttConfig.mqtt_enabled}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+                MQTT aktivieren
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Host:
+                <input
+                  type="text"
+                  bind:value={mqttConfig.mqtt_host}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Port:
+                <input
+                  type="number"
+                  bind:value={mqttConfig.mqtt_port}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Keep-Alive (Sekunden):
+                <input
+                  type="number"
+                  bind:value={mqttConfig.mqtt_keepalive_s}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h3>Authentifizierung</h3>
+            <div class="config-field">
+              <label>
+                Benutzername (optional):
+                <input
+                  type="text"
+                  bind:value={mqttConfig.mqtt_user}
+                  on:change={() => (mqttConfigDirty = true)}
+                  placeholder="Leer für anonyme Verbindung"
+                />
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Passwort (optional):
+                <input
+                  type="password"
+                  bind:value={mqttConfig.mqtt_pass}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h3>Topics</h3>
+            <div class="config-field">
+              <label>
+                Topic-Präfix:
+                <input
+                  type="text"
+                  bind:value={mqttConfig.mqtt_topic_prefix}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h3>Home Assistant Integration</h3>
+            <div class="config-field">
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={mqttConfig.mqtt_homeassistant_discovery}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+                Home Assistant Discovery aktivieren
+              </label>
+            </div>
+            <div class="config-field">
+              <label>
+                Discovery-Präfix:
+                <input
+                  type="text"
+                  bind:value={mqttConfig.mqtt_homeassistant_prefix}
+                  on:change={() => (mqttConfigDirty = true)}
+                />
+              </label>
+            </div>
+          </div>
+
+          {#if mqttConfigError}
+            <div class="error-msg">{mqttConfigError}</div>
+          {/if}
+
+          <div class="action-buttons">
+            <button
+              type="button"
+              class="btn"
+              disabled={!mqttConfigDirty || mqttConfigSaving}
+              on:click={saveMqttConfig}
+            >
+              {mqttConfigSaving ? "Speichert …" : "Speichern"}
+            </button>
+          </div>
+        </section>
+      {:else}
+        <div class="error-msg">Konfiguration lädt …</div>
+      {/if}
     {/if}
   </div>
 
@@ -350,6 +756,24 @@
         <div class="nav-title">Diagnose</div>
         <div class="nav-sub">Sensoren, Kalibrierung, Motor-Tests</div>
       </button>
+      <button
+        type="button"
+        class="nav-btn"
+        class:active={activeSection === "robot"}
+        on:click={() => (activeSection = "robot")}
+      >
+        <div class="nav-title">Roboter</div>
+        <div class="nav-sub">Motor, Dock, Sensoren</div>
+      </button>
+      <button
+        type="button"
+        class="nav-btn"
+        class:active={activeSection === "mqtt"}
+        on:click={() => (activeSection = "mqtt")}
+      >
+        <div class="nav-title">MQTT</div>
+        <div class="nav-sub">Telemetrie, Remote-Commands</div>
+      </button>
     </div>
 
     <div class="sr-sec">
@@ -368,7 +792,8 @@
         <div class="sr-err">{$diagnostics.error}</div>
       {:else if $diagnostics.lastResult}
         <div class="sr-ok">
-          {$diagnostics.lastResult.message ?? ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
+          {$diagnostics.lastResult.message ??
+            ($diagnostics.lastResult.ok ? "erfolgreich" : "fehlgeschlagen")}
         </div>
       {:else}
         <div class="sr-muted">Noch kein Ergebnis</div>
@@ -385,7 +810,11 @@
     aria-label="STM-Details schließen"
     on:click={() => (showStmDetail = false)}
     on:keydown={(event) => {
-      if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+      if (
+        event.key === "Escape" ||
+        event.key === "Enter" ||
+        event.key === " "
+      ) {
         showStmDetail = false;
       }
     }}
@@ -404,7 +833,11 @@
           <span class="eyebrow">STM32 Firmware</span>
           <h3>{stmDetailTitle}</h3>
         </div>
-        <button type="button" class="btn-ghost" on:click={() => (showStmDetail = false)}>
+        <button
+          type="button"
+          class="btn-ghost"
+          on:click={() => (showStmDetail = false)}
+        >
           Schließen
         </button>
       </div>
@@ -430,8 +863,11 @@
     display: grid;
     gap: 1rem;
     align-content: start;
-    background:
-      radial-gradient(circle at top right, rgba(30, 58, 95, 0.2), transparent 40%),
+    background: radial-gradient(
+        circle at top right,
+        rgba(30, 58, 95, 0.2),
+        transparent 40%
+      ),
       linear-gradient(180deg, rgba(7, 13, 24, 0.98), rgba(10, 15, 26, 0.98));
   }
 
@@ -452,10 +888,21 @@
     margin-bottom: 0.35rem;
   }
 
-  h1, h2, h3 { margin: 0; }
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+  }
 
-  h1 { font-size: 1.45rem; line-height: 1.1; color: #f8fafc; }
-  h2 { font-size: 1rem; color: #e2e8f0; }
+  h1 {
+    font-size: 1.45rem;
+    line-height: 1.1;
+    color: #f8fafc;
+  }
+  h2 {
+    font-size: 1rem;
+    color: #e2e8f0;
+  }
 
   .hero p {
     margin: 0.35rem 0 0;
@@ -583,8 +1030,14 @@
     font-size: 0.82rem;
   }
 
-  .result-row.ok { border-color: #166534; color: #86efac; }
-  .result-row.err { border-color: #7f1d1d; color: #fca5a5; }
+  .result-row.ok {
+    border-color: #166534;
+    color: #86efac;
+  }
+  .result-row.err {
+    border-color: #7f1d1d;
+    color: #fca5a5;
+  }
 
   /* ── Buttons ────────────────────────────────────────── */
   .btn {
@@ -598,8 +1051,13 @@
     font-size: 0.84rem;
   }
 
-  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  .btn:not(:disabled):hover { border-color: #3b82f6; }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .btn:not(:disabled):hover {
+    border-color: #3b82f6;
+  }
 
   .btn-ghost {
     padding: 0.55rem 0.9rem;
@@ -611,7 +1069,10 @@
     font-size: 0.84rem;
   }
 
-  .btn-ghost:hover { border-color: #3b82f6; color: #93c5fd; }
+  .btn-ghost:hover {
+    border-color: #3b82f6;
+    color: #93c5fd;
+  }
 
   .btn-danger {
     padding: 0.55rem 0.9rem;
@@ -624,8 +1085,14 @@
     font-size: 0.84rem;
   }
 
-  .btn-danger:not(:disabled):hover { border-color: #ef4444; color: #fecaca; }
-  .btn-danger:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-danger:not(:disabled):hover {
+    border-color: #ef4444;
+    color: #fecaca;
+  }
+  .btn-danger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 
   .hint {
     color: #64748b;
@@ -649,7 +1116,10 @@
     text-overflow: ellipsis;
   }
 
-  .file-label:hover { border-color: #3b82f6; color: #93c5fd; }
+  .file-label:hover {
+    border-color: #3b82f6;
+    color: #93c5fd;
+  }
 
   .file-input {
     position: absolute;
@@ -676,16 +1146,36 @@
     border: 1px solid #1e3a5f;
   }
 
-  .state-card.success { border-color: #166534; }
-  .state-card.warning { border-color: #92400e; }
-  .state-card.error   { border-color: #7f1d1d; }
-  .state-card.info    { border-color: #1d4ed8; }
+  .state-card.success {
+    border-color: #166534;
+  }
+  .state-card.warning {
+    border-color: #92400e;
+  }
+  .state-card.error {
+    border-color: #7f1d1d;
+  }
+  .state-card.info {
+    border-color: #1d4ed8;
+  }
 
-  .state-card strong { color: #e2e8f0; font-size: 0.95rem; }
+  .state-card strong {
+    color: #e2e8f0;
+    font-size: 0.95rem;
+  }
 
-  .action-text { color: #dbeafe; font-size: 0.82rem; }
-  .text-ok     { color: #86efac; font-size: 0.82rem; }
-  .text-err    { color: #fca5a5; font-size: 0.82rem; }
+  .action-text {
+    color: #dbeafe;
+    font-size: 0.82rem;
+  }
+  .text-ok {
+    color: #86efac;
+    font-size: 0.82rem;
+  }
+  .text-err {
+    color: #fca5a5;
+    font-size: 0.82rem;
+  }
 
   .diagnostics-grid {
     display: grid;
@@ -755,7 +1245,9 @@
     color: #94a3b8;
     cursor: pointer;
     text-align: left;
-    transition: background 120ms, border-color 120ms;
+    transition:
+      background 120ms,
+      border-color 120ms;
   }
 
   .nav-btn:hover {
@@ -784,12 +1276,116 @@
     color: #7a8da8;
   }
 
-  .sr-stbig { font-size: 14px; font-weight: 500; color: #60a5fa; }
-  .sr-detail { font-size: 11px; color: #64748b; line-height: 1.4; }
-  .sr-action { font-size: 11px; color: #dbeafe; }
-  .sr-ok     { font-size: 11px; color: #86efac; }
-  .sr-err    { font-size: 11px; color: #fca5a5; }
-  .sr-muted  { font-size: 11px; color: #64748b; }
+  .sr-stbig {
+    font-size: 14px;
+    font-weight: 500;
+    color: #60a5fa;
+  }
+  .sr-detail {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.4;
+  }
+  .sr-action {
+    font-size: 11px;
+    color: #dbeafe;
+  }
+  .sr-ok {
+    font-size: 11px;
+    color: #86efac;
+  }
+  .sr-err {
+    font-size: 11px;
+    color: #fca5a5;
+  }
+  .sr-muted {
+    font-size: 11px;
+    color: #64748b;
+  }
+
+  /* ── Config sections ────────────────────────────────── */
+  .config-section {
+    padding: 1rem;
+    border-radius: 1rem;
+    background: rgba(15, 24, 41, 0.95);
+    border: 1px solid #1e3a5f;
+    display: grid;
+    gap: 1.2rem;
+  }
+
+  .config-group {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .config-group h3 {
+    font-size: 0.95rem;
+    color: #e2e8f0;
+    margin: 0;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid #1e3a5f;
+  }
+
+  .config-field {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .config-field label {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+  }
+
+  .config-field label input[type="checkbox"] {
+    cursor: pointer;
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: #60a5fa;
+  }
+
+  .config-field label input[type="text"],
+  .config-field label input[type="password"],
+  .config-field label input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    padding: 0.45rem 0.65rem;
+    border-radius: 0.45rem;
+    background: #0b1220;
+    border: 1px solid #1e3a5f;
+    color: #f1f5f9;
+    font-size: 0.85rem;
+  }
+
+  .config-field label input[type="text"]:focus,
+  .config-field label input[type="password"]:focus,
+  .config-field label input[type="number"]:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .config-field label input::placeholder {
+    color: #64748b;
+  }
+
+  .error-msg {
+    padding: 0.75rem 1rem;
+    border-radius: 0.45rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+    font-size: 0.85rem;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 0.65rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #1e3a5f;
+  }
 
   /* ── Modal ──────────────────────────────────────────── */
   .probe-modal-backdrop {
@@ -863,9 +1459,15 @@
     display: inline-block;
   }
 
-  .dot.red    { background: #ef4444; }
-  .dot.yellow { background: #f59e0b; }
-  .dot.green  { background: #22c55e; }
+  .dot.red {
+    background: #ef4444;
+  }
+  .dot.yellow {
+    background: #f59e0b;
+  }
+  .dot.green {
+    background: #22c55e;
+  }
 
   .probe-terminal-title {
     margin-left: 0.35rem;

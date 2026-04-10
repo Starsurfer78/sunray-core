@@ -181,6 +181,7 @@ namespace sunray
         nlohmann::json getHistoryEvents(unsigned limit = 100) const;
         nlohmann::json getHistorySessions(unsigned limit = 100) const;
         nlohmann::json getHistoryStatisticsSummary() const;
+        nlohmann::json clearHistory() const;
         nlohmann::json getMapJson() const;
 
         /// Direct pose override (e.g. from AT+P command / Mission Service setpos).

@@ -481,6 +481,10 @@ export async function getStatisticsSummary(): Promise<HistorySummaryResponse> {
   return response.json() as Promise<HistorySummaryResponse>
 }
 
+export function clearHistoryDb(): Promise<ConfigUpdateResponse> {
+  return postJson<ConfigUpdateResponse>('/api/history/clear', {})
+}
+
 export function createMissionDocument(payload: MissionDocument) {
   return postJson<ConfigUpdateResponse, MissionDocument>('/api/missions', payload)
 }

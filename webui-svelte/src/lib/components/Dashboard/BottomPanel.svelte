@@ -1,43 +1,57 @@
 <script lang="ts">
-  import { afterUpdate } from 'svelte'
-  import { logStore } from '../../stores/logs'
-  import { telemetry } from '../../stores/telemetry'
-  import { commandFeedback } from '../../stores/commandFeedback'
+  import { afterUpdate } from "svelte";
+  import { logStore } from "../../stores/logs";
+  import { telemetry } from "../../stores/telemetry";
+  import { commandFeedback } from "../../stores/commandFeedback";
+  import { RAD_TO_DEG } from "../../utils/mapHelpers";
 
-  let open = false
-  let activeTab: 'log' | 'gps' = 'log'
-  let logEl: HTMLDivElement | null = null
-  let autoScroll = true
-  const tabs: Array<{ id: 'log' | 'gps'; label: string }> = [
-    { id: 'log', label: 'Log' },
-    { id: 'gps', label: 'GPS' },
-  ]
-
-  const RAD_TO_DEG = 180 / Math.PI
+  let open = false;
+  let activeTab: "log" | "gps" = "log";
+  let logEl: HTMLDivElement | null = null;
+  let autoScroll = true;
+  const tabs: Array<{ id: "log" | "gps"; label: string }> = [
+    { id: "log", label: "Log" },
+    { id: "gps", label: "GPS" },
+  ];
 
   function onScroll() {
-    if (!logEl) return
-    autoScroll = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4
+    if (!logEl) return;
+    autoScroll = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
   }
 
   afterUpdate(() => {
-    if (activeTab === 'log' && open && autoScroll && logEl) {
-      logEl.scrollTop = logEl.scrollHeight
+    if (activeTab === "log" && open && autoScroll && logEl) {
+      logEl.scrollTop = logEl.scrollHeight;
     }
-  })
+  });
 
   function formatTime(ts: number): string {
-    return new Date(ts).toTimeString().slice(0, 8)
+    return new Date(ts).toTimeString().slice(0, 8);
   }
 
-  $: gpsFixLabel = $telemetry.gps_sol === 4 ? 'RTK-Fix' : $telemetry.gps_sol === 5 ? 'RTK-Float' : 'Kein Fix'
-  $: gpsFixColor = $telemetry.gps_sol === 4 ? '#4ade80' : $telemetry.gps_sol === 5 ? '#fbbf24' : '#f87171'
-  $: headingDeg = (((($telemetry.heading ?? 0) * RAD_TO_DEG) % 360) + 360) % 360
+  $: gpsFixLabel =
+    $telemetry.gps_sol === 4
+      ? "RTK-Fix"
+      : $telemetry.gps_sol === 5
+        ? "RTK-Float"
+        : "Kein Fix";
+  $: gpsFixColor =
+    $telemetry.gps_sol === 4
+      ? "#4ade80"
+      : $telemetry.gps_sol === 5
+        ? "#fbbf24"
+        : "#f87171";
+  $: headingDeg =
+    (((($telemetry.heading ?? 0) * RAD_TO_DEG) % 360) + 360) % 360;
 </script>
 
 <div class="bp" class:open>
   {#if $commandFeedback}
-    <div class={`bp-notice ${$commandFeedback.tone}`} role="status" aria-live="polite">
+    <div
+      class={`bp-notice ${$commandFeedback.tone}`}
+      role="status"
+      aria-live="polite"
+    >
       {$commandFeedback.message}
     </div>
   {/if}
@@ -50,25 +64,27 @@
           type="button"
           class="bp-tab"
           class:active={activeTab === id}
-          on:click={() => { activeTab = id; open = true }}
+          on:click={() => {
+            activeTab = id;
+            open = true;
+          }}
         >
           {label}
-          {#if id === 'log' && $logStore.length > 0}
+          {#if id === "log" && $logStore.length > 0}
             <span class="bp-badge">{$logStore.length}</span>
           {/if}
         </button>
       {/each}
     </div>
     <button type="button" class="bp-toggle" on:click={() => (open = !open)}>
-      {open ? '▾' : '▴'}
+      {open ? "▾" : "▴"}
     </button>
   </div>
 
   {#if open}
     <div class="bp-body">
-
       <!-- Log -->
-      {#if activeTab === 'log'}
+      {#if activeTab === "log"}
         <div
           class="bp-log"
           bind:this={logEl}
@@ -88,16 +104,22 @@
           {/if}
         </div>
         <div class="bp-foot">
-          <button type="button" class="bp-clear" on:click={() => logStore.clear()}>Leeren</button>
+          <button
+            type="button"
+            class="bp-clear"
+            on:click={() => logStore.clear()}>Leeren</button
+          >
         </div>
 
-      <!-- GPS Detail -->
-      {:else if activeTab === 'gps'}
+        <!-- GPS Detail -->
+      {:else if activeTab === "gps"}
         <div class="bp-gps">
           <div class="bp-grow">
             <div class="bp-gcell">
               <div class="bp-glbl">Fix</div>
-              <div class="bp-gval" style="color: {gpsFixColor}">{gpsFixLabel}</div>
+              <div class="bp-gval" style="color: {gpsFixColor}">
+                {gpsFixLabel}
+              </div>
             </div>
             <div class="bp-gcell">
               <div class="bp-glbl">Solution</div>
@@ -105,15 +127,19 @@
             </div>
             <div class="bp-gcell">
               <div class="bp-glbl">Status</div>
-              <div class="bp-gval bp-gsmall">{$telemetry.gps_text || '—'}</div>
+              <div class="bp-gval bp-gsmall">{$telemetry.gps_text || "—"}</div>
             </div>
             <div class="bp-gcell">
               <div class="bp-glbl">Breitengrad</div>
-              <div class="bp-gval bp-gmono">{$telemetry.gps_lat.toFixed(8)}°</div>
+              <div class="bp-gval bp-gmono">
+                {$telemetry.gps_lat.toFixed(8)}°
+              </div>
             </div>
             <div class="bp-gcell">
               <div class="bp-glbl">Längengrad</div>
-              <div class="bp-gval bp-gmono">{$telemetry.gps_lon.toFixed(8)}°</div>
+              <div class="bp-gval bp-gmono">
+                {$telemetry.gps_lon.toFixed(8)}°
+              </div>
             </div>
             <div class="bp-gcell">
               <div class="bp-glbl">X lokal</div>
@@ -130,7 +156,6 @@
           </div>
         </div>
       {/if}
-
     </div>
   {/if}
 </div>
@@ -184,11 +209,20 @@
     letter-spacing: 0.07em;
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
 
-  .bp-tab:hover { color: #94a3b8; background: rgba(30, 58, 95, 0.3); }
-  .bp-tab.active { color: #60a5fa; background: rgba(15, 24, 41, 0.8); border-bottom: 2px solid #2563eb; }
+  .bp-tab:hover {
+    color: #94a3b8;
+    background: rgba(30, 58, 95, 0.3);
+  }
+  .bp-tab.active {
+    color: #60a5fa;
+    background: rgba(15, 24, 41, 0.8);
+    border-bottom: 2px solid #2563eb;
+  }
 
   .bp-badge {
     background: #1e3a5f;
@@ -209,7 +243,9 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .bp-toggle:hover { color: #94a3b8; }
+  .bp-toggle:hover {
+    color: #94a3b8;
+  }
 
   .bp-body {
     background: rgba(7, 13, 24, 0.97);
@@ -236,10 +272,17 @@
     font-family: monospace;
     line-height: 1.5;
   }
-  .bp-log-entry:hover { background: rgba(30, 58, 95, 0.2); }
+  .bp-log-entry:hover {
+    background: rgba(30, 58, 95, 0.2);
+  }
 
-  .bp-ts { color: #475569; flex-shrink: 0; }
-  .bp-log-text { color: #94a3b8; }
+  .bp-ts {
+    color: #475569;
+    flex-shrink: 0;
+  }
+  .bp-log-text {
+    color: #94a3b8;
+  }
 
   .bp-foot {
     display: flex;
@@ -258,10 +301,17 @@
     padding: 2px 8px;
     cursor: pointer;
   }
-  .bp-clear:hover { border-color: #2563eb; color: #60a5fa; }
+  .bp-clear:hover {
+    border-color: #2563eb;
+    color: #60a5fa;
+  }
 
   /* GPS */
-  .bp-gps { flex: 1; overflow-y: auto; padding: 8px; }
+  .bp-gps {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
   .bp-grow {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -273,10 +323,24 @@
     border-radius: 6px;
     padding: 6px 8px;
   }
-  .bp-glbl { font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
-  .bp-gval { font-size: 13px; font-weight: 500; color: #93c5fd; }
-  .bp-gsmall { font-size: 11px; }
-  .bp-gmono { font-family: monospace; }
+  .bp-glbl {
+    font-size: 9px;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+  }
+  .bp-gval {
+    font-size: 13px;
+    font-weight: 500;
+    color: #93c5fd;
+  }
+  .bp-gsmall {
+    font-size: 11px;
+  }
+  .bp-gmono {
+    font-family: monospace;
+  }
 
   .bp-empty {
     padding: 10px 14px;

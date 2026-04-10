@@ -4,11 +4,16 @@
   import { connection } from "../stores/connection";
   import { mapInfoOpen } from "../stores/mapInfo";
   import { mappingTestMode } from "../stores/mapUi";
+  import { CONNECTION_FRESH_MS, clamp } from "../utils/mapHelpers";
 
-  export let currentView: "dashboard" | "history" | "map" | "mission" | "settings";
+  export let currentView:
+    | "dashboard"
+    | "history"
+    | "map"
+    | "mission"
+    | "settings";
 
   let nowMs = Date.now();
-  const CONNECTION_FRESH_MS = 5000;
   let panelX = 16;
   let panelY = 84;
   let dragging = false;
@@ -20,7 +25,8 @@
       ? Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000))
       : null;
   $: connectionFresh =
-    $connection.connected && nowMs - $connection.lastSeen <= CONNECTION_FRESH_MS;
+    $connection.connected &&
+    nowMs - $connection.lastSeen <= CONNECTION_FRESH_MS;
   $: gpsStatus =
     $telemetry.gps_sol === 4
       ? "RTK Fix"
@@ -35,17 +41,14 @@
       : connectionAgeSeconds !== null
         ? `alt (${connectionAgeSeconds}s)`
         : "verbunden";
-  $: missionIndex = $telemetry.mission_zone_count > 0
-    ? `${Math.max(1, $telemetry.mission_zone_index || 1)}/${$telemetry.mission_zone_count}`
-    : "—";
+  $: missionIndex =
+    $telemetry.mission_zone_count > 0
+      ? `${Math.max(1, $telemetry.mission_zone_index || 1)}/${$telemetry.mission_zone_count}`
+      : "—";
   $: dockContact = $telemetry.charger_connected ? "ja" : "nein";
   $: resumeTarget = $telemetry.resume_target || "—";
   $: systemHealth = $telemetry.runtime_health || "ok";
   $: statePhase = $telemetry.state_phase || "—";
-
-  function clamp(value: number, min: number, max: number) {
-    return Math.max(min, Math.min(max, value));
-  }
 
   function onHeaderPointerDown(event: PointerEvent) {
     dragging = true;
@@ -58,14 +61,24 @@
     if (!dragging) return;
     const panelWidth = 384;
     const panelHeight = 280;
-    panelX = clamp(event.clientX - dragOffsetX, 8, window.innerWidth - panelWidth - 8);
-    panelY = clamp(event.clientY - dragOffsetY, 72, window.innerHeight - panelHeight - 8);
+    panelX = clamp(
+      event.clientX - dragOffsetX,
+      8,
+      window.innerWidth - panelWidth - 8,
+    );
+    panelY = clamp(
+      event.clientY - dragOffsetY,
+      72,
+      window.innerHeight - panelHeight - 8,
+    );
   }
 
   function onHeaderPointerUp(event: PointerEvent) {
     dragging = false;
     try {
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+      (event.currentTarget as HTMLElement).releasePointerCapture(
+        event.pointerId,
+      );
     } catch {
       // ignore
     }
@@ -98,7 +111,11 @@
       <strong>Info</strong>
       <div class="global-info-actions">
         <span>ziehen zum Verschieben</span>
-        <button type="button" class="global-info-close" on:click|stopPropagation={closePanel}>
+        <button
+          type="button"
+          class="global-info-close"
+          on:click|stopPropagation={closePanel}
+        >
           Schließen
         </button>
       </div>
@@ -107,10 +124,18 @@
       <div class="global-info-card">
         <span class="global-info-label">GPS / RTK</span>
         <strong>{gpsStatus}</strong>
-        <span>Acc: {$telemetry.gps_acc > 0 ? `${$telemetry.gps_acc.toFixed(2)} m` : "—"}</span>
+        <span
+          >Acc: {$telemetry.gps_acc > 0
+            ? `${$telemetry.gps_acc.toFixed(2)} m`
+            : "—"}</span
+        >
         <span>Qualität: {gpsSignal} / sol {$telemetry.gps_sol || "—"}</span>
         <span>EKF: {$telemetry.ekf_health || "—"}</span>
-        <span>Link: {connectionAgeSeconds !== null ? `${connectionAgeSeconds}s` : "—"}</span>
+        <span
+          >Link: {connectionAgeSeconds !== null
+            ? `${connectionAgeSeconds}s`
+            : "—"}</span
+        >
       </div>
 
       <div class="global-info-card">

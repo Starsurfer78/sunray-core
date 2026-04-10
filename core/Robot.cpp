@@ -1520,6 +1520,22 @@ namespace sunray
         return historyDb_.buildSummary(*logger_);
     }
 
+    nlohmann::json Robot::clearHistory() const
+    {
+        if (!historyDb_.enabled())
+        {
+            return nlohmann::json{{"ok", false}, {"error", "history database is disabled"}};
+        }
+        if (historyDb_.clear(*logger_))
+        {
+            return nlohmann::json{{"ok", true}};
+        }
+        else
+        {
+            return nlohmann::json{{"ok", false}, {"error", "failed to clear history database"}};
+        }
+    }
+
     void Robot::setPose(float x, float y, float heading)
     {
         stateEst_.setPose(x, y, heading);

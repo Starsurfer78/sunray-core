@@ -434,6 +434,8 @@ int main(int argc, char *argv[])
                                  { return robot.getHistoryEvents(limit); });
     wsServer->onHistorySessionsGet([&robot](unsigned limit) -> nlohmann::json
                                    { return robot.getHistorySessions(limit); });
+    wsServer->onHistoryClear([&robot]() -> nlohmann::json
+                             { return robot.clearHistory(); });
     wsServer->onStatisticsSummaryGet([&robot]() -> nlohmann::json
                                      { return robot.getHistoryStatisticsSummary(); });
 

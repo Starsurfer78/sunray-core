@@ -1,6 +1,11 @@
 import { derived, writable } from 'svelte/store'
 import { defaultTelemetry, type Telemetry } from '../api/types'
 
+// Battery voltage range for percent calculation (LiPo 4S with 6 cells)
+// Min: 22V (3.67V per cell), Max: 29.4V (4.9V per cell)
+export const BATTERY_MIN_V = 22
+export const BATTERY_MAX_V = 29.4
+
 function createTelemetryStore() {
   const { subscribe, set, update } = writable<Telemetry>({ ...defaultTelemetry })
 
@@ -15,7 +20,7 @@ function createTelemetryStore() {
 export const telemetry = createTelemetryStore()
 
 export const batteryPercent = derived(telemetry, ($telemetry) => {
-  const raw = (($telemetry.battery_v - 22) / (29.4 - 22)) * 100
+  const raw = (($telemetry.battery_v - BATTERY_MIN_V) / (BATTERY_MAX_V - BATTERY_MIN_V)) * 100
   return Math.max(0, Math.min(100, Math.round(raw)))
 })
 

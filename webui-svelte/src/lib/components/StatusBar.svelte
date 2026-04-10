@@ -1,32 +1,39 @@
 <script lang="ts">
-  import { batteryPercent, telemetry } from '../stores/telemetry'
-  import { connection, connectionLabel } from '../stores/connection'
+  import { batteryPercent, telemetry } from "../stores/telemetry";
+  import { connection, connectionLabel } from "../stores/connection";
 
-  export let compact = false
+  export let compact = false;
 
-  const formatNumber = (value: number | string | null | undefined, digits = 1) =>
-    typeof value === 'number' ? value.toFixed(digits) : '---'
+  const formatNumber = (
+    value: number | string | null | undefined,
+    digits = 1,
+  ) => (typeof value === "number" ? value.toFixed(digits) : "---");
 
   const formatText = (value: string | null | undefined) =>
-    typeof value === 'string' && value.trim().length > 0 ? value : '---'
+    typeof value === "string" && value.trim().length > 0 ? value : "---";
 
-  $: isChargingState = $telemetry.op === 'Charge' || $telemetry.state_phase === 'charging'
+  $: isChargingState =
+    $telemetry.op === "Charge" || $telemetry.state_phase === "charging";
   $: chargeStateLabel =
     isChargingState && $telemetry.charge_a > 0.05
-      ? `Laedt ${formatNumber($telemetry.charge_a, 2)} A`
+      ? `Lädt ${formatNumber($telemetry.charge_a, 2)} A`
       : $telemetry.charge_v >= 7
         ? `Dockkontakt ${formatNumber($telemetry.charge_v)} V`
-        : 'Kein Dock'
+        : "Kein Dock";
 </script>
 
 <div class:compact class="statusbar">
-  <div class="pill conn" class:ok={$connection.connected} class:bad={!$connection.connected}>
+  <div
+    class="pill conn"
+    class:ok={$connection.connected}
+    class:bad={!$connection.connected}
+  >
     <span class="dot"></span>
     {$connectionLabel}
   </div>
 
   <div class="pill op">
-    {$telemetry.op || 'idle'}
+    {$telemetry.op || "idle"}
   </div>
 
   <div class="pill">
@@ -42,7 +49,7 @@
 
   <div class="pill">
     <span class="label">GPS</span>
-    <strong>{$telemetry.gps_text || '---'}</strong>
+    <strong>{$telemetry.gps_text || "---"}</strong>
   </div>
 
   <div class="pill">

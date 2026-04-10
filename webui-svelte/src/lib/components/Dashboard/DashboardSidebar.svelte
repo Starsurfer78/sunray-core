@@ -9,10 +9,10 @@
   import { mapStore } from "../../stores/map";
   import { missionStore } from "../../stores/missions";
   import { getPreflightChecks } from "../../utils/robotUi";
+  import { RAD_TO_DEG } from "../../utils/mapHelpers";
 
   let nowMs = Date.now();
 
-  const RAD_TO_DEG = 180 / Math.PI;
   const RTCM_WARN_MS = 5000;
 
   $: preflight = getPreflightChecks(

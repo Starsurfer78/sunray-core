@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { gpsQuality, telemetry } from '../stores/telemetry'
-
-  const RAD_TO_DEG = 180 / Math.PI
+  import { gpsQuality, telemetry } from "../stores/telemetry";
+  import { RAD_TO_DEG } from "../utils/mapHelpers";
 </script>
 
 <section class="panel">
@@ -15,7 +14,7 @@
       <span class="label">Position lokal</span>
       <strong>{$telemetry.x.toFixed(2)} m / {$telemetry.y.toFixed(2)} m</strong>
       <span class="muted">
-        Pose {(($telemetry.heading * RAD_TO_DEG)).toFixed(1)} deg · {$telemetry.ekf_health}
+        Pose {($telemetry.heading * RAD_TO_DEG).toFixed(1)} deg · {$telemetry.ekf_health}
       </span>
     </article>
 
@@ -28,12 +27,14 @@
     <article class="card">
       <span class="label">IMU</span>
       <strong>H {$telemetry.imu_h.toFixed(1)} deg</strong>
-      <span class="muted">R {$telemetry.imu_r.toFixed(1)} deg / P {$telemetry.imu_p.toFixed(1)} deg</span>
+      <span class="muted"
+        >R {$telemetry.imu_r.toFixed(1)} deg / P {$telemetry.imu_p.toFixed(1)} deg</span
+      >
     </article>
 
     <article class="card">
       <span class="label">Diag</span>
-      <strong>{$telemetry.diag_active ? 'Laeuft' : 'Aus'}</strong>
+      <strong>{$telemetry.diag_active ? "Läuft" : "Aus"}</strong>
       <span class="muted">Ticks {$telemetry.diag_ticks}</span>
     </article>
   </div>
