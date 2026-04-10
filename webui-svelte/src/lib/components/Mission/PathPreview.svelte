@@ -295,22 +295,26 @@
   ): SemanticRun[] {
     const pts = route?.points;
     if (!pts || pts.length < 2) return [];
+    const pointAt = (i: number): Point => ({ x: pts[i].p[0], y: pts[i].p[1] });
+
     const runs: SemanticRun[] = [];
-    let current: SemanticRun = {
-      semantic: pts[0].semantic ?? "unknown",
-      points: [{ x: pts[0].p[0], y: pts[0].p[1] }],
-    };
-    for (let i = 1; i < pts.length; i++) {
+
+    let currentSemantic: RouteSemantic =
+      pts[1].semantic ?? pts[0].semantic ?? "unknown";
+    let currentPoints: Point[] = [pointAt(0), pointAt(1)];
+
+    for (let i = 2; i < pts.length; i++) {
       const sem: RouteSemantic = pts[i].semantic ?? "unknown";
-      current.points.push({ x: pts[i].p[0], y: pts[i].p[1] });
-      if (sem !== current.semantic || i === pts.length - 1) {
-        runs.push(current);
-        current = {
-          semantic: sem,
-          points: [{ x: pts[i].p[0], y: pts[i].p[1] }],
-        };
+      if (sem === currentSemantic) {
+        currentPoints.push(pointAt(i));
+      } else {
+        runs.push({ semantic: currentSemantic, points: currentPoints });
+        currentSemantic = sem;
+        currentPoints = [pointAt(i - 1), pointAt(i)];
       }
     }
+    runs.push({ semantic: currentSemantic, points: currentPoints });
+
     return runs;
   }
 
