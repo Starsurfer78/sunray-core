@@ -1520,7 +1520,7 @@ namespace sunray
         return historyDb_.buildSummary(*logger_);
     }
 
-    nlohmann::json Robot::clearHistory() const
+    nlohmann::json Robot::clearHistory()
     {
         if (!historyDb_.enabled())
         {
