@@ -1,3 +1,12 @@
+// PidController.cpp — compact PID implementation used by drive control.
+//
+// The controller intentionally stays small and predictable:
+//   - no internal gain storage
+//   - no output clamping
+//   - only mild anti-windup via integral clamping
+// Higher-level drive code remains responsible for choosing gains and for
+// clamping the final actuator command to the allowed PWM range.
+
 #include "core/control/PidController.h"
 
 #include <algorithm>
@@ -13,6 +22,8 @@ void PidController::reset() {
 float PidController::update(float error, float dt_s, float kp, float ki, float kd) {
     if (dt_s <= 0.0f) return kp * error;
 
+    // Keep the integrator bounded so long saturation periods do not dominate
+    // the response once the wheel speed catches up again.
     integral_ += error * dt_s;
     integral_ = std::clamp(integral_, -1.0f, 1.0f);
 

@@ -19,6 +19,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _commandBusy = false;
   bool _joystickVisible = false;
+  String? _lastUiMessage;
 
   static const Set<String> _activePhases = <String>{
     'mowing', 'docking', 'undocking', 'navigating_to_start',
@@ -39,6 +40,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final hasConnectionNotice = status.lastError != null &&
         (status.connectionState == ConnectionStateKind.error ||
             status.connectionState == ConnectionStateKind.connecting);
+
+    ref.listen<RobotStatus>(connectionStateProvider, (previous, next) {
+      final msg = next.uiMessage;
+      if (msg != null && msg.isNotEmpty && msg != _lastUiMessage) {
+        _lastUiMessage = msg;
+        final color = switch (next.uiSeverity) {
+          'error' => Colors.red.shade700,
+          'warn'  => Colors.orange.shade700,
+          _       => const Color(0xFF1E40AF),
+        };
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: color,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      } else if (msg == null || msg.isEmpty) {
+        _lastUiMessage = null;
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -145,7 +167,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Future<void> _runAction(VoidCallback action) async {
     if (_commandBusy) return;
     setState(() => _commandBusy = true);
-    action();
+    try {
+      action();
+    } catch (_) {
+      // Prevent _commandBusy from staying true if the action throws synchronously.
+    }
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (mounted) setState(() => _commandBusy = false);
   }
@@ -175,19 +201,47 @@ class _StatusOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final (gpsLabel, gpsColor) = _gpsInfo(status.rtkState);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _Chip(icon: Icons.battery_charging_full_rounded,
-              label: status.batteryPercent != null ? '${status.batteryPercent}%' : '--'),
+        _Chip(
+          icon: Icons.battery_charging_full_rounded,
+          label: status.batteryPercent != null ? '${status.batteryPercent}%' : '--',
+          color: _batteryColor(status.batteryPercent),
+        ),
         const SizedBox(height: 4),
-        _Chip(icon: Icons.gps_fixed_rounded,
-              label: status.rtkState ?? 'GPS --'),
+        _Chip(
+          icon: Icons.gps_fixed_rounded,
+          label: gpsLabel,
+          color: gpsColor,
+        ),
         const SizedBox(height: 4),
-        _Chip(icon: Icons.directions_walk_rounded,
-              label: _phaseLabel(status.statePhase ?? 'idle')),
+        _Chip(
+          icon: Icons.directions_walk_rounded,
+          label: _phaseLabel(status.statePhase ?? 'idle'),
+        ),
       ],
     );
+  }
+
+  static Color _batteryColor(int? percent) {
+    if (percent == null) return const Color(0xFFCBD5E1);
+    if (percent <= 20) return const Color(0xFFEF4444);
+    if (percent <= 40) return const Color(0xFFF97316);
+    if (percent <= 60) return const Color(0xFFFACC15);
+    return const Color(0xFF4ADE80);
+  }
+
+  static (String, Color) _gpsInfo(String? rtkState) {
+    return switch (rtkState) {
+      'RTK Fixed' => ('GPS \u2713', const Color(0xFF4ADE80)),
+      'RTK Float' => ('GPS ~', const Color(0xFFFACC15)),
+      'Single'    => ('GPS schwach', const Color(0xFFF97316)),
+      'No Fix'    => ('Kein GPS', const Color(0xFFEF4444)),
+      null        => ('GPS --', const Color(0xFF94A3B8)),
+      _           => (rtkState!, const Color(0xFF94A3B8)),
+    };
   }
 
   static String _phaseLabel(String phase) {
@@ -207,12 +261,14 @@ class _StatusOverlay extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.icon, required this.label});
+  const _Chip({required this.icon, required this.label, this.color});
   final IconData icon;
   final String label;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveColor = color ?? const Color(0xFFCBD5E1);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -222,6 +278,17 @@ class _Chip extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 13, color: effectiveColor),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  color: effectiveColor, fontSize: 12, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+}
         children: <Widget>[
           Icon(icon, size: 13, color: const Color(0xFFCBD5E1)),
           const SizedBox(width: 5),
@@ -305,6 +372,24 @@ class _RunningStateBar extends StatelessWidget {
                               color: Color(0xFF94A3B8), fontSize: 12)),
                     ],
                   ),
+                if (status.mowDistanceM != null) ...<Widget>[
+                  const SizedBox(width: 12),
+                  const Icon(Icons.straighten_rounded, size: 14, color: Color(0xFF94A3B8)),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${status.mowDistanceM!.toStringAsFixed(0)} m',
+                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  ),
+                ],
+                if (status.mowDurationSec != null) ...<Widget>[
+                  const SizedBox(width: 12),
+                  const Icon(Icons.timer_outlined, size: 14, color: Color(0xFF94A3B8)),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatDuration(status.mowDurationSec!),
+                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  ),
+                ],
               ],
             ),
           ),
@@ -326,6 +411,13 @@ class _RunningStateBar extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _formatDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h > 0) return '${h}h ${m.toString().padLeft(2, '0')}m';
+    return '${m}m';
   }
 }
 
@@ -402,7 +494,7 @@ class _CheckItem extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   color: done ? const Color(0xFF4ADE80) : const Color(0xFFFCA5A5),
                   fontWeight: FontWeight.w500,
                 ),
@@ -410,7 +502,7 @@ class _CheckItem extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               if (!done)
-                const Text('→', style: TextStyle(fontSize: 10, color: Color(0xFFFCA5A5))),
+                const Text('→', style: TextStyle(fontSize: 12, color: Color(0xFFFCA5A5))),
             ],
           ),
         ),
@@ -467,12 +559,17 @@ class _BottomActionBar extends StatelessWidget {
               ),
             if (!isActive) const SizedBox(width: 8),
             Expanded(
-              child: OutlinedButton.icon(
+              child: FilledButton.icon(
                 onPressed: isConnected && !busy ? onStop : null,
-                icon: const Icon(Icons.pause_circle_rounded, size: 18),
+                icon: const Icon(Icons.stop_rounded, size: 18),
                 label: const Text('Stop'),
-                style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFB91C1C),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFF7F1D1D),
+                  disabledForegroundColor: const Color(0xFF9CA3AF),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                ),
               ),
             ),
             const SizedBox(width: 8),

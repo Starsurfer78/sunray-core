@@ -1,3 +1,12 @@
+// DifferentialDriveController.cpp — wheel-speed feedback controller.
+//
+// Control flow:
+//   1. build an open-loop base PWM from the desired robot motion
+//   2. if feedback is unavailable, return that base command unchanged
+//   3. estimate measured left/right wheel speeds from odometry ticks
+//   4. low-pass filter the measured speeds to reduce tick noise
+//   5. apply one PID correction per wheel and clamp the final PWM
+
 #include "core/control/DifferentialDriveController.h"
 
 #include <algorithm>
@@ -19,6 +28,8 @@ DrivePwmCommand DifferentialDriveController::compute(const Config& config,
                                                      float angular_radps,
                                                      const OdometryData& odometry,
                                                      unsigned long dt_ms) {
+    // Always compute the open-loop baseline first; it doubles as the fallback
+    // path whenever wheel feedback is unavailable.
     const auto base = OpenLoopDriveController::compute(config, linear_ms, angular_radps);
     lastCommandedLinear_ms_ = linear_ms;
 
@@ -42,6 +53,8 @@ DrivePwmCommand DifferentialDriveController::compute(const Config& config,
     const float rightMeasured = static_cast<float>(odometry.rightTicks) * metresPerTick / dt_s;
 
     const float lp = std::clamp(config.get<float>("motor_pid_lp", 0.0f), 0.0f, 1.0f);
+    // Optional first-order low-pass filter to make the PID react less strongly
+    // to single noisy odometry intervals.
     if (!filterInitialized_ || lp <= 0.0f) {
         leftFiltered_ms_ = leftMeasured;
         rightFiltered_ms_ = rightMeasured;

@@ -30,6 +30,7 @@
 
 #include "core/Config.h"
 #include "core/Logger.h"
+#include "core/navigation/Route.h" // nav::MissionPlan (N6.1)
 
 #include <nlohmann/json.hpp>
 
@@ -79,37 +80,43 @@ namespace sunray
             bool mow_overload = false;
             bool mow_permanent_fault = false;
             bool mow_ov_check = false;
-            unsigned long uptime_s = 0;          ///< seconds since robot start
-            bool diag_active = false;            ///< true while a diag motor test is running
-            long diag_ticks = 0;                 ///< accumulated encoder ticks in current diag test
-            std::string mcu_version = "";        ///< MCU firmware version (e.g. "rm18-v1.0")
-            float imu_heading = 0.0f;            ///< integrated yaw [deg]
-            float imu_roll = 0.0f;               ///< roll [deg]
-            float imu_pitch = 0.0f;              ///< pitch [deg]
-            std::string ekf_health = "Odo";      ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
-            std::string runtime_health = "ok";   ///< compact runtime health: ok | degraded | fault
-            bool mcu_connected = false;          ///< latest odometry/MCU connectivity state
-            bool mcu_comm_loss = false;          ///< latched Pi-side MCU communication-loss fault
-            bool gps_signal_lost = false;        ///< short-outage GPS degradation latch
-            bool gps_fix_timeout = false;        ///< prolonged GPS outage latch
-            bool battery_low = false;            ///< low-battery dock request guard active
-            bool battery_critical = false;       ///< critical-battery stop guard active
-            bool recovery_active = false;        ///< runtime is in a recoverable degraded/retry phase
-            bool watchdog_event_active = false;  ///< recent watchdog fault notice still active
-            unsigned long ts_ms = 0;             ///< telemetry timestamp since robot start [ms]
-            unsigned long state_since_ms = 0;    ///< active op begin timestamp since robot start [ms]
-            std::string state_phase = "idle";    ///< stable business phase for UI/diagnostics
-            std::string resume_target = "";      ///< explicit resume op when state is recoverable
-            std::string event_reason = "none";   ///< human/machine-readable dominant event reason
-            std::string error_code = "";         ///< stable error code when a fault state is active
-            std::string ui_message = "";         ///< transient user-facing message for WebUI
-            std::string ui_severity = "info";    ///< info | warn | error
-            bool history_backend_ready = false;  ///< true when central history DB is available
-            std::string session_id = "";         ///< backend-led active mowing session id
-            long long session_started_at_ms = 0; ///< unix epoch ms of active session start
-            std::string mission_id = "";         ///< active mission id if started from Mission UI
-            int mission_zone_index = 0;          ///< 1-based active mission zone index
-            int mission_zone_count = 0;          ///< total number of zones in active mission
+            unsigned long uptime_s = 0;           ///< seconds since robot start
+            bool diag_active = false;             ///< true while a diag motor test is running
+            long diag_ticks = 0;                  ///< accumulated encoder ticks in current diag test
+            std::string mcu_version = "";         ///< MCU firmware version (e.g. "rm18-v1.0")
+            float imu_heading = 0.0f;             ///< integrated yaw [deg]
+            float imu_roll = 0.0f;                ///< roll [deg]
+            float imu_pitch = 0.0f;               ///< pitch [deg]
+            std::string ekf_health = "Odo";       ///< fusion mode: "EKF+GPS" | "EKF+IMU" | "Odo"
+            std::string runtime_health = "ok";    ///< compact runtime health: ok | degraded | fault
+            bool mcu_connected = false;           ///< latest odometry/MCU connectivity state
+            bool mcu_comm_loss = false;           ///< latched Pi-side MCU communication-loss fault
+            bool gps_signal_lost = false;         ///< short-outage GPS degradation latch
+            bool gps_fix_timeout = false;         ///< prolonged GPS outage latch
+            bool battery_low = false;             ///< low-battery dock request guard active
+            bool battery_critical = false;        ///< critical-battery stop guard active
+            bool recovery_active = false;         ///< runtime is in a recoverable degraded/retry phase
+            bool watchdog_event_active = false;   ///< recent watchdog fault notice still active
+            unsigned long ts_ms = 0;              ///< telemetry timestamp since robot start [ms]
+            unsigned long state_since_ms = 0;     ///< active op begin timestamp since robot start [ms]
+            std::string state_phase = "idle";     ///< stable business phase for UI/diagnostics
+            std::string resume_target = "";       ///< explicit resume op when state is recoverable
+            std::string event_reason = "none";    ///< human/machine-readable dominant event reason
+            std::string error_code = "";          ///< stable error code when a fault state is active
+            std::string ui_message = "";          ///< transient user-facing message for WebUI
+            std::string ui_severity = "info";     ///< info | warn | error
+            bool history_backend_ready = false;   ///< true when central history DB is available
+            std::string session_id = "";          ///< backend-led active mowing session id
+            long long session_started_at_ms = 0;  ///< unix epoch ms of active session start
+            std::string mission_id = "";          ///< active mission id if started from Mission UI
+            int mission_zone_index = 0;           ///< 1-based active mission zone index
+            int mission_zone_count = 0;           ///< total number of zones in active mission
+            int waypoint_index = -1;              ///< N4.1: current waypoint index in active plan (-1 = inactive)
+            int waypoint_total = 0;               ///< N4.1: total waypoints in active plan
+            float target_x = 0.0f;                ///< N4.3: current navigation target X (world m)
+            float target_y = 0.0f;                ///< N4.3: current navigation target Y (world m)
+            bool has_target = false;              ///< N4.3: true when target_x/y is valid
+            bool has_interrupted_mission = false; ///< N6.3: true when a plan was saved on dock (resume available)
         };
 
         // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -166,6 +173,14 @@ namespace sunray
         /// Thread-safe: stores the latest telemetry snapshot for the next broadcast.
         void pushTelemetry(const TelemetryData &data);
 
+        /// N4.2: push the active mission plan (called when a plan starts/clears).
+        /// Pass an empty JSON object {} to clear the stored plan.
+        void pushActivePlan(nlohmann::json planJson);
+
+        /// N5.1/N5.2: push the live map overlay (obstacles + active detour).
+        /// Called from tickTelemetry() — must be thread-safe.
+        void pushLiveOverlay(nlohmann::json overlayJson);
+
         /// Broadcast a raw NMEA sentence to all connected WebSocket clients.
         /// Sends {"type":"nmea","line":"<sentence>"} immediately.
         /// Thread-safe: may be called from any thread.
@@ -210,6 +225,11 @@ namespace sunray
         void onMapGet(MapGetCallback cb);
         void onMapReload(MapReloadCallback cb);
 
+        /// N6.1: callback fired after each successful planner-preview computation.
+        /// The MissionPlan is the exact plan that was returned to the frontend.
+        using PlanPreviewCallback = std::function<void(nav::MissionPlan)>;
+        void onPlanPreview(PlanPreviewCallback cb);
+
         /// Set the path of the missions JSON file served by /api/missions.
         /// Must be called before start().
         void setMissionPath(const std::string &missionPath);
@@ -249,6 +269,12 @@ namespace sunray
         // Latest telemetry snapshot (written by pushTelemetry, read by push loop)
         mutable std::mutex telemetryMutex_;
         TelemetryData latestTelemetry_;
+
+        mutable std::mutex activePlanMutex_; ///< N4.2: guards activePlanJson_
+        nlohmann::json activePlanJson_;      ///< N4.2: current active plan (empty = no plan)
+
+        mutable std::mutex liveOverlayMutex_; ///< N5: guards liveOverlayJson_
+        nlohmann::json liveOverlayJson_;      ///< N5: obstacles + detour (updated from tickTelemetry)
         bool hasNewTelemetry_ = false;
 
         // NMEA queue: broadcastNmea() enqueues here; only serverThread_ dequeues+sends
@@ -294,6 +320,7 @@ namespace sunray
         std::mutex mapCatalogMutex_;
         MapGetCallback mapGetCallback_;
         MapReloadCallback mapReloadCallback_;
+        PlanPreviewCallback planPreviewCallback_; // N6.1
 
         // Pimpl: hides all Crow types from this header
         struct Impl;

@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunray WebUI - Desktop/Tablet Preview</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #09111c;
+            --panel: #0f1829;
+            --panel-2: #111d30;
+            --panel-3: #0a1321;
+            --line: #1e3a5f;
+            --text: #d9e5f2;
+            --muted: #7890ab;
+            --blue: #68a9ff;
+            --green: #5fd59a;
+            --amber: #ffbf5e;
+            --red: #ff8f8f;
+            --radius: 14px;
+            --shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+            font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at top left, rgba(54, 93, 152, 0.22), transparent 28%),
+                linear-gradient(180deg, #09111c 0%, #0b1421 100%);
+            color: var(--text);
+        }
+
+        .shell {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            min-height: 100vh;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(9, 17, 28, 0.92);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .brand {
+            display: grid;
+            gap: 2px;
+            min-width: 132px;
+        }
+
+        .brand strong {
+            color: var(--blue);
+            font-size: 15px;
+            letter-spacing: 0.02em;
+        }
+
+        .brand span {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+
+        .pills {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .pill strong {
+            font-size: 12px;
+        }
+
+        .pill.ok {
+            background: rgba(8, 46, 29, 0.82);
+            border-color: #1c6d49;
+            color: #8af0bd;
+        }
+
+        .pill.info {
+            background: rgba(15, 33, 59, 0.88);
+            border-color: #2a5493;
+            color: #a8cbff;
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .spacer {
+            flex: 1;
+        }
+
+        .nav {
+            display: flex;
+            gap: 6px;
+            padding: 4px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #08111d;
+        }
+
+        .nav button,
+        .tool,
+        .danger {
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            cursor: default;
+        }
+
+        .nav button {
+            padding: 9px 14px;
+            font-size: 13px;
+            color: #c7d8ea;
+        }
+
+        .nav .active {
+            background: #18304f;
+            color: #cfe3ff;
+            border-color: #2b5e98;
+        }
+
+        .tool {
+            padding: 10px 12px;
+            border-color: var(--line);
+            background: var(--panel);
+            font-size: 13px;
+            color: #bfd5ef;
+        }
+
+        .danger {
+            padding: 10px 14px;
+            border-color: #9a3434;
+            background: rgba(67, 11, 18, 0.9);
+            color: #ffb1b1;
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 260px 1fr 320px;
+            gap: 16px;
+            padding: 16px;
+            min-height: 0;
+        }
+
+        .rail,
+        .main,
+        .inspector {
+            min-height: 0;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .card {
+            background: linear-gradient(180deg, rgba(17, 29, 48, 0.95), rgba(12, 21, 35, 0.98));
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .card-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 14px 16px 10px;
+            border-bottom: 1px solid rgba(30, 58, 95, 0.72);
+        }
+
+        .card-head h2,
+        .card-head h3 {
+            margin: 0;
+            font-size: 15px;
+            color: #e7f0fb;
+        }
+
+        .card-head span {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .card-body {
+            padding: 14px 16px 16px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .metric {
+            padding: 11px 12px;
+            border: 1px solid rgba(30, 58, 95, 0.72);
+            border-radius: 12px;
+            background: var(--panel-3);
+        }
+
+        .metric label {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .metric strong {
+            font-size: 18px;
+            color: #ebf3ff;
+        }
+
+        .metric small {
+            display: block;
+            margin-top: 4px;
+            color: #91a8c3;
+            font-size: 11px;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .actions button {
+            padding: 11px 10px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: var(--panel-3);
+            color: var(--text);
+            font: inherit;
+            font-size: 13px;
+        }
+
+        .actions .start {
+            background: rgba(18, 48, 84, 0.92);
+            color: #b9d9ff;
+        }
+
+        .actions .dock {
+            background: rgba(59, 37, 5, 0.92);
+            color: #ffd491;
+        }
+
+        .map-stage {
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            min-height: 0;
+        }
+
+        .map-toolbar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 12px 16px 0;
+        }
+
+        .chip {
+            padding: 8px 12px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--panel-3);
+            color: #bfd3ea;
+            font-size: 12px;
+        }
+
+        .chip.active {
+            background: #16304f;
+            color: #d8e9ff;
+            border-color: #2c5f98;
+        }
+
+        .canvas-placeholder {
+            position: relative;
+            min-height: 420px;
+            margin: 12px 16px;
+            border-radius: 16px;
+            border: 1px solid rgba(30, 58, 95, 0.85);
+            background:
+                linear-gradient(180deg, rgba(8, 16, 27, 0.55), rgba(8, 16, 27, 0.85)),
+                linear-gradient(90deg, rgba(30, 58, 95, 0.14) 1px, transparent 1px),
+                linear-gradient(rgba(30, 58, 95, 0.14) 1px, transparent 1px);
+            background-size: auto, 36px 36px, 36px 36px;
+            overflow: hidden;
+        }
+
+        .shape,
+        .path,
+        .badge {
+            position: absolute;
+            border-radius: 12px;
+        }
+
+        .shape.perimeter {
+            inset: 50px 70px 70px 60px;
+            border: 2px dashed #8cb5ea;
+            background: rgba(44, 77, 120, 0.08);
+            transform: skew(-2deg);
+        }
+
+        .shape.zone-a {
+            left: 90px;
+            top: 85px;
+            width: 220px;
+            height: 130px;
+            border: 1px solid rgba(95, 213, 154, 0.9);
+            background: rgba(22, 101, 66, 0.24);
+        }
+
+        .shape.zone-b {
+            right: 120px;
+            top: 120px;
+            width: 180px;
+            height: 140px;
+            border: 1px solid rgba(104, 169, 255, 0.9);
+            background: rgba(26, 74, 130, 0.24);
+        }
+
+        .shape.nogo {
+            left: 290px;
+            bottom: 110px;
+            width: 130px;
+            height: 90px;
+            border: 1px dashed rgba(255, 143, 143, 0.95);
+            background: rgba(120, 31, 31, 0.2);
+        }
+
+        .path.preview {
+            left: 100px;
+            top: 200px;
+            width: 430px;
+            height: 6px;
+            background: linear-gradient(90deg, #5fd59a, #68a9ff, #ffbf5e);
+            box-shadow: 0 0 18px rgba(104, 169, 255, 0.25);
+            transform: rotate(-14deg);
+        }
+
+        .badge {
+            padding: 8px 10px;
+            background: rgba(12, 21, 35, 0.92);
+            border: 1px solid var(--line);
+            color: #dceaf8;
+            font-size: 12px;
+        }
+
+        .badge.tl {
+            left: 16px;
+            top: 16px;
+        }
+
+        .badge.br {
+            right: 16px;
+            bottom: 16px;
+        }
+
+        .workflow {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+            padding: 0 16px 16px;
+        }
+
+        .step {
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: var(--panel-3);
+            font-size: 12px;
+            color: #c7d8ea;
+        }
+
+        .step small {
+            display: block;
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .step.active {
+            border-color: #2b5e98;
+            background: rgba(21, 48, 79, 0.92);
+        }
+
+        .list,
+        .stack {
+            display: grid;
+            gap: 8px;
+        }
+
+        .capture-status {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .capture-chip {
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(30, 58, 95, 0.72);
+            background: var(--panel-3);
+        }
+
+        .capture-chip label {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .capture-chip strong {
+            display: block;
+            font-size: 15px;
+            color: #edf4fd;
+        }
+
+        .capture-chip.fix {
+            border-color: #1c6d49;
+            background: rgba(8, 46, 29, 0.7);
+        }
+
+        .capture-chip.float {
+            border-color: #8c6510;
+            background: rgba(59, 37, 5, 0.72);
+        }
+
+        .save-gate {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(30, 58, 95, 0.72);
+            background: rgba(10, 19, 33, 0.95);
+        }
+
+        .save-gate .gate-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            width: fit-content;
+            padding: 7px 10px;
+            border-radius: 999px;
+            border: 1px solid #8c6510;
+            background: rgba(59, 37, 5, 0.72);
+            color: #ffd991;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .save-gate p {
+            margin: 0;
+            color: #bfd0e4;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .capture-actions {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 8px;
+        }
+
+        .capture-actions button {
+            padding: 11px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: var(--panel-3);
+            color: var(--text);
+            font: inherit;
+            font-size: 13px;
+        }
+
+        .capture-actions .primary {
+            background: rgba(59, 37, 5, 0.88);
+            border-color: #8c6510;
+            color: #ffe3b1;
+        }
+
+        .capture-actions .secondary {
+            background: rgba(18, 48, 84, 0.92);
+            color: #c7e1ff;
+        }
+
+        .list-item {
+            padding: 12px;
+            border: 1px solid rgba(30, 58, 95, 0.72);
+            border-radius: 12px;
+            background: var(--panel-3);
+        }
+
+        .list-item strong {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 4px;
+            color: #e8f1fb;
+        }
+
+        .list-item span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .list-item.active {
+            border-color: #2f679f;
+            background: rgba(20, 44, 73, 0.94);
+        }
+
+        .split-preview {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            padding: 0 16px 16px;
+        }
+
+        .mini-canvas {
+            min-height: 220px;
+            border-radius: 14px;
+            border: 1px solid rgba(30, 58, 95, 0.72);
+            background:
+                linear-gradient(180deg, rgba(8, 16, 27, 0.7), rgba(8, 16, 27, 0.95)),
+                linear-gradient(90deg, rgba(30, 58, 95, 0.13) 1px, transparent 1px),
+                linear-gradient(rgba(30, 58, 95, 0.13) 1px, transparent 1px);
+            background-size: auto, 28px 28px, 28px 28px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .mini-canvas::before {
+            content: "Platzhalter fuer Preview / Diagnose / Editor";
+            position: absolute;
+            left: 16px;
+            top: 16px;
+            color: #9db6d4;
+            font-size: 12px;
+        }
+
+        .note {
+            margin: 16px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(157, 119, 6, 0.7);
+            background: rgba(50, 33, 7, 0.72);
+            color: #ffd991;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 1220px) {
+            .workspace {
+                grid-template-columns: 240px 1fr;
+            }
+
+            .inspector {
+                grid-column: 1 / -1;
+            }
+
+            .workflow {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .topbar {
+                flex-wrap: wrap;
+            }
+
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .split-preview,
+            .status-grid,
+            .actions,
+            .workflow,
+            .capture-status,
+            .capture-actions {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <header class="topbar">
+            <div class="brand">
+                <strong>Sunray Control</strong>
+                <span>Desktop / Tablet Preview</span>
+            </div>
+
+            <div class="pills">
+                <div class="pill ok"><span class="dot"></span><strong>Verbunden</strong> Live</div>
+                <div class="pill info"><strong>Mow</strong> Zone 2 / 4</div>
+                <div class="pill"><strong>Akku</strong> 72%</div>
+                <div class="pill"><strong>GPS</strong> RTK Fix</div>
+            </div>
+
+            <div class="spacer"></div>
+
+            <nav class="nav">
+                <button class="active">Dashboard</button>
+                <button>Karten</button>
+                <button>Missionen</button>
+                <button>Analyse & Diagnose</button>
+            </nav>
+
+            <button class="tool">Joystick</button>
+            <button class="tool">Info</button>
+            <button class="danger">NOTAUS</button>
+        </header>
+
+        <main class="workspace">
+            <aside class="rail column">
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Dashboard Rail</span>
+                            <h2>Roboter auf einen Blick</h2>
+                        </div>
+                    </div>
+                    <div class="card-body status-grid">
+                        <div class="metric">
+                            <label>Status</label>
+                            <strong>Mow</strong>
+                            <small>Zone 2 / 4</small>
+                        </div>
+                        <div class="metric">
+                            <label>Startfreigabe</label>
+                            <strong style="color: var(--green);">OK</strong>
+                            <small>Mission startbar</small>
+                        </div>
+                        <div class="metric">
+                            <label>GPS</label>
+                            <strong>RTK Fix</strong>
+                            <small>0.02 m</small>
+                        </div>
+                        <div class="metric">
+                            <label>Akku</label>
+                            <strong>27.6 V</strong>
+                            <small>72%</small>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Schnellaktionen</span>
+                            <h3>Operator Controls</h3>
+                        </div>
+                    </div>
+                    <div class="card-body actions">
+                        <button class="start">Start</button>
+                        <button>Stop</button>
+                        <button class="dock">Dock</button>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Kompakter Log</span>
+                            <h3>Letzte Ereignisse</h3>
+                        </div>
+                    </div>
+                    <div class="card-body list">
+                        <div class="list-item">
+                            <strong>12:43:21 - Mission aktiv</strong>
+                            <span>Platzhalter fuer verdichtete Betriebsereignisse</span>
+                        </div>
+                        <div class="list-item">
+                            <strong>12:41:02 - Dockkontakt geloest</strong>
+                            <span>Platzhalter fuer Safety- und Lifecycle-Events</span>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+
+            <section class="main column">
+                <section class="card map-stage">
+                    <div class="card-head">
+                        <div>
+                            <span>Arbeitsflaeche</span>
+                            <h2>Karten- und Missionszentrum</h2>
+                        </div>
+                        <div class="chip active">Gefuehrter Flow aktiv</div>
+                    </div>
+
+                    <div class="map-toolbar">
+                        <div class="chip active">Perimeter</div>
+                        <div class="chip">No-Go</div>
+                        <div class="chip">Dock</div>
+                        <div class="chip">Validierung</div>
+                        <div class="chip">Speichern</div>
+                    </div>
+
+                    <div class="canvas-placeholder">
+                        <div class="shape perimeter"></div>
+                        <div class="shape zone-a"></div>
+                        <div class="shape zone-b"></div>
+                        <div class="shape nogo"></div>
+                        <div class="path preview"></div>
+                        <div class="badge tl">Grosse Karte / Preview / Editor</div>
+                        <div class="badge br">Platzhalter fuer Robot / Route / Validierung</div>
+                    </div>
+
+                    <div class="workflow">
+                        <div class="step">1. RTK pruefen<small>Fix und Genauigkeit</small></div>
+                        <div class="step active">2. Perimeter<small>aktiver Aufnahmeschritt</small></div>
+                        <div class="step">3. No-Go<small>Exclusions erfassen</small></div>
+                        <div class="step">4. Dock<small>Dockpfad setzen</small></div>
+                        <div class="step">5. Validieren<small>Probleme sichtbar</small></div>
+                        <div class="step">6. Aktivieren<small>Karte speichern</small></div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Weitere Vorschau</span>
+                            <h2>Mission / Diagnose / Bibliothek</h2>
+                        </div>
+                    </div>
+                    <div class="split-preview">
+                        <div class="mini-canvas"></div>
+                        <div class="mini-canvas"></div>
+                    </div>
+                </section>
+            </section>
+
+            <aside class="inspector column">
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Kartenmodus</span>
+                            <h2>Map Workflow Panel</h2>
+                        </div>
+                    </div>
+                    <div class="card-body stack">
+                        <div class="list-item active">
+                            <strong>Aktueller Schritt</strong>
+                            <span>Perimeter und No-Go werden manuell aufgenommen: Roboter an die Zielposition stellen
+                                und die aktuelle Position bewusst speichern.</span>
+                        </div>
+                        <div class="save-gate">
+                            <div class="capture-status">
+                                <div class="capture-chip fix">
+                                    <label>RTK Status</label>
+                                    <strong>RTK Fix</strong>
+                                </div>
+                                <div class="capture-chip float">
+                                    <label>Genauigkeit</label>
+                                    <strong>0.028 m</strong>
+                                </div>
+                                <div class="capture-chip">
+                                    <label>Position</label>
+                                    <strong>X 12.48 / Y 4.11</strong>
+                                </div>
+                            </div>
+                            <div class="gate-state">
+                                <span class="dot"></span>
+                                Float nur mit Warnung speichern
+                            </div>
+                            <p>
+                                Alle aktuellen Funktionen bleiben erhalten. Neu ist die klar sichtbare Speicherfreigabe:
+                                RTK Fix ist sicher freigegeben, RTK Float nur mit Warnung und sichtbarer Genauigkeit,
+                                ohne brauchbaren RTK-Status wird der Speicherbutton blockiert.
+                            </p>
+                            <div class="capture-actions">
+                                <button class="primary">Aktuelle Position speichern</button>
+                                <button class="secondary">Schritt abschliessen</button>
+                            </div>
+                        </div>
+                        <div class="list-item">
+                            <strong>Validierungsstatus</strong>
+                            <span>Platzhalter fuer Perimeter, Dock, Exclusions und Kartenfehler, aber getrennt vom
+                                eigentlichen Aufnahmevorgang.</span>
+                        </div>
+                        <div class="list-item">
+                            <strong>Kartenbibliothek</strong>
+                            <span>Platzhalter fuer Laden, Aktivieren, Duplizieren, Import, Export. Die Funktionen
+                                bleiben komplett erhalten.</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Missionsmodus</span>
+                            <h2>Mission Builder</h2>
+                        </div>
+                    </div>
+                    <div class="card-body list">
+                        <div class="list-item active">
+                            <strong>Missionsliste</strong>
+                            <span>Platzhalter fuer vorhandene Missionen und Auswahl.</span>
+                        </div>
+                        <div class="list-item">
+                            <strong>Zonenreihenfolge</strong>
+                            <span>Platzhalter fuer Reihenfolge, Aktivierung und Overrides.</span>
+                        </div>
+                        <div class="list-item">
+                            <strong>Zeitplan & Start</strong>
+                            <span>Platzhalter fuer Wochentage, Uhrzeiten, Startfreigabe und Backend-Status.</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <div>
+                            <span>Analyse & Diagnose</span>
+                            <h2>Neu geordnet</h2>
+                        </div>
+                    </div>
+                    <div class="card-body list">
+                        <div class="list-item">
+                            <strong>Systemstatus</strong>
+                            <span>Versionen, Runtime Health, letzte Fehler.</span>
+                        </div>
+                        <div class="list-item">
+                            <strong>Service</strong>
+                            <span>OTA, STM Flash, gesteuerte Systemaktionen.</span>
+                        </div>
+                        <div class="list-item">
+                            <strong>Hardwarediagnose</strong>
+                            <span>Sensoren, IMU, Motoren, Kalibrierung, Expertenlogs.</span>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </main>
+    </div>
+
+    <div class="note">
+        Diese Vorschau ist bewusst statisch und arbeitet mit Platzhaltern. Sie zeigt die beabsichtigte Struktur fuer
+        Desktop und Tablet: Dashboard-Rail bleibt erhalten, Karten und Missionen werden in gefuehrte Arbeitsbereiche
+        getrennt, Analyse & Diagnose wird in lesbare Sektionen zerlegt. Der Kartenbereich bildet jetzt explizit den
+        manuellen Aufnahmeprozess ueber die aktuelle Roboterposition mit RTK-Qualitaet, Genauigkeit und sicherer
+        Speicherfreigabe ab.
+    </div>
+</body>
+
+</html>

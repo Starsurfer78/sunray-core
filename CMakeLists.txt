@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(sunray-core VERSION 1.1.0 LANGUAGES CXX)
+project(sunray-core VERSION 1.2.0 LANGUAGES CXX)
 
 # ── Language standard ─────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
@@ -176,5 +176,7 @@ target_link_libraries(led_imu_test PRIVATE
 )
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
-enable_testing()
-add_subdirectory(tests)
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

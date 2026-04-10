@@ -2,67 +2,93 @@
 #include "core/op/Op.h"
 #include <cstdlib>
 
-namespace sunray {
+namespace sunray
+{
 
-void GpsWaitFixOp::begin(OpContext& ctx) {
-    ctx.logger.info("GpsWait", "waiting for GPS fix...");
-    ctx.stopMotors();  // stops all motors including mow (setMotorPwm 0,0,0)
-    waitStartTime_ms = ctx.now_ms;
-    resetTriggered_  = false;
-}
+    void GpsWaitFixOp::begin(OpContext &ctx)
+    {
+        ctx.logger.info("GpsWait", "waiting for GPS fix...");
+        ctx.stopMotors(); // stops all motors including mow (setMotorPwm 0,0,0)
+        waitStartTime_ms = ctx.now_ms;
+        resetTriggered_ = false;
+    }
 
-void GpsWaitFixOp::end(OpContext&) {}
+    void GpsWaitFixOp::end(OpContext &) {}
 
-void GpsWaitFixOp::run(OpContext& ctx) {
-    const unsigned long gpsFixTimeoutMs = static_cast<unsigned long>(
-        ctx.config.get<int>("gps_fix_timeout_ms", 120000));
-    const bool dockCriticalResume =
-        nextOp != nullptr && nextOp->getGoalOp() != nullptr && nextOp->getGoalOp()->name() == "Dock";
-    const bool gpsRecovered = dockCriticalResume ? ctx.gpsHasFix : (ctx.gpsHasFloat || ctx.gpsHasFix);
+    void GpsWaitFixOp::run(OpContext &ctx)
+    {
+        const unsigned long gpsFixTimeoutMs = static_cast<unsigned long>(
+            ctx.config.get<int>("gps_fix_timeout_ms", 120000));
+        const bool dockCriticalResume =
+            nextOp != nullptr && nextOp->getGoalOp() != nullptr && nextOp->getGoalOp()->name() == "Dock";
+        const bool gpsRecovered = dockCriticalResume ? ctx.gpsHasFix : (ctx.gpsHasFloat || ctx.gpsHasFix);
 
-    if (gpsRecovered) {
-        ctx.logger.info("GpsWait",
-                        dockCriticalResume ? "GPS RTK Fix acquired for dock => continue"
-                                           : "GPS acquired => continue");
-        if (ctx.resumeBlockedByMapChange) {
-            ctx.logger.warn("GpsWait", "resume blocked by map change => IDLE");
-            changeOp(ctx, ctx.opMgr.idle());
+        if (gpsRecovered)
+        {
+            ctx.logger.info("GpsWait",
+                            dockCriticalResume ? "GPS RTK Fix acquired for dock => continue"
+                                               : "GPS acquired => continue");
+            if (ctx.resumeBlockedByMapChange)
+            {
+                ctx.logger.warn("GpsWait", "resume blocked by map change => IDLE");
+                changeOp(ctx, ctx.opMgr.idle());
+                return;
+            }
+            if (nextOp != nullptr)
+            {
+                changeOp(ctx, *nextOp, false);
+            }
+            else
+            {
+                changeOp(ctx, ctx.opMgr.idle());
+            }
             return;
         }
-        if (nextOp != nullptr) {
-            changeOp(ctx, *nextOp, false);
-        } else {
-            changeOp(ctx, ctx.opMgr.idle());
+
+        if (dockCriticalResume && ctx.gpsHasFloat)
+        {
+            ctx.logger.info("GpsWait", "GPS Float present but dock resume waits for RTK Fix");
         }
-        return;
-    }
 
-    if (dockCriticalResume && ctx.gpsHasFloat) {
-        ctx.logger.info("GpsWait", "GPS Float present but dock resume waits for RTK Fix");
-    }
+        // GPS_RESET_WAIT_FIX: fire a configurable shell command once at the
+        // mid-point of the timeout to attempt GPS recovery before giving up.
+        // Disabled by default — enable via config: "gps_reset_command": "systemctl restart ublox-gps"
+        if (!resetTriggered_)
+        {
+            const std::string resetCmd = ctx.config.get<std::string>("gps_reset_command", "");
+            if (!resetCmd.empty())
+            {
+                const unsigned long resetMs = static_cast<unsigned long>(
+                    ctx.config.get<int>("gps_reset_wait_ms",
+                                        static_cast<int>(gpsFixTimeoutMs / 2)));
+                if (ctx.now_ms - waitStartTime_ms >= resetMs)
+                {
+                    resetTriggered_ = true;
+                    ctx.logger.warn("GpsWait", "GPS fix timeout midpoint — executing reset: " + resetCmd);
+                    std::system(resetCmd.c_str());
+                }
+            }
+        }
 
-    // GPS_RESET_WAIT_FIX: fire a configurable shell command once at the
-    // mid-point of the timeout to attempt GPS recovery before giving up.
-    // Disabled by default — enable via config: "gps_reset_command": "systemctl restart ublox-gps"
-    if (!resetTriggered_) {
-        const std::string resetCmd = ctx.config.get<std::string>("gps_reset_command", "");
-        if (!resetCmd.empty()) {
-            const unsigned long resetMs = static_cast<unsigned long>(
-                ctx.config.get<int>("gps_reset_wait_ms",
-                    static_cast<int>(gpsFixTimeoutMs / 2)));
-            if (ctx.now_ms - waitStartTime_ms >= resetMs) {
-                resetTriggered_ = true;
-                ctx.logger.warn("GpsWait", "GPS fix timeout midpoint — executing reset: " + resetCmd);
-                std::system(resetCmd.c_str());
+        // Timeout: GPS did not recover in time.
+        if (ctx.now_ms - waitStartTime_ms > gpsFixTimeoutMs)
+        {
+            if (ctx.gpsHasFloat)
+            {
+                // Float is present but Fix never came back.
+                // In a dock-critical resume we were deliberately waiting for Fix,
+                // but after a full timeout it is safer to attempt docking on Float
+                // than to remain stopped indefinitely in the field.
+                ctx.logger.warn("GpsWait", "GPS fix timeout with Float only => dock on Float");
+                changeOp(ctx, ctx.opMgr.dock());
+            }
+            else
+            {
+                // No GPS at all — navigating to dock is unsafe.
+                ctx.logger.error("GpsWait", "GPS fix timeout, no signal => ERROR");
+                changeOp(ctx, ctx.opMgr.error());
             }
         }
     }
-
-    // Timeout: GPS did not recover in time.
-    if (ctx.now_ms - waitStartTime_ms > gpsFixTimeoutMs) {
-        ctx.logger.error("GpsWait", "GPS fix timeout => DOCK");
-        changeOp(ctx, ctx.opMgr.dock());
-    }
-}
 
 } // namespace sunray

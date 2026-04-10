@@ -27,12 +27,17 @@ add_library(sunray_core STATIC
     op/ErrorOp.cpp
     navigation/StateEstimator.cpp
     navigation/Costmap.cpp
-    navigation/Planner.cpp
+    navigation/PathPlanner.cpp
     navigation/Map.cpp
-    navigation/MowRoutePlanner.cpp
+    navigation/RuntimeState.cpp
+    navigation/MissionCompiler.cpp
     navigation/RouteValidator.cpp
     navigation/LineTracker.cpp
     navigation/GridMap.cpp
+    navigation/ZonePlanner.cpp
+    navigation/StripingAlgorithm.cpp
+    navigation/TransitionRouter.cpp
+    navigation/WaypointExecutor.cpp
     Schedule.cpp
 )
 
@@ -49,7 +54,7 @@ target_link_libraries(sunray_core PUBLIC
     sunray_hal            # HardwareInterface.h (interface only, no implementation)
     nlohmann_json::nlohmann_json
     Crow::Crow            # WebSocketServer.cpp (pimpl: crow.h only in .cpp)
-    Clipper2              # MowRoutePlanner.cpp — polygon offset
+    Clipper2              # MissionCompiler.cpp — polygon offset
 )
 
 # ── Optional: libmosquitto for MqttClient ────────────────────────────────────

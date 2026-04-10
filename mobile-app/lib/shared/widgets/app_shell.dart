@@ -14,6 +14,7 @@ class AppShell extends ConsumerWidget {
     _NavItem(label: 'Dashboard', icon: Icons.space_dashboard_rounded, path: '/dashboard'),
     _NavItem(label: 'Karte',     icon: Icons.map_rounded,             path: '/map'),
     _NavItem(label: 'Missionen', icon: Icons.route_rounded,           path: '/missions'),
+    _NavItem(label: 'Statistik', icon: Icons.bar_chart_rounded,       path: '/statistics'),
     _NavItem(label: 'Service',   icon: Icons.miscellaneous_services_rounded, path: '/service'),
   ];
 
@@ -32,9 +33,6 @@ class AppShell extends ConsumerWidget {
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
         onDestinationSelected: (value) => context.go(_items[value].path),
-        backgroundColor: const Color(0xFF0A1020),
-        indicatorColor: const Color(0xFF1E3A5F),
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: <NavigationDestination>[
           const NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),
@@ -50,6 +48,11 @@ class AppShell extends ConsumerWidget {
             icon: Icon(Icons.route_outlined),
             selectedIcon: Icon(Icons.route_rounded),
             label: 'Missionen',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart_rounded),
+            label: 'Statistik',
           ),
           NavigationDestination(
             icon: Badge(

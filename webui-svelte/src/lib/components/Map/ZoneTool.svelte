@@ -26,14 +26,6 @@
     const value = (event.currentTarget as HTMLSelectElement).value
     mapStore.selectZone(value || null)
   }
-
-  function updateSelectedZone<K extends 'stripWidth' | 'angle' | 'edgeRounds' | 'speed' | 'pattern' | 'edgeMowing'>(
-    key: K,
-    value: K extends 'edgeMowing' ? boolean : K extends 'pattern' ? 'stripe' | 'spiral' : number,
-  ) {
-    if (!$mapStore.selectedZoneId) return
-    mapStore.updateZoneSettings($mapStore.selectedZoneId, { [key]: value })
-  }
 </script>
 
 <section class="panel">
@@ -54,7 +46,7 @@
     <select value={$mapStore.selectedZoneId ?? ''} on:change={onZoneSelect}>
       <option value="">Keine</option>
       {#each $mapStore.map.zones as zone}
-        <option value={zone.id}>{zone.settings.name}</option>
+        <option value={zone.id}>{zone.name}</option>
       {/each}
     </select>
   </label>
@@ -64,88 +56,10 @@
     {#if zone}
       <label>
         Name
-        <input type="text" value={zone.settings.name} on:input={onZoneNameChange} />
-      </label>
-      <div class="field-grid">
-        <label>
-          Streifenbreite
-          <input
-            type="number"
-            min="0.05"
-            max="1"
-            step="0.01"
-            value={zone.settings.stripWidth}
-            on:input={(event) => updateSelectedZone('stripWidth', Number((event.currentTarget as HTMLInputElement).value))}
-          />
-        </label>
-
-        <label>
-          Winkel
-          <input
-            type="number"
-            min="0"
-            max="179"
-            step="1"
-            value={zone.settings.angle}
-            on:input={(event) => updateSelectedZone('angle', Number((event.currentTarget as HTMLInputElement).value))}
-          />
-        </label>
-
-        <label>
-          Geschwindigkeit
-          <input
-            type="number"
-            min="0.1"
-            max="3"
-            step="0.1"
-            value={zone.settings.speed}
-            on:input={(event) => updateSelectedZone('speed', Number((event.currentTarget as HTMLInputElement).value))}
-          />
-        </label>
-
-        <label>
-          Muster
-          <select
-            value={zone.settings.pattern}
-            on:change={(event) => updateSelectedZone('pattern', (event.currentTarget as HTMLSelectElement).value as 'stripe' | 'spiral')}
-          >
-            <option value="stripe">Streifen</option>
-            <option value="spiral">Spirale</option>
-          </select>
-        </label>
-      </div>
-
-      <label class="toggle-row">
-        <input
-          type="checkbox"
-          checked={zone.settings.edgeMowing}
-          on:change={(event) => updateSelectedZone('edgeMowing', (event.currentTarget as HTMLInputElement).checked)}
-        />
-        <span>Randmähen aktiv</span>
-      </label>
-
-      <label>
-        Randbahnen
-        <input
-          type="number"
-          min="1"
-          max="5"
-          step="1"
-          disabled={!zone.settings.edgeMowing}
-          value={zone.settings.edgeRounds}
-          on:input={(event) => updateSelectedZone('edgeRounds', Number((event.currentTarget as HTMLInputElement).value))}
-        />
+        <input type="text" value={zone.name} on:input={onZoneNameChange} />
       </label>
 
       <div class="meta">Punkte: {zone.polygon.length}</div>
-      <div class="meta">
-        {zone.settings.pattern === 'stripe' ? 'Streifen' : 'Spirale'} · {zone.settings.angle}&deg;
-        {#if zone.settings.edgeMowing}
-          · Rand {zone.settings.edgeRounds}x
-        {:else}
-          · ohne Rand
-        {/if}
-      </div>
     {/if}
   {/if}
 </section>

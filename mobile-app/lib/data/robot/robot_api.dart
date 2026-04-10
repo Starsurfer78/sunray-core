@@ -128,6 +128,7 @@ class RobotApi {
       queryParameters: <String, dynamic>{'limit': limit},
     );
     final data = response.data ?? <String, dynamic>{};
-    return data['events'] as List<dynamic>? ?? <dynamic>[];
+    final items = data['items'];
+    return items is List ? items.cast<dynamic>() : <dynamic>[];
   }
 }

@@ -5,7 +5,11 @@ class MapEditorController {
   const MapEditorController();
 
   MapGeometry addZone(MapGeometry geometry, {String? name}) {
-    final nextIndex = geometry.zones.length + 1;
+    // Compute ID from max existing index to avoid collision after deletion.
+    final maxIdx = geometry.zones
+        .map((z) => int.tryParse(z.id.replaceFirst('zone-', '')) ?? 0)
+        .fold(0, (a, b) => a > b ? a : b);
+    final nextIndex = maxIdx + 1;
     final zone = ZoneGeometry(
       id: 'zone-$nextIndex',
       name: name ?? 'Zone $nextIndex',

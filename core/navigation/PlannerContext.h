@@ -11,6 +11,7 @@ namespace sunray
         {
             Point robotPose;
             Point source;
+            Point lastTarget;
             Point destination;
             WayType missionMode = WayType::FREE;
             WayType planningMode = WayType::FREE;

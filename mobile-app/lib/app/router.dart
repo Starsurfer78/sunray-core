@@ -5,6 +5,7 @@ import '../features/discovery/presentation/discovery_screen.dart';
 import '../features/map_editor/presentation/map_editor_screen.dart';
 import '../features/missions/presentation/missions_screen.dart';
 import '../features/service/presentation/service_screen.dart';
+import '../features/statistics/presentation/statistics_screen.dart';
 import '../shared/widgets/app_shell.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -32,6 +33,10 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/service',
           builder: (context, state) => const ServiceScreen(),
+        ),
+        GoRoute(
+          path: '/statistics',
+          builder: (context, state) => const StatisticsScreen(),
         ),
       ],
     ),

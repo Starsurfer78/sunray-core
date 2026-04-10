@@ -43,6 +43,14 @@ export interface Telemetry {
   mission_id: string
   mission_zone_index: number
   mission_zone_count: number
+  waypoint_index: number   // N4.1: current point index in active plan (-1 = inactive)
+  waypoint_total: number   // N4.1: total points in active plan
+  target_x: number         // N4.3: current navigation target X (world m)
+  target_y: number         // N4.3: current navigation target Y (world m)
+  has_target: boolean      // N4.3: true when target_x/y is valid
+  has_interrupted_mission: boolean // N6.3: a plan was saved when docking interrupted a mission
+  ui_message: string  // transient notification text sent by the backend (empty when inactive)
+  ui_severity: string // 'info' | 'warn' | 'error'
 }
 
 export interface TelemetryEnvelope extends Telemetry {
@@ -101,4 +109,12 @@ export const defaultTelemetry: Telemetry = {
   mission_id: '',
   mission_zone_index: 0,
   mission_zone_count: 0,
+  waypoint_index: -1,
+  waypoint_total: 0,
+  target_x: 0,
+  target_y: 0,
+  has_target: false,
+  has_interrupted_mission: false,
+  ui_message: '',
+  ui_severity: '',
 }

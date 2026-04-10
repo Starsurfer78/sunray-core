@@ -99,6 +99,7 @@ class MissionsScreen extends ConsumerWidget {
                                       .map((m) => m.id == updated.id ? updated : m)
                                       .toList(growable: false);
                                   ref.read(missionsProvider.notifier).state = next;
+                                  // ignore: unawaited_futures
                                   ref.read(appStateStorageProvider).saveMissions(next);
                                 },
                         ),
@@ -132,10 +133,13 @@ class MissionsScreen extends ConsumerWidget {
 
   void _createMission(WidgetRef ref) {
     final missions = ref.read(missionsProvider);
-    final nextIndex = missions.length + 1;
+    // Compute ID from max existing index to avoid collision after deletion.
+    final maxIdx = missions
+        .map((m) => int.tryParse(m.id.replaceFirst('mission-', '')) ?? 0)
+        .fold(0, (a, b) => a > b ? a : b);
     final mission = Mission(
-      id: 'mission-$nextIndex',
-      name: 'Mission $nextIndex',
+      id: 'mission-${maxIdx + 1}',
+      name: 'Mission ${maxIdx + 1}',
       zoneIds: const <String>[],
       zoneNames: const <String>[],
       scheduleLabel: 'Manuell',
@@ -149,7 +153,7 @@ class MissionsScreen extends ConsumerWidget {
   }
 }
 
-class _MissionSheet extends ConsumerWidget {
+class _MissionSheet extends ConsumerStatefulWidget {
   const _MissionSheet({
     required this.map,
     required this.missions,
@@ -163,19 +167,53 @@ class _MissionSheet extends ConsumerWidget {
   final RobotStatus status;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MissionSheet> createState() => _MissionSheetState();
+}
+
+class _MissionSheetState extends ConsumerState<_MissionSheet> {
+  late TextEditingController _nameController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.selectedMission?.name ?? '');
+  }
+
+  @override
+  void didUpdateWidget(_MissionSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync controller when the selected mission changes (different id).
+    final newId = widget.selectedMission?.id;
+    final oldId = oldWidget.selectedMission?.id;
+    if (newId != oldId) {
+      _nameController.text = widget.selectedMission?.name ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final map = widget.map;
+    final missions = widget.missions;
+    final selectedMission = widget.selectedMission;
+    final status = widget.status;
     final isConnected = status.connectionState == ConnectionStateKind.connected;
     final controller = ref.read(robotConnectionControllerProvider);
     final activeRobot = ref.watch(activeRobotProvider);
     final previewLoading = ref.watch(plannerPreviewLoadingProvider);
 
     return SectionCard(
-      title: selectedMission == null ? 'Neue Mission' : selectedMission!.name,
+      title: selectedMission == null ? 'Neue Mission' : selectedMission.name,
       trailing: selectedMission == null
           ? null
           : DropdownButtonHideUnderline(
               child: DropdownButton<String>(
-                value: selectedMission?.id,
+                value: selectedMission.id,
                 items: missions
                     .map(
                       (mission) => DropdownMenuItem<String>(
@@ -197,10 +235,10 @@ class _MissionSheet extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 TextField(
-                  controller: TextEditingController(text: selectedMission!.name),
+                  controller: _nameController,
                   onChanged: (value) => _updateMission(
                     ref,
-                    selectedMission!.copyWith(name: value),
+                    selectedMission.copyWith(name: value),
                   ),
                   decoration: const InputDecoration(
                     labelText: 'Name',
@@ -212,17 +250,29 @@ class _MissionSheet extends ConsumerWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 8),
-                Wrap(
+                if (map.zones.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'Noch keine Zonen vorhanden. Zonen in der Karte anlegen.',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
+                  )
+                else
+                  Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: map.zones
                       .map(
                         (zone) => FilterChip(
                           label: Text(zone.name),
-                          selected: selectedMission!.zoneIds.contains(zone.id),
+                          selected: selectedMission.zoneIds.contains(zone.id),
                           onSelected: (selected) {
                             final nextZoneIds = <String>[
-                              ...selectedMission!.zoneIds,
+                              ...selectedMission.zoneIds,
                             ];
                             if (selected) {
                               if (!nextZoneIds.contains(zone.id)) {
@@ -238,8 +288,7 @@ class _MissionSheet extends ConsumerWidget {
                                 .toList(growable: false);
 
                             _updateMission(
-                              ref,
-                              selectedMission!.copyWith(
+                              selectedMission.copyWith(
                                 zoneIds: nextZoneIds,
                                 zoneNames: nextZoneNames,
                               ),
@@ -255,38 +304,49 @@ class _MissionSheet extends ConsumerWidget {
                     ButtonSegment<bool>(value: false, label: Text('Manuell')),
                     ButtonSegment<bool>(value: true, label: Text('Wiederkehrend')),
                   ],
-                  selected: <bool>{selectedMission!.isRecurring},
+                  selected: <bool>{selectedMission.isRecurring},
                   onSelectionChanged: (selection) {
                     _updateMission(
-                      ref,
-                      selectedMission!.copyWith(
+                      selectedMission.copyWith(
                         isRecurring: selection.first,
-                        scheduleLabel: selection.first ? 'Mo Mi Fr 09:00' : 'Manuell',
                       ),
                     );
                   },
                 ),
+                if (selectedMission.isRecurring) ...<Widget>[
+                  const SizedBox(height: 12),
+                  _SchedulePicker(
+                    days: selectedMission.scheduleDays,
+                    hour: selectedMission.scheduleHour ?? 9,
+                    minute: selectedMission.scheduleMinute ?? 0,
+                    onChanged: (days, hour, minute) => _updateMission(
+                      selectedMission.copyWith(
+                        scheduleDays: days,
+                        scheduleHour: hour,
+                        scheduleMinute: minute,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Nur trocken'),
-                  value: selectedMission!.onlyWhenDry,
+                  value: selectedMission.onlyWhenDry,
                   onChanged: (value) => _updateMission(
-                    ref,
-                    selectedMission!.copyWith(onlyWhenDry: value),
+                    selectedMission.copyWith(onlyWhenDry: value),
                   ),
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Akku > 80%'),
-                  value: selectedMission!.requiresHighBattery,
+                  value: selectedMission.requiresHighBattery,
                   onChanged: (value) => _updateMission(
-                    ref,
-                    selectedMission!.copyWith(requiresHighBattery: value),
+                    selectedMission.copyWith(requiresHighBattery: value),
                   ),
                 ),
                 DropdownButtonFormField<String>(
-                  initialValue: selectedMission!.pattern,
+                  initialValue: selectedMission.pattern,
                   decoration: const InputDecoration(labelText: 'Muster'),
                   items: const <DropdownMenuItem<String>>[
                     DropdownMenuItem(value: 'Streifen', child: Text('Streifen')),
@@ -296,8 +356,7 @@ class _MissionSheet extends ConsumerWidget {
                   onChanged: (value) {
                     if (value == null) return;
                     _updateMission(
-                      ref,
-                      selectedMission!.copyWith(pattern: value),
+                      selectedMission.copyWith(pattern: value),
                     );
                   },
                 ),
@@ -310,7 +369,7 @@ class _MissionSheet extends ConsumerWidget {
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final mission = missions[index];
-                      final selected = mission.id == selectedMission!.id;
+                      final selected = mission.id == selectedMission.id;
                       return GestureDetector(
                         onTap: () {
                           ref.read(selectedMissionIdProvider.notifier).state = mission.id;
@@ -335,7 +394,7 @@ class _MissionSheet extends ConsumerWidget {
                               ),
                               const Spacer(),
                               Text(
-                                '${mission.zoneIds.length} Zonen · ${mission.scheduleLabel ?? 'Manuell'}',
+                                '${mission.zoneIds.length} Zonen · ${mission.effectiveScheduleLabel}',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
@@ -350,9 +409,9 @@ class _MissionSheet extends ConsumerWidget {
                   children: <Widget>[
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: !isConnected || selectedMission!.zoneIds.isEmpty
+                        onPressed: !isConnected || selectedMission.zoneIds.isEmpty
                             ? null
-                            : () => controller.startMowing(missionId: selectedMission!.id),
+                            : () => controller.startMowing(missionId: selectedMission.id),
                         icon: const Icon(Icons.play_arrow_rounded),
                         label: const Text('Start'),
                       ),
@@ -372,16 +431,16 @@ class _MissionSheet extends ConsumerWidget {
                   children: <Widget>[
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: !isConnected || selectedMission!.zoneIds.isEmpty || previewLoading
+                        onPressed: !isConnected || selectedMission.zoneIds.isEmpty || previewLoading
                             ? null
-                            : () => _previewMission(context, ref, activeRobot, map, selectedMission!),
+                            : () => _previewMission(context, activeRobot, map, selectedMission),
                         child: Text(previewLoading ? 'Berechne...' : 'Vorschau'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        onPressed: () => _saveMission(context, ref, activeRobot, selectedMission!),
+                        onPressed: () => _saveMission(context, activeRobot, selectedMission),
                         child: const Text('Speichern'),
                       ),
                     ),
@@ -391,7 +450,7 @@ class _MissionSheet extends ConsumerWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
-                    onPressed: () => _deleteMission(context, ref, activeRobot, selectedMission!),
+                    onPressed: () => _deleteMission(context, activeRobot, selectedMission),
                     icon: const Icon(Icons.delete_outline_rounded),
                     label: const Text('Löschen'),
                   ),
@@ -401,18 +460,20 @@ class _MissionSheet extends ConsumerWidget {
     );
   }
 
-  void _updateMission(WidgetRef ref, Mission updatedMission) {
+  void _updateMission(Mission updatedMission) {
     final missions = ref.read(missionsProvider);
     final next = missions
         .map((mission) => mission.id == updatedMission.id ? updatedMission : mission)
         .toList(growable: false);
     ref.read(missionsProvider.notifier).state = next;
+    // Save is fire-and-forget here (called on every incremental change);
+    // errors are non-critical because _saveMission() does a reliable save.
+    // ignore: unawaited_futures
     ref.read(appStateStorageProvider).saveMissions(next);
   }
 
   Future<void> _saveMission(
     BuildContext context,
-    WidgetRef ref,
     SavedRobot? activeRobot,
     Mission mission,
   ) async {
@@ -447,7 +508,6 @@ class _MissionSheet extends ConsumerWidget {
 
   Future<void> _deleteMission(
     BuildContext context,
-    WidgetRef ref,
     SavedRobot? activeRobot,
     Mission mission,
   ) async {
@@ -484,7 +544,6 @@ class _MissionSheet extends ConsumerWidget {
 
   Future<void> _previewMission(
     BuildContext context,
-    WidgetRef ref,
     SavedRobot? activeRobot,
     MapGeometry map,
     Mission mission,
@@ -534,5 +593,158 @@ class _MissionSheet extends ConsumerWidget {
     } finally {
       ref.read(plannerPreviewLoadingProvider.notifier).state = false;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wochenkalender-Picker: Wochentage + Uhrzeit
+// ---------------------------------------------------------------------------
+
+class _SchedulePicker extends StatelessWidget {
+  const _SchedulePicker({
+    required this.days,
+    required this.hour,
+    required this.minute,
+    required this.onChanged,
+  });
+
+  final List<bool> days;
+  final int hour;
+  final int minute;
+  final void Function(List<bool> days, int hour, int minute) onChanged;
+
+  static const List<String> _dayLabels = <String>['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('Wochentage', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: List<Widget>.generate(7, (i) {
+            final selected = i < days.length && days[i];
+            return Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: i < 6 ? 4 : 0),
+                child: GestureDetector(
+                  onTap: () {
+                    final next = List<bool>.from(days.length == 7 ? days : List<bool>.filled(7, false));
+                    next[i] = !next[i];
+                    onChanged(next, hour, minute);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: selected ? const Color(0xFF1D4ED8) : const Color(0xFF0F1829),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: selected ? const Color(0xFF3B82F6) : const Color(0xFF1E3A5F),
+                      ),
+                    ),
+                    child: Text(
+                      _dayLabels[i],
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? Colors.white : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 12),
+        Text('Startzeit', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            _TimeSpinner(
+              value: hour,
+              min: 0,
+              max: 23,
+              label: 'Stunde',
+              onChanged: (v) => onChanged(days, v, minute),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text(':', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            ),
+            _TimeSpinner(
+              value: minute,
+              min: 0,
+              max: 55,
+              step: 5,
+              label: 'Minute',
+              onChanged: (v) => onChanged(days, hour, v),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TimeSpinner extends StatelessWidget {
+  const _TimeSpinner({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.label,
+    required this.onChanged,
+    this.step = 1,
+  });
+
+  final int value;
+  final int min;
+  final int max;
+  final int step;
+  final String label;
+  final void Function(int) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F1829),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF1E3A5F)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.remove, size: 16),
+            onPressed: value > min
+                ? () => onChanged(value - step < min ? min : value - step)
+                : null,
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+          ),
+          SizedBox(
+            width: 36,
+            child: Text(
+              value.toString().padLeft(2, '0'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add, size: 16),
+            onPressed: value < max
+                ? () => onChanged(value + step > max ? max : value + step)
+                : null,
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
   }
 }

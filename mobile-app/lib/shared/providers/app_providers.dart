@@ -110,20 +110,15 @@ final mapEditorStateProvider = StateProvider<MapEditorState>((ref) {
   return const MapEditorState();
 });
 
+final mapUndoStackProvider = StateProvider<List<MapGeometry>>((ref) => const <MapGeometry>[]);
+final mapRedoStackProvider = StateProvider<List<MapGeometry>>((ref) => const <MapGeometry>[]);
+
 final missionsProvider = StateProvider<List<Mission>>((ref) {
-  return const <Mission>[
-    Mission(
-      id: 'mission-1',
-      name: 'Wochenmaehung',
-      zoneIds: <String>['zone-nord'],
-      zoneNames: <String>['Zone Nord'],
-      scheduleLabel: 'Mo 09:00',
-    ),
-  ];
+  return const <Mission>[];
 });
 
 final selectedMissionIdProvider = StateProvider<String?>((ref) {
-  return 'mission-1';
+  return null;
 });
 
 final missionsLoadingProvider = StateProvider<bool>((ref) => false);

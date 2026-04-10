@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 ThemeData buildSunrayTheme() {
   const deep = Color(0xFF060C17);
@@ -14,24 +15,32 @@ ThemeData buildSunrayTheme() {
     surface: card,
   );
 
+  final baseTextTheme = GoogleFonts.interTextTheme().copyWith(
+    bodyMedium: const TextStyle(color: textPrimary, fontSize: 14),
+    bodySmall: const TextStyle(color: textSecondary, fontSize: 12),
+    titleLarge: const TextStyle(color: textPrimary, fontSize: 22, fontWeight: FontWeight.w600),
+    titleMedium: const TextStyle(color: textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+    titleSmall: const TextStyle(color: textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+    labelLarge: const TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+  );
+
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: deep,
     cardColor: card,
     dividerColor: border,
-    appBarTheme: const AppBarTheme(
+    textTheme: baseTextTheme,
+    appBarTheme: AppBarTheme(
       backgroundColor: deep,
       foregroundColor: textPrimary,
       elevation: 0,
       centerTitle: false,
-    ),
-    textTheme: const TextTheme(
-      bodyMedium: TextStyle(color: textPrimary, fontSize: 14),
-      bodySmall: TextStyle(color: textSecondary, fontSize: 12),
-      titleLarge: TextStyle(color: textPrimary, fontSize: 22, fontWeight: FontWeight.w600),
-      titleMedium: TextStyle(color: textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
-      labelLarge: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+      titleTextStyle: GoogleFonts.inter(
+        color: textPrimary,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+      ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -57,12 +66,23 @@ ThemeData buildSunrayTheme() {
         side: const BorderSide(color: border),
       ),
     ),
-    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+    navigationBarTheme: NavigationBarThemeData(
       backgroundColor: deep,
-      selectedItemColor: accent,
-      unselectedItemColor: textSecondary,
-      type: BottomNavigationBarType.fixed,
-      elevation: 0,
+      indicatorColor: border,
+      surfaceTintColor: Colors.transparent,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final isSelected = states.contains(WidgetState.selected);
+        return TextStyle(
+          color: isSelected ? accent : textSecondary,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        );
+      }),
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final isSelected = states.contains(WidgetState.selected);
+        return IconThemeData(color: isSelected ? accent : textSecondary);
+      }),
     ),
   );
 }

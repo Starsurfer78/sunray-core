@@ -632,7 +632,7 @@ class _DiagnoseCard extends StatelessWidget {
                   value: status.mcuConnected == null
                       ? '—'
                       : status.mcuConnected!
-                          ? 'Verbunden${status.mcuVersion != null ? ' v${status.mcuVersion!.toStringAsFixed(1)}' : ''}'
+                      ? 'Verbunden${status.mcuVersion != null ? ' (${status.mcuVersion})' : ''}'
                           : 'Nicht verbunden',
                 ),
                 _StatusLine(
@@ -643,9 +643,11 @@ class _DiagnoseCard extends StatelessWidget {
                   label: 'Runtime-Health',
                   value: status.runtimeHealth == null
                       ? '—'
-                      : status.runtimeHealth!
+                      : status.runtimeHealth == 'ok'
                           ? 'OK'
-                          : 'Fehler',
+                          : status.runtimeHealth == 'degraded'
+                              ? 'Eingeschränkt'
+                              : 'Fehler',
                 ),
                 _StatusLine(
                   label: 'Betriebszeit',
@@ -736,13 +738,15 @@ class _LogsCardState extends ConsumerState<_LogsCard> {
                       icon: const Icon(Icons.download_rounded, size: 16),
                       label: const Text('Logs laden'),
                     )
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _events.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1),
-                      itemBuilder: (context, index) {
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const ClampingScrollPhysics(),
+                        itemCount: _events.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, index) {
                         final event = _events[_events.length - 1 - index];
                         final phase = event['phase'] as String?;
                         final msg = event['message'] as String?
@@ -797,6 +801,7 @@ class _LogsCardState extends ConsumerState<_LogsCard> {
                         );
                       },
                     ),
+                  ),
     );
   }
 

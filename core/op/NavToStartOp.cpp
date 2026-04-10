@@ -2,6 +2,8 @@
 #include "core/op/Op.h"
 #include "core/navigation/LineTracker.h"
 #include "core/navigation/Map.h"
+#include "core/navigation/RuntimeState.h"
+#include "core/navigation/WaypointExecutor.h"
 
 namespace sunray
 {
@@ -11,10 +13,12 @@ namespace sunray
         ctx.logger.info("NavToStart", "OP_NAV_TO_START");
         ctx.stopMotors();
 
+        // N2.5: prefer WaypointExecutor plan check; fall back to legacy RuntimeState
         const bool hasActiveMowRoute =
-            ctx.map &&
-            ctx.map->wayMode == nav::WayType::MOW &&
-            !ctx.map->mowRoutePlan().points.empty();
+            (ctx.waypointExecutor && ctx.waypointExecutor->hasPlan()) ||
+            (ctx.runtimeState &&
+             ctx.runtimeState->wayMode() == nav::WayType::MOW &&
+             ctx.runtimeState->hasActiveMowingPlan());
         if (!hasActiveMowRoute)
         {
             ctx.logger.error("NavToStart", "no active mowing route => IDLE");
@@ -37,9 +41,9 @@ namespace sunray
             onPerimeterViolated(ctx);
             return;
         }
-        if (ctx.lineTracker && ctx.map && ctx.stateEst)
+        if (ctx.lineTracker && ctx.map && ctx.runtimeState && ctx.stateEst)
         {
-            ctx.lineTracker->track(ctx, *ctx.map, *ctx.stateEst);
+            ctx.lineTracker->track(ctx, *ctx.map, *ctx.runtimeState, *ctx.stateEst);
         }
     }
 

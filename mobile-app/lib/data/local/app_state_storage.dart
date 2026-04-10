@@ -113,11 +113,22 @@ class AppStateStorage {
   }
 
   Mission _decodeMission(Map<String, dynamic> raw) {
+    // scheduleDays: new structured field; fall back to old scheduleLabel parse.
+    List<bool> scheduleDays;
+    final rawDays = raw['scheduleDays'];
+    if (rawDays is List && rawDays.length == 7) {
+      scheduleDays = rawDays.map((e) => e == true).toList(growable: false);
+    } else {
+      scheduleDays = const <bool>[false, false, false, false, false, false, false];
+    }
     return Mission(
       id: raw['id'] as String? ?? '',
       name: raw['name'] as String? ?? 'Mission',
       zoneIds: (raw['zoneIds'] as List<dynamic>? ?? const <dynamic>[]).whereType<String>().toList(growable: false),
       zoneNames: (raw['zoneNames'] as List<dynamic>? ?? const <dynamic>[]).whereType<String>().toList(growable: false),
+      scheduleDays: scheduleDays,
+      scheduleHour: raw['scheduleHour'] as int?,
+      scheduleMinute: raw['scheduleMinute'] as int?,
       scheduleLabel: raw['scheduleLabel'] as String?,
       isRecurring: raw['isRecurring'] as bool? ?? false,
       onlyWhenDry: raw['onlyWhenDry'] as bool? ?? true,

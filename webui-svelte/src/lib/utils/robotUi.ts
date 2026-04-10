@@ -239,7 +239,7 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
   if (telemetry.op === "Error") {
     return {
       tone: "error",
-      title: "Error",
+      title: "Störung",
       detail: telemetry.error_code || humanizeReason(telemetry.event_reason),
       action: "Fehlerursache beseitigen und danach quittieren.",
     };
@@ -247,7 +247,7 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
   if (telemetry.op === "GpsWait") {
     return {
       tone: "warning",
-      title: "GpsWait",
+      title: "GPS-Wartezustand",
       detail: "RTK-/GPS-Signal fehlt oder ist unbrauchbar.",
       action: "Standort nicht verändern und auf stabiles Signal warten.",
     };
@@ -255,7 +255,7 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
   if (telemetry.op === "WaitRain" || telemetry.state_phase === "waiting_rain") {
     return {
       tone: "warning",
-      title: "WaitRain",
+      title: "Wetterpause",
       detail: "Regen oder Regenlogik blockiert den Mähbetrieb.",
       action: "Trockenphase abwarten oder später erneut starten.",
     };
@@ -263,7 +263,7 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
   if (telemetry.op === "Dock") {
     return {
       tone: "info",
-      title: "Dock",
+      title: "Docking",
       detail: "Der Roboter kehrt zur Ladestation zurück.",
       action: "Fahrweg freihalten und Docking beobachten.",
     };
@@ -271,15 +271,15 @@ export function getRecoveryNotice(telemetry: Telemetry): UiNotice {
   if (telemetry.op === "Charge") {
     return {
       tone: "info",
-      title: "Charge",
+      title: "Lädt",
       detail: "Der Roboter ist an der Ladestation und laedt.",
       action: "Für neue Aufgaben Akku und Plan prüfen.",
     };
   }
   return {
     tone: "success",
-    title: telemetry.op || "Idle",
+    title: "Bereit",
     detail: humanizeReason(telemetry.event_reason),
-    action: "Keine besondere Recovery-Aktion erforderlich.",
+    action: "Keine Aktion erforderlich.",
   };
 }

@@ -6,7 +6,7 @@
 #include "core/WebSocketServer.h"
 
 #include "crow.h"
-#include "core/navigation/MowRoutePlanner.h"
+#include "core/navigation/MissionCompiler.h"
 #include "core/navigation/RouteValidator.h"
 #include "core/navigation/Map.h"
 
@@ -15,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -214,8 +215,34 @@ namespace sunray
         };
     }
 
+    static nlohmann::json encodeMissionPlanJson(const sunray::nav::MissionPlan &plan)
+    {
+        nlohmann::json zonePlans = nlohmann::json::array();
+        for (const auto &zonePlan : plan.zonePlans)
+        {
+            zonePlans.push_back({
+                {"zoneId", zonePlan.zoneId},
+                {"zoneName", zonePlan.zoneName},
+                {"valid", zonePlan.valid},
+                {"invalidReason", zonePlan.invalidReason},
+            });
+        }
+
+        return {
+            {"missionId", plan.missionId},
+            {"zoneOrder", plan.zoneOrder},
+            {"valid", plan.valid},
+            {"invalidReason", plan.invalidReason},
+            {"zonePlans", zonePlans},
+            {"planRef", {
+                            {"id", plan.missionId.empty() ? std::string("preview-mission") : plan.missionId},
+                            {"revision", static_cast<int>(plan.route.points.size())},
+                        }},
+        };
+    }
+
     static constexpr const char *kDefaultMapJson =
-        R"({"perimeter":[],"mow":[],"dock":[],"exclusions":[],"zones":[]})";
+        R"({"perimeter":[],"dock":[],"exclusions":[],"zones":[]})";
 
     static constexpr const char *kDefaultMissionsJson = R"([])";
 
@@ -432,6 +459,12 @@ namespace sunray
     {
         std::lock_guard<std::mutex> lk(mapReloadMutex_);
         mapReloadCallback_ = std::move(cb);
+    }
+
+    void WebSocketServer::onPlanPreview(PlanPreviewCallback cb)
+    {
+        std::lock_guard<std::mutex> lk(cmdMutex_);
+        planPreviewCallback_ = std::move(cb);
     }
 
     void WebSocketServer::setMissionPath(const std::string &missionPath)
@@ -1022,6 +1055,43 @@ namespace sunray
                 return crow::response(400, R"({"error":"mission delete failed"})");
             } });
 
+        // ── GET /api/map/live — obstacles + active detour overlay (N5.1 + N5.2) ──
+        CROW_ROUTE(app, "/api/map/live").methods(crow::HTTPMethod::GET)([this, isAuthorized](const crow::request &req) -> crow::response
+                                                                        {
+            if (!isAuthorized(req))
+                return crow::response(401, R"({\"error\":\"unauthorized\"})");
+            nlohmann::json resp;
+            {
+                std::lock_guard<std::mutex> lk(liveOverlayMutex_);
+                resp = liveOverlayJson_.is_object() && !liveOverlayJson_.empty()
+                    ? liveOverlayJson_
+                    : nlohmann::json({{"obstacles", nlohmann::json::array()}, {"detour", {{"active", false}, {"waypoints", nlohmann::json::array()}}}});
+            }
+            crow::response r(200, resp.dump());
+            r.add_header("Content-Type", "application/json");
+            return r; });
+
+        // ── GET /api/mission/active-plan — return currently active mission plan JSON ──
+        CROW_ROUTE(app, "/api/mission/active-plan").methods(crow::HTTPMethod::GET)([this, isAuthorized](const crow::request &req) -> crow::response
+                                                                                   {
+            if (!isAuthorized(req))
+                return crow::response(401, R"({"error":"unauthorized"})");
+            nlohmann::json resp;
+            {
+                std::lock_guard<std::mutex> lkPlan(activePlanMutex_);
+                resp = (activePlanJson_.is_object() && !activePlanJson_.empty())
+                    ? activePlanJson_
+                    : nlohmann::json({{"missionId", ""}, {"waypoints", nlohmann::json::array()}, {"zoneOrder", nlohmann::json::array()}});
+            }
+            {
+                std::lock_guard<std::mutex> lkTel(telemetryMutex_);
+                resp["waypointIndex"] = latestTelemetry_.waypoint_index;
+                resp["waypointTotal"] = latestTelemetry_.waypoint_total;
+            }
+            crow::response r(200, resp.dump());
+            r.add_header("Content-Type", "application/json");
+            return r; });
+
         // ── POST /api/planner/preview — compute planner routes for preview ───────
         CROW_ROUTE(app, "/api/planner/preview").methods(crow::HTTPMethod::POST)([this, isAuthorized](const crow::request &req) -> crow::response
                                                                                 {
@@ -1049,8 +1119,10 @@ namespace sunray
                 nlohmann::json routes = nlohmann::json::array();
 
                 if (body.contains("mission") && body["mission"].is_object()) {
-                    const nav::RoutePlan route = nav::buildMissionMowRoutePreview(previewMap, body["mission"]);
+                    const nav::MissionPlan missionPlan = nav::buildMissionPlanPreview(previewMap, body["mission"]);
+                    const nav::RoutePlan& route = missionPlan.route;
                     const nav::RouteValidationResult vr = nav::RouteValidator::validate(previewMap, route);
+                    const nlohmann::json encodedPlan = encodeMissionPlanJson(missionPlan);
 
                     nlohmann::json validationErrors = nlohmann::json::array();
                     for (const auto& err : vr.errors) {
@@ -1070,15 +1142,34 @@ namespace sunray
                                                      : vr.errors.front().message;
                     }
 
+                    // N3.3: encode flat waypoint sequence for the WebUI preview.
+                    nlohmann::json waypointsJson = nlohmann::json::array();
+                    for (const auto &wp : missionPlan.waypoints)
+                        waypointsJson.push_back({{"x", wp.x}, {"y", wp.y}, {"mowOn", wp.mowOn}});
+
                     routes.push_back({
                         {"index",            0},
                         {"ok",               !route.points.empty()},
                         {"valid",            vr.valid},
                         {"error",            errorMsg},
+                        {"plan",             encodedPlan},
+                        {"planRef",          encodedPlan["planRef"]},
                         {"validationErrors", validationErrors},
                         {"debug",            encodeRouteDebugJson(route)},
                         {"route",            encodeRoutePlanJson(route)},
+                        {"waypoints",        waypointsJson},
                     });
+
+                    // N6.1: notify Robot so it can cache this plan for the next start.
+                    if (!route.points.empty()) {
+                        PlanPreviewCallback cb;
+                        {
+                            std::lock_guard<std::mutex> lk(cmdMutex_);
+                            cb = planPreviewCallback_;
+                        }
+                        if (cb)
+                            cb(missionPlan);
+                    }
                 } else {
                     const auto jobs = body.value("jobs", nlohmann::json::array());
                     if (!jobs.is_array()) {
@@ -1299,6 +1390,196 @@ namespace sunray
             }
             return crow::response(200, R"({"ok":true})"); });
 
+        // ── Zone Profile CRUD ──────────────────────────────────────────────────────
+        // Helper: read map JSON from file, apply a mutation, write back, reload robot.
+        auto mutatMapZoneProfile = [this, isAuthorized](
+                                       const crow::request &req,
+                                       const std::string &zoneId,
+                                       const std::function<crow::response(nlohmann::json & mapJson, nlohmann::json & jz)> &mutate)
+            -> crow::response
+        {
+            if (!isAuthorized(req))
+                return crow::response(401, R"({"error":"unauthorized"})");
+            if (mapPath_.empty())
+                return crow::response(503, R"({"error":"map path not configured"})");
+            try
+            {
+                // Read current map
+                nlohmann::json mapJson;
+                {
+                    const std::string raw = readFile(mapPath_);
+                    if (raw.empty())
+                        return crow::response(404, R"({"error":"map not found"})");
+                    mapJson = nlohmann::json::parse(raw, nullptr, false);
+                    if (mapJson.is_discarded() || !mapJson.is_object())
+                        return crow::response(500, R"({"error":"map parse error"})");
+                }
+                // Find the zone
+                if (!mapJson.contains("zones") || !mapJson["zones"].is_array())
+                    return crow::response(404, R"({"error":"zone not found"})");
+                nlohmann::json *jzPtr = nullptr;
+                for (auto &jz : mapJson["zones"])
+                {
+                    if (jz.value("id", "") == zoneId)
+                    {
+                        jzPtr = &jz;
+                        break;
+                    }
+                }
+                if (!jzPtr)
+                    return crow::response(404, R"({"error":"zone not found"})");
+                // Ensure profiles object exists
+                if (!jzPtr->contains("profiles") || !(*jzPtr)["profiles"].is_object())
+                    (*jzPtr)["profiles"] = nlohmann::json::object();
+
+                // Apply the specific mutation
+                crow::response result = mutate(mapJson, *jzPtr);
+
+                // Write & reload only on success (2xx)
+                if (result.code >= 200 && result.code < 300)
+                {
+                    {
+                        std::ofstream f(mapPath_);
+                        if (!f.is_open())
+                            return crow::response(500, R"({"error":"cannot write map"})");
+                        f << mapJson.dump(2);
+                    }
+                    {
+                        std::lock_guard<std::mutex> mapsLk(mapCatalogMutex_);
+                        std::string mapErr;
+                        syncActiveMapSnapshotLocked(mapJson, &mapErr);
+                    }
+                    {
+                        std::lock_guard<std::mutex> lk(mapReloadMutex_);
+                        if (mapReloadCallback_)
+                            mapReloadCallback_();
+                    }
+                }
+                return result;
+            }
+            catch (const std::exception &e)
+            {
+                return crow::response(400, std::string(R"({"error":")") + e.what() + "\"}");
+            }
+        };
+
+        // GET /api/zones/<zoneId>/profiles
+        CROW_ROUTE(app, "/api/zones/<string>/profiles")
+            .methods(crow::HTTPMethod::GET)([this, isAuthorized](const crow::request &req, const std::string &zoneId) -> crow::response
+                                            {
+            if (!isAuthorized(req))
+                return crow::response(401, R"({"error":"unauthorized"})");
+            if (mapPath_.empty())
+                return crow::response(503, R"({"error":"map path not configured"})");
+            try {
+                const std::string raw = readFile(mapPath_);
+                if (raw.empty()) return crow::response(404, R"({"error":"map not found"})");
+                auto mapJson = nlohmann::json::parse(raw, nullptr, false);
+                if (mapJson.is_discarded() || !mapJson.is_object())
+                    return crow::response(500, R"({"error":"map parse error"})");
+                if (!mapJson.contains("zones")) return crow::response(404, R"({"error":"zone not found"})");
+                for (const auto &jz : mapJson["zones"]) {
+                    if (jz.value("id","") != zoneId) continue;
+                    nlohmann::json resp;
+                    resp["zone_id"] = zoneId;
+                    resp["active_profile"] = jz.value("activeProfile", "");
+                    resp["profiles"] = nlohmann::json::array();
+                    const auto &profs = jz.contains("profiles") && jz["profiles"].is_object()
+                                        ? jz["profiles"] : nlohmann::json::object();
+                    for (auto it = profs.begin(); it != profs.end(); ++it) {
+                        nlohmann::json entry = it.value();
+                        entry["id"] = it.key();
+                        resp["profiles"].push_back(entry);
+                    }
+                    return crow::response(200, resp.dump());
+                }
+                return crow::response(404, R"({"error":"zone not found"})");
+            } catch (const std::exception &e) {
+                return crow::response(400, std::string(R"({"error":")") + e.what() + "\"}");
+            } });
+
+        // POST /api/zones/<zoneId>/profiles  — create a new profile
+        CROW_ROUTE(app, "/api/zones/<string>/profiles")
+            .methods(crow::HTTPMethod::POST)([this, isAuthorized, mutatMapZoneProfile](const crow::request &req, const std::string &zoneId) -> crow::response
+                                             { return mutatMapZoneProfile(req, zoneId, [&](nlohmann::json &, nlohmann::json &jz) -> crow::response
+                                                                          {
+                auto body = nlohmann::json::parse(req.body, nullptr, false);
+                if (body.is_discarded() || !body.is_object())
+                    return crow::response(400, R"({"error":"invalid JSON body"})");
+                const std::string profileName = body.value("name", "");
+                if (profileName.empty())
+                    return crow::response(400, R"({"error":"name required"})");
+                // Derive id from name (lowercase, spaces to underscores)
+                std::string profileId = profileName;
+                std::transform(profileId.begin(), profileId.end(), profileId.begin(), ::tolower);
+                std::replace(profileId.begin(), profileId.end(), ' ', '_');
+                // Ensure uniqueness by appending suffix if needed
+                const std::string baseId = profileId;
+                int suffix = 2;
+                while (jz["profiles"].contains(profileId))
+                    profileId = baseId + "_" + std::to_string(suffix++);
+                const uint64_t now = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count());
+                nlohmann::json profile;
+                profile["name"] = profileName;
+                profile["settings"] = body.value("settings", nlohmann::json::object());
+                profile["created"] = now;
+                profile["lastUsed"] = 0;
+                jz["profiles"][profileId] = profile;
+                nlohmann::json resp;
+                resp["profile_id"] = profileId;
+                resp["status"] = "created";
+                resp["message"] = "Profile saved and will be persisted to map.json";
+                return crow::response(201, resp.dump()); }); });
+
+        // PUT /api/zones/<zoneId>/profiles/<profileId>  — activate a profile or update it
+        CROW_ROUTE(app, "/api/zones/<string>/profiles/<string>")
+            .methods(crow::HTTPMethod::PUT)([this, isAuthorized, mutatMapZoneProfile](const crow::request &req, const std::string &zoneId, const std::string &profileId) -> crow::response
+                                            { return mutatMapZoneProfile(req, zoneId, [&](nlohmann::json &, nlohmann::json &jz) -> crow::response
+                                                                         {
+                if (!jz["profiles"].contains(profileId))
+                    return crow::response(404, R"({"error":"profile not found"})");
+                auto body = nlohmann::json::parse(req.body, nullptr, false);
+                if (body.is_discarded()) body = nlohmann::json::object();
+                const std::string action = body.value("action", "");
+                if (action == "activate" || action.empty()) {
+                    const uint64_t now = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count());
+                    jz["activeProfile"] = profileId;
+                    jz["profiles"][profileId]["lastUsed"] = now;
+                    nlohmann::json resp;
+                    resp["active_profile"] = profileId;
+                    resp["status"] = "ok";
+                    resp["zone_id"] = zoneId;
+                    return crow::response(200, resp.dump());
+                }
+                // Update settings
+                if (body.contains("name"))
+                    jz["profiles"][profileId]["name"] = body["name"];
+                if (body.contains("settings") && body["settings"].is_object())
+                    jz["profiles"][profileId]["settings"] = body["settings"];
+                nlohmann::json resp;
+                resp["profile_id"] = profileId;
+                resp["status"] = "updated";
+                return crow::response(200, resp.dump()); }); });
+
+        // DELETE /api/zones/<zoneId>/profiles/<profileId>
+        CROW_ROUTE(app, "/api/zones/<string>/profiles/<string>")
+            .methods(crow::HTTPMethod::DELETE)([this, isAuthorized, mutatMapZoneProfile](const crow::request &req, const std::string &zoneId, const std::string &profileId) -> crow::response
+                                               { return mutatMapZoneProfile(req, zoneId, [&](nlohmann::json &, nlohmann::json &jz) -> crow::response
+                                                                            {
+                if (!jz["profiles"].contains(profileId))
+                    return crow::response(404, R"({"error":"profile not found"})");
+                jz["profiles"].erase(profileId);
+                if (jz.value("activeProfile", "") == profileId)
+                    jz["activeProfile"] = "";
+                nlohmann::json resp;
+                resp["deleted_profile"] = profileId;
+                resp["status"] = "ok";
+                return crow::response(200, resp.dump()); }); });
+
         // ── POST /api/map ──────────────────────────────────────────────────────────
         CROW_ROUTE(app, "/api/map").methods(crow::HTTPMethod::POST)([this, isAuthorized](const crow::request &req) -> crow::response
                                                                     {
@@ -1427,20 +1708,6 @@ namespace sunray
                                                   {"properties", {{"type", "dock"}}},
                                                   {"geometry", {{"type", "Point"}, {"coordinates", {lon, lat}}}}});
                     }
-                    // mow path (MultiPoint)
-                    if (map.contains("mow") && !map["mow"].empty())
-                    {
-                        auto coords = nlohmann::json::array();
-                        for (const auto &p : map["mow"])
-                        {
-                            auto [lat, lon] = toWgs(p[0].get<double>(), p[1].get<double>());
-                            coords.push_back({lon, lat});
-                        }
-                        fc["features"].push_back({{"type", "Feature"},
-                                                  {"properties", {{"type", "mow"}}},
-                                                  {"geometry", {{"type", "MultiPoint"}, {"coordinates", coords}}}});
-                    }
-
                     const std::string body = fc.dump(2);
                     crow::response res(200, body);
                     res.set_header("Content-Type", "application/geo+json");
@@ -1543,7 +1810,6 @@ namespace sunray
                 outMap["perimeter"]  = nlohmann::json::array();
                 outMap["exclusions"] = nlohmann::json::array();
                 outMap["dock"]       = nlohmann::json::array();
-                outMap["mow"]        = nlohmann::json::array();
                 outMap["obstacles"]  = nlohmann::json::array();
 
                 for (const auto& feat :
@@ -1575,11 +1841,6 @@ namespace sunray
                                 sx += x; sy += y; ++n;
                             }
                             if (n > 0) outMap["dock"].push_back({ sx/n, sy/n });
-                        }
-                    } else if (ftype == "mow" && gtype == "MultiPoint") {
-                        for (const auto& c : feat["geometry"]["coordinates"]) {
-                            auto [x, y] = toLocal(c[0].get<double>(), c[1].get<double>());
-                            outMap["mow"].push_back({ x, y });
                         }
                     }
                     // obstacles: not in standard GeoJSON → ignored on import
@@ -2193,6 +2454,18 @@ namespace sunray
         hasNewTelemetry_ = true;
     }
 
+    void WebSocketServer::pushActivePlan(nlohmann::json planJson)
+    {
+        std::lock_guard<std::mutex> lk(activePlanMutex_);
+        activePlanJson_ = std::move(planJson);
+    }
+
+    void WebSocketServer::pushLiveOverlay(nlohmann::json overlayJson)
+    {
+        std::lock_guard<std::mutex> lk(liveOverlayMutex_);
+        liveOverlayJson_ = std::move(overlayJson);
+    }
+
     void WebSocketServer::broadcastNmea(const std::string &line)
     {
         if (!running_.load())
@@ -2417,6 +2690,18 @@ namespace sunray
         s += std::to_string(d.mission_zone_index);
         s += ",\"mission_zone_count\":";
         s += std::to_string(d.mission_zone_count);
+        s += ",\"waypoint_index\":";
+        s += std::to_string(d.waypoint_index);
+        s += ",\"waypoint_total\":";
+        s += std::to_string(d.waypoint_total);
+        s += ",\"target_x\":";
+        s += flt(d.target_x);
+        s += ",\"target_y\":";
+        s += flt(d.target_y);
+        s += ",\"has_target\":";
+        s += bl(d.has_target);
+        s += ",\"has_interrupted_mission\":";
+        s += bl(d.has_interrupted_mission);
         s += "}";
         return s;
     }

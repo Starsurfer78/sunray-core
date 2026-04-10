@@ -14,7 +14,7 @@ class ConnectionNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = switch (status.connectionState) {
       ConnectionStateKind.error => status.lastError,
-      ConnectionStateKind.connecting => status.lastError,
+      ConnectionStateKind.connecting => 'Verbinde…',
       _ => null,
     };
     if (text == null || text.trim().isEmpty) return const SizedBox.shrink();

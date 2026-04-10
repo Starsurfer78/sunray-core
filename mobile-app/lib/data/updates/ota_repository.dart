@@ -26,13 +26,16 @@ class OtaRepository {
     final List<dynamic> releases = response.data ?? <dynamic>[];
     if (releases.isEmpty) return null;
 
-    final Map<String, dynamic> latest =
-        Map<String, dynamic>.from(releases.first as Map<dynamic, dynamic>);
+    final dynamic firstRelease = releases.first;
+    if (firstRelease is! Map) return null;
+    final Map<String, dynamic> latest = Map<String, dynamic>.from(firstRelease);
 
-    final List<dynamic> assets = latest['assets'] as List<dynamic>? ?? <dynamic>[];
+    final dynamic rawAssets = latest['assets'];
+    final List<dynamic> assets = rawAssets is List ? rawAssets : <dynamic>[];
     String? apkDownloadUrl;
     for (final dynamic asset in assets) {
-      final Map<String, dynamic> map = Map<String, dynamic>.from(asset as Map<dynamic, dynamic>);
+      if (asset is! Map) continue;
+      final Map<String, dynamic> map = Map<String, dynamic>.from(asset);
       final String name = (map['name'] as String? ?? '').toLowerCase();
       if (name.endsWith('.apk')) {
         apkDownloadUrl = map['browser_download_url'] as String?;

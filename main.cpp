@@ -30,19 +30,22 @@
 #include <thread>
 #include <vector>
 
-static std::thread startSignalWaitThread(sunray::Robot& robot,
-                                         const std::shared_ptr<sunray::Logger>& logger) {
+static std::thread startSignalWaitThread(sunray::Robot &robot,
+                                         const std::shared_ptr<sunray::Logger> &logger)
+{
     sigset_t signalSet;
     sigemptyset(&signalSet);
     sigaddset(&signalSet, SIGINT);
     sigaddset(&signalSet, SIGTERM);
 
     const int maskRc = pthread_sigmask(SIG_BLOCK, &signalSet, nullptr);
-    if (maskRc != 0) {
+    if (maskRc != 0)
+    {
         throw std::runtime_error("pthread_sigmask failed");
     }
 
-    return std::thread([signalSet, &robot, logger]() mutable {
+    return std::thread([signalSet, &robot, logger]() mutable
+                       {
         int sig = 0;
         while (true) {
             const int rc = sigwait(&signalSet, &sig);
@@ -59,24 +62,27 @@ static std::thread startSignalWaitThread(sunray::Robot& robot,
                 robot.stop();
                 return;
             }
-        }
-    });
+        } });
 }
 
-static std::string defaultConfigPath() {
-    if (const char* env = std::getenv("CONFIG_PATH"); env && *env) {
+static std::string defaultConfigPath()
+{
+    if (const char *env = std::getenv("CONFIG_PATH"); env && *env)
+    {
         return env;
     }
 
     const std::filesystem::path corePath = "/etc/sunray-core/config.json";
-    if (std::filesystem::exists(corePath)) {
+    if (std::filesystem::exists(corePath))
+    {
         return corePath.string();
     }
 
     return "/etc/sunray/config.json";
 }
 
-static std::string resolveWebRoot() {
+static std::string resolveWebRoot()
+{
     namespace fs = std::filesystem;
 
     std::vector<fs::path> candidates;
@@ -84,17 +90,21 @@ static std::string resolveWebRoot() {
 
     const fs::path procExe = "/proc/self/exe";
     std::error_code ec;
-    if (fs::exists(procExe, ec)) {
+    if (fs::exists(procExe, ec))
+    {
         const fs::path exePath = fs::read_symlink(procExe, ec);
-        if (!ec && !exePath.empty()) {
+        if (!ec && !exePath.empty())
+        {
             const fs::path exeDir = exePath.parent_path();
             candidates.emplace_back(exeDir / "webui-svelte" / "dist");
             candidates.emplace_back(exeDir.parent_path() / "webui-svelte" / "dist");
         }
     }
 
-    for (const auto& candidate : candidates) {
-        if (fs::exists(candidate / "index.html")) {
+    for (const auto &candidate : candidates)
+    {
+        if (fs::exists(candidate / "index.html"))
+        {
             return fs::weakly_canonical(candidate).string();
         }
     }
@@ -103,7 +113,8 @@ static std::string resolveWebRoot() {
     return "webui-svelte/dist";
 }
 
-static std::string resolveOtaScriptPath() {
+static std::string resolveOtaScriptPath()
+{
     namespace fs = std::filesystem;
 
     std::vector<fs::path> candidates;
@@ -111,17 +122,21 @@ static std::string resolveOtaScriptPath() {
 
     const fs::path procExe = "/proc/self/exe";
     std::error_code ec;
-    if (fs::exists(procExe, ec)) {
+    if (fs::exists(procExe, ec))
+    {
         const fs::path exePath = fs::read_symlink(procExe, ec);
-        if (!ec && !exePath.empty()) {
+        if (!ec && !exePath.empty())
+        {
             const fs::path exeDir = exePath.parent_path();
             candidates.emplace_back(exeDir / "scripts" / "ota_update.sh");
             candidates.emplace_back(exeDir.parent_path() / "scripts" / "ota_update.sh");
         }
     }
 
-    for (const auto& candidate : candidates) {
-        if (fs::exists(candidate) && fs::is_regular_file(candidate)) {
+    for (const auto &candidate : candidates)
+    {
+        if (fs::exists(candidate) && fs::is_regular_file(candidate))
+        {
             return fs::weakly_canonical(candidate).string();
         }
     }
@@ -129,7 +144,8 @@ static std::string resolveOtaScriptPath() {
     return {};
 }
 
-static std::string resolveFlashScriptPath() {
+static std::string resolveFlashScriptPath()
+{
     namespace fs = std::filesystem;
 
     std::vector<fs::path> candidates;
@@ -137,17 +153,21 @@ static std::string resolveFlashScriptPath() {
 
     const fs::path procExe = "/proc/self/exe";
     std::error_code ec;
-    if (fs::exists(procExe, ec)) {
+    if (fs::exists(procExe, ec))
+    {
         const fs::path exePath = fs::read_symlink(procExe, ec);
-        if (!ec && !exePath.empty()) {
+        if (!ec && !exePath.empty())
+        {
             const fs::path exeDir = exePath.parent_path();
             candidates.emplace_back(exeDir / "scripts" / "flash_alfred.sh");
             candidates.emplace_back(exeDir.parent_path() / "scripts" / "flash_alfred.sh");
         }
     }
 
-    for (const auto& candidate : candidates) {
-        if (fs::exists(candidate) && fs::is_regular_file(candidate)) {
+    for (const auto &candidate : candidates)
+    {
+        if (fs::exists(candidate) && fs::is_regular_file(candidate))
+        {
             return fs::weakly_canonical(candidate).string();
         }
     }
@@ -155,24 +175,33 @@ static std::string resolveFlashScriptPath() {
     return {};
 }
 
-static std::vector<std::string> loadMissionZoneIds(const std::string& missionPath,
-                                                   const std::string& missionId) {
-    if (missionId.empty() || !std::filesystem::exists(missionPath)) return {};
+static std::vector<std::string> loadMissionZoneIds(const std::string &missionPath,
+                                                   const std::string &missionId)
+{
+    if (missionId.empty() || !std::filesystem::exists(missionPath))
+        return {};
 
     std::ifstream file(missionPath);
-    if (!file.is_open()) return {};
+    if (!file.is_open())
+        return {};
 
     const std::string raw((std::istreambuf_iterator<char>(file)), {});
-    if (raw.empty()) return {};
+    if (raw.empty())
+        return {};
 
     std::vector<std::string> zoneIds;
     const auto missions = nlohmann::json::parse(raw);
-    if (!missions.is_array()) return {};
+    if (!missions.is_array())
+        return {};
 
-    for (const auto& mission : missions) {
-        if (mission.value("id", std::string()) != missionId) continue;
-        if (mission.contains("zoneIds") && mission["zoneIds"].is_array()) {
-            for (const auto& zoneId : mission["zoneIds"]) {
+    for (const auto &mission : missions)
+    {
+        if (mission.value("id", std::string()) != missionId)
+            continue;
+        if (mission.contains("zoneIds") && mission["zoneIds"].is_array())
+        {
+            for (const auto &zoneId : mission["zoneIds"])
+            {
                 zoneIds.push_back(zoneId.get<std::string>());
             }
         }
@@ -183,15 +212,20 @@ static std::vector<std::string> loadMissionZoneIds(const std::string& missionPat
 
 // ── main ───────────────────────────────────────────────────────────────────────
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
     // ── Argument parsing ───────────────────────────────────────────────────────
-    bool        simMode    = false;
+    bool simMode = false;
     std::string configPath = defaultConfigPath();
 
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--sim") == 0) {
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::strcmp(argv[i], "--sim") == 0)
+        {
             simMode = true;
-        } else {
+        }
+        else
+        {
             configPath = argv[i];
         }
     }
@@ -201,36 +235,48 @@ int main(int argc, char* argv[]) {
     const auto configDir = config->path().parent_path();
 
     // ── 2. Logger ──────────────────────────────────────────────────────────────
-    sunray::WebSocketServer* wsLogSink = nullptr;
+    sunray::WebSocketServer *wsLogSink = nullptr;
     auto stdoutLogger = std::make_shared<sunray::StdoutLogger>(sunray::LogLevel::INFO);
     auto logger = std::make_shared<sunray::FanoutLogger>(
         stdoutLogger,
-        [&wsLogSink](sunray::LogLevel level, const std::string& module, const std::string& msg) {
-            if (!wsLogSink) return;
-            const char* tag = "INFO";
-            switch (level) {
-                case sunray::LogLevel::DEBUG: tag = "DEBUG"; break;
-                case sunray::LogLevel::INFO:  tag = "INFO"; break;
-                case sunray::LogLevel::WARN:  tag = "WARN"; break;
-                case sunray::LogLevel::ERROR: tag = "ERROR"; break;
+        [&wsLogSink](sunray::LogLevel level, const std::string &module, const std::string &msg)
+        {
+            if (!wsLogSink)
+                return;
+            const char *tag = "INFO";
+            switch (level)
+            {
+            case sunray::LogLevel::DEBUG:
+                tag = "DEBUG";
+                break;
+            case sunray::LogLevel::INFO:
+                tag = "INFO";
+                break;
+            case sunray::LogLevel::WARN:
+                tag = "WARN";
+                break;
+            case sunray::LogLevel::ERROR:
+                tag = "ERROR";
+                break;
             }
             std::ostringstream line;
             line << "[" << tag << "] " << module << " " << msg;
             wsLogSink->broadcastLog(line.str());
         });
-    logger->info("main", std::string("sunray-core starting")
-                         + (simMode ? " [SIMULATION]" : " [Alfred]")
-                         + " — config: " + configPath);
+    logger->info("main", std::string("sunray-core starting") + (simMode ? " [SIMULATION]" : " [Alfred]") + " — config: " + configPath);
 
     // ── 3. Hardware driver (DI switch) ─────────────────────────────────────────
-    sunray::SimulationDriver* simDrv = nullptr;
+    sunray::SimulationDriver *simDrv = nullptr;
     std::unique_ptr<sunray::HardwareInterface> hw;
 
-    if (simMode) {
+    if (simMode)
+    {
         auto drv = std::make_unique<sunray::SimulationDriver>(config);
-        simDrv   = drv.get();
-        hw       = std::move(drv);
-    } else {
+        simDrv = drv.get();
+        hw = std::move(drv);
+    }
+    else
+    {
         hw = std::make_unique<sunray::SerialRobotDriver>(config, logger);
     }
 
@@ -239,18 +285,23 @@ int main(int argc, char* argv[]) {
     std::thread signalThread = startSignalWaitThread(robot, logger);
 
     // ── 5. Initialise ──────────────────────────────────────────────────────────
-    if (!robot.init()) {
+    if (!robot.init())
+    {
         logger->error("main", "Robot init failed — exiting");
         return EXIT_FAILURE;
     }
 
     // Optional GPS driver (disabled in simulator)
-    if (!simMode) {
+    if (!simMode)
+    {
         auto gps = std::make_unique<sunray::UbloxGpsDriver>(config, logger);
-        if (gps->init()) {
+        if (gps->init())
+        {
             robot.setGpsDriver(std::move(gps));
             logger->info("main", "GPS driver enabled");
-        } else {
+        }
+        else
+        {
             logger->warn("main", "GPS driver init failed — continuing without GPS");
         }
     }
@@ -271,25 +322,25 @@ int main(int argc, char* argv[]) {
     wsServer->setMissionPath(missionPath);
 
     // OTA update script: resolved relative to cwd and running binary location.
-    if (const std::string otaScript = resolveOtaScriptPath(); !otaScript.empty()) {
+    if (const std::string otaScript = resolveOtaScriptPath(); !otaScript.empty())
+    {
         wsServer->setOtaScriptPath(otaScript);
     }
-    if (const std::string flashScript = resolveFlashScriptPath(); !flashScript.empty()) {
+    if (const std::string flashScript = resolveFlashScriptPath(); !flashScript.empty())
+    {
         wsServer->setStmFlashScriptPath(flashScript);
     }
-    wsServer->onStmFlashStateChange([&robot](bool active, uint64_t recoveryGraceMs) {
-        robot.setStmFlashMaintenance(active, recoveryGraceMs);
-    });
-    wsServer->onMapGet([&robot]() -> nlohmann::json {
-        return robot.getMapJson();
-    });
-    wsServer->onMapReload([&robot, mapPath]() {
-        return robot.loadMap(mapPath);
-    });
+    wsServer->onStmFlashStateChange([&robot](bool active, uint64_t recoveryGraceMs)
+                                    { robot.setStmFlashMaintenance(active, recoveryGraceMs); });
+    wsServer->onMapGet([&robot]() -> nlohmann::json
+                       { return robot.getMapJson(); });
+    wsServer->onMapReload([&robot, mapPath]()
+                          { return robot.loadMap(mapPath); });
 
     // WebSocket commands → Robot
-    wsServer->onCommand([&robot, logger, missionPath](const std::string& cmd,
-                                  const nlohmann::json& params) {
+    wsServer->onCommand([&robot, logger, missionPath](const std::string &cmd,
+                                                      const nlohmann::json &params)
+                        {
         if (cmd != "drive") {
             logger->info("main", "WS command received: " + cmd);
         }
@@ -328,14 +379,21 @@ int main(int argc, char* argv[]) {
                 for (const auto& z : params["zones"]) ids.push_back(z.get<std::string>());
             robot.requestStartMowingZones(ids);
         }
+        else if (cmd == "resume") {  // N6.3: resume after dock interrupt
+            robot.requestResumeActiveMission();
+        }
         else {
             logger->warn("main", "Unknown WebSocket command ignored: " + cmd);
-        }
-    });
+        } });
+
+    // N6.1: cache preview plan in Robot so startMowing() uses it.
+    wsServer->onPlanPreview([&robot](sunray::nav::MissionPlan plan)
+                            { robot.storePendingMissionPlan(std::move(plan)); });
 
     // Diagnostic commands → Robot (C.10b)
-    wsServer->onDiag([&robot](const std::string& action,
-                               const nlohmann::json& params) -> nlohmann::json {
+    wsServer->onDiag([&robot](const std::string &action,
+                              const nlohmann::json &params) -> nlohmann::json
+                     {
         if (action == "motor") {
             const std::string motor       = params.value("motor", "left");
             const float       pwm         = static_cast<float>(params.value("pwm", 0.15));
@@ -356,39 +414,35 @@ int main(int argc, char* argv[]) {
         } else if (action == "imu_calib") {
             return robot.diagImuCalib();
         }
-        return {{"ok", false}, {"error", "unknown action: " + action}};
-    });
+        return {{"ok", false}, {"error", "unknown action: " + action}}; });
 
     // Schedule API (C.11)
     {
         auto schedulePath =
             std::filesystem::path(
-                config->get<std::string>("config_dir", configDir.string()))
-            / "schedule.json";
+                config->get<std::string>("config_dir", configDir.string())) /
+            "schedule.json";
         robot.loadSchedule(schedulePath);
-        wsServer->onScheduleGet([&robot]() -> nlohmann::json {
-            return robot.getSchedule();
-        });
-        wsServer->onSchedulePut([&robot](const nlohmann::json& arr) -> nlohmann::json {
-            return nlohmann::json{{"ok", robot.setSchedule(arr)}};
-        });
+        wsServer->onScheduleGet([&robot]() -> nlohmann::json
+                                { return robot.getSchedule(); });
+        wsServer->onSchedulePut([&robot](const nlohmann::json &arr) -> nlohmann::json
+                                { return nlohmann::json{{"ok", robot.setSchedule(arr)}}; });
     }
 
     // History/statistics API (C.17-i)
-    wsServer->onHistoryEventsGet([&robot](unsigned limit) -> nlohmann::json {
-        return robot.getHistoryEvents(limit);
-    });
-    wsServer->onHistorySessionsGet([&robot](unsigned limit) -> nlohmann::json {
-        return robot.getHistorySessions(limit);
-    });
-    wsServer->onStatisticsSummaryGet([&robot]() -> nlohmann::json {
-        return robot.getHistoryStatisticsSummary();
-    });
+    wsServer->onHistoryEventsGet([&robot](unsigned limit) -> nlohmann::json
+                                 { return robot.getHistoryEvents(limit); });
+    wsServer->onHistorySessionsGet([&robot](unsigned limit) -> nlohmann::json
+                                   { return robot.getHistorySessions(limit); });
+    wsServer->onStatisticsSummaryGet([&robot]() -> nlohmann::json
+                                     { return robot.getHistoryStatisticsSummary(); });
 
     // Simulator commands → SimulationDriver (only wired in --sim mode)
-    if (simDrv) {
-        wsServer->onSimCommand([simDrv, logger](const std::string& action,
-                                        const nlohmann::json& params) {
+    if (simDrv)
+    {
+        wsServer->onSimCommand([simDrv, logger](const std::string &action,
+                                                const nlohmann::json &params)
+                               {
             if (action == "bumper") {
                 const std::string side = params.value("side", "both");
                 if (side == "left"  || side == "both") simDrv->setBumperLeft(true);
@@ -415,8 +469,7 @@ int main(int argc, char* argv[]) {
                 simDrv->clearObstacles();
             } else {
                 logger->warn("main", "Unknown simulator command ignored: " + action);
-            }
-        });
+            } });
     }
 
     wsServer->start();
@@ -424,8 +477,9 @@ int main(int argc, char* argv[]) {
 
     // ── 7. MQTT client (optional — enabled via mqtt_enabled=true in config) ───
     auto mqttClient = std::make_unique<sunray::MqttClient>(config, logger);
-    mqttClient->onCommand([&robot, logger, missionPath](const std::string& cmd,
-                                   const nlohmann::json& params) {
+    mqttClient->onCommand([&robot, logger, missionPath](const std::string &cmd,
+                                                        const nlohmann::json &params)
+                          {
         if      (cmd == "start")  {
             const std::string missionId = params.value("missionId", std::string());
             if (!missionId.empty()) {
@@ -450,15 +504,15 @@ int main(int argc, char* argv[]) {
         }
         else {
             logger->warn("main", "Unknown MQTT command ignored: " + cmd);
-        }
-    });
+        } });
     mqttClient->start();
     robot.setMqttClient(mqttClient.get());
 
     // ── 8. Run (blocks until stop()) ──────────────────────────────────────────
     robot.loop();
 
-    if (signalThread.joinable()) {
+    if (signalThread.joinable())
+    {
         signalThread.detach();
     }
 

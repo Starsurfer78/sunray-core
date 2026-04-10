@@ -1,9 +1,9 @@
 // Map.cpp — Waypoint management + polygon operations.
 
 #include "core/navigation/Map.h"
-#include "core/navigation/MowRoutePlanner.h"
+#include "core/navigation/MissionCompiler.h"
 #include "core/navigation/GridMap.h"
-#include "core/navigation/Planner.h"
+#include "core/navigation/PathPlanner.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,10 +15,20 @@ namespace sunray
 {
     namespace nav
     {
-
         static bool lineCircleIntersects(const Point &src, const Point &dst,
-                                         const Point &center, float radius);
-        static constexpr float TRACK_TARGET_REACHED_TOLERANCE_M = 0.2f;
+                                         const Point &center, float radius)
+        {
+            const float dx = dst.x - src.x;
+            const float dy = dst.y - src.y;
+            const float len2 = dx * dx + dy * dy;
+            if (len2 < 1e-8f)
+                return src.distanceTo(center) < radius;
+            float t = ((center.x - src.x) * dx + (center.y - src.y) * dy) / len2;
+            t = std::clamp(t, 0.0f, 1.0f);
+            const float cx = src.x + t * dx - center.x;
+            const float cy = src.y + t * dy - center.y;
+            return (cx * cx + cy * cy) < radius * radius;
+        }
 
         // ── Construction ───────────────────────────────────────────────────────────────
 
@@ -70,71 +80,6 @@ namespace sunray
             return value == DockApproachMode::REVERSE_ALLOWED ? "reverse_allowed" : "forward_only";
         }
 
-        /// Parse mow points — supports both legacy [[x,y],...] and new [{"p":[x,y],"rev":bool},...]
-        static std::vector<MowPoint> parseMowPoints(const nlohmann::json &arr)
-        {
-            std::vector<MowPoint> pts;
-            pts.reserve(arr.size());
-            for (auto &e : arr)
-            {
-                MowPoint mp;
-                if (e.is_array())
-                {
-                    // Legacy format: [x, y]
-                    mp.p = {e.at(0).get<float>(), e.at(1).get<float>()};
-                }
-                else
-                {
-                    // New format: { "p": [x,y], "rev": bool, "slow": bool }
-                    auto &pArr = e.at("p");
-                    mp.p = {pArr.at(0).get<float>(), pArr.at(1).get<float>()};
-                    mp.rev = e.value("rev", false);
-                    mp.slow = e.value("slow", false);
-                }
-                pts.push_back(mp);
-            }
-            return pts;
-        }
-
-        static nlohmann::json encodeMowPoints(const std::vector<MowPoint> &pts)
-        {
-            nlohmann::json arr = nlohmann::json::array();
-            for (auto &mp : pts)
-            {
-                if (!mp.rev && !mp.slow)
-                {
-                    // Compact: [x, y]  (no flags set → backwards-compatible legacy format)
-                    arr.push_back({mp.p.x, mp.p.y});
-                }
-                else
-                {
-                    nlohmann::json e;
-                    e["p"] = {mp.p.x, mp.p.y};
-                    if (mp.rev)
-                        e["rev"] = true;
-                    if (mp.slow)
-                        e["slow"] = true;
-                    arr.push_back(e);
-                }
-            }
-            return arr;
-        }
-
-        static std::vector<MowPoint> exportMowPoints(const RoutePlan &route)
-        {
-            std::vector<MowPoint> points;
-            points.reserve(route.points.size());
-            for (const auto &routePoint : route.points)
-            {
-                points.push_back(MowPoint{
-                    routePoint.p,
-                    routePoint.reverse,
-                    routePoint.slow,
-                });
-            }
-            return points;
-        }
-
         static PolygonPoints exportPolygonPoints(const RoutePlan &route)
         {
             PolygonPoints points;
@@ -144,49 +89,6 @@ namespace sunray
                 points.push_back(routePoint.p);
             }
             return points;
-        }
-
-        static RoutePlan generatedMowRouteFromZones(const Map &map)
-        {
-            nlohmann::json mission;
-            mission["zoneIds"] = nlohmann::json::array();
-            mission["overrides"] = nlohmann::json::object();
-            for (const auto &zone : map.zones())
-            {
-                mission["zoneIds"].push_back(zone.id);
-            }
-            return buildMissionMowRoutePreview(map, mission);
-        }
-
-        static const Zone *findZoneById(const Map &map, const std::string &zoneId)
-        {
-            for (const auto &zone : map.zones())
-            {
-                if (zone.id == zoneId)
-                    return &zone;
-            }
-            return nullptr;
-        }
-
-        static const RoutePoint *activeRoutePointForPlanning(const Map &map)
-        {
-            if (map.wayMode == WayType::MOW)
-            {
-                const auto &route = map.mowRoutePlan();
-                if (map.mowPointsIdx >= 0 && map.mowPointsIdx < static_cast<int>(route.points.size()))
-                {
-                    return &route.points[map.mowPointsIdx];
-                }
-            }
-            if (map.wayMode == WayType::DOCK)
-            {
-                const auto &route = map.dockRoutePlan();
-                if (map.dockPointsIdx >= 0 && map.dockPointsIdx < static_cast<int>(route.points.size()))
-                {
-                    return &route.points[map.dockPointsIdx];
-                }
-            }
-            return nullptr;
         }
 
         static PlannerSettings parsePlannerSettings(const nlohmann::json &jp)
@@ -271,6 +173,58 @@ namespace sunray
             return jd;
         }
 
+        static ZoneSettings parseZoneSettings(const nlohmann::json &js)
+        {
+            ZoneSettings s;
+            s.name = js.value("name", s.name);
+            s.stripWidth = js.value("stripWidth", s.stripWidth);
+            s.angle = js.value("angle", s.angle);
+            s.edgeMowing = js.value("edgeMowing", s.edgeMowing);
+            s.edgeRounds = js.value("edgeRounds", s.edgeRounds);
+            s.speed = js.value("speed", s.speed);
+            const std::string pat = js.value("pattern", std::string("stripe"));
+            s.pattern = (pat == "spiral") ? ZonePattern::SPIRAL : ZonePattern::STRIPE;
+            s.reverseAllowed = js.value("reverseAllowed", s.reverseAllowed);
+            s.clearance = js.value("clearance", s.clearance);
+            return s;
+        }
+
+        static nlohmann::json encodeZoneSettings(const ZoneSettings &s)
+        {
+            return {
+                {"name", s.name},
+                {"stripWidth", s.stripWidth},
+                {"angle", s.angle},
+                {"edgeMowing", s.edgeMowing},
+                {"edgeRounds", s.edgeRounds},
+                {"speed", s.speed},
+                {"pattern", s.pattern == ZonePattern::SPIRAL ? "spiral" : "stripe"},
+                {"reverseAllowed", s.reverseAllowed},
+                {"clearance", s.clearance},
+            };
+        }
+
+        static ZoneProfile parseZoneProfile(const nlohmann::json &jp)
+        {
+            ZoneProfile p;
+            p.name = jp.value("name", p.name);
+            p.created = jp.value("created", p.created);
+            p.lastUsed = jp.value("lastUsed", p.lastUsed);
+            if (jp.contains("settings") && jp["settings"].is_object())
+                p.settings = parseZoneSettings(jp["settings"]);
+            return p;
+        }
+
+        static nlohmann::json encodeZoneProfile(const ZoneProfile &p)
+        {
+            return {
+                {"name", p.name},
+                {"settings", encodeZoneSettings(p.settings)},
+                {"created", p.created},
+                {"lastUsed", p.lastUsed},
+            };
+        }
+
         bool Map::load(const std::filesystem::path &path)
         {
             try
@@ -297,9 +251,6 @@ namespace sunray
 
                 if (j.contains("perimeter"))
                     perimeterPoints_ = parsePoints(j["perimeter"]);
-                std::vector<MowPoint> parsedMowPoints;
-                if (j.contains("mow"))
-                    parsedMowPoints = parseMowPoints(j["mow"]);
                 PolygonPoints parsedDockPoints;
                 if (j.contains("dock"))
                     parsedDockPoints = parsePoints(j["dock"]);
@@ -317,19 +268,21 @@ namespace sunray
                         z.order = jz.value("order", 1);
                         if (jz.contains("polygon"))
                             z.polygon = parsePoints(jz["polygon"]);
-                        if (jz.contains("settings"))
+                        // Read name: top-level first, fall back to legacy settings.name for backward compat
+                        if (jz.contains("name"))
+                            z.name = jz["name"].get<std::string>();
+                        else if (jz.contains("settings") && jz["settings"].contains("name"))
+                            z.name = jz["settings"]["name"].get<std::string>();
+                        else
+                            z.name = "Zone";
+                        z.activeProfileId = jz.value("activeProfile", std::string{});
+                        if (jz.contains("profiles") && jz["profiles"].is_object())
                         {
-                            auto &js = jz["settings"];
-                            z.settings.name = js.value("name", "Zone");
-                            z.settings.stripWidth = js.value("stripWidth", 0.18f);
-                            z.settings.angle = js.value("angle", 0.0f);
-                            z.settings.edgeMowing = js.value("edgeMowing", true);
-                            z.settings.edgeRounds = js.value("edgeRounds", 1);
-                            z.settings.speed = js.value("speed", 1.0f);
-                            std::string pat = js.value("pattern", "stripe");
-                            z.settings.pattern = (pat == "spiral") ? ZonePattern::SPIRAL : ZonePattern::STRIPE;
-                            z.settings.reverseAllowed = js.value("reverseAllowed", false);
-                            z.settings.clearance = js.value("clearance", 0.25f);
+                            for (auto it = jz["profiles"].begin(); it != jz["profiles"].end(); ++it)
+                            {
+                                if (it.value().is_object())
+                                    z.profiles[it.key()] = parseZoneProfile(it.value());
+                            }
                         }
                         zones_.push_back(std::move(z));
                     }
@@ -357,8 +310,6 @@ namespace sunray
                 {
                     captureMeta_ = j["captureMeta"];
                 }
-                allMowRoute_ = buildMowRoutePlan(parsedMowPoints);
-                activateMowRoute(allMowRoute_);
                 dockRoute_ = buildDockRoutePlan(parsedDockPoints);
                 for (auto &routePoint : dockRoute_.points)
                 {
@@ -397,10 +348,6 @@ namespace sunray
         {
             nlohmann::json j;
             j["perimeter"] = encodePoints(perimeterPoints_);
-            const RoutePlan exportedMowRoute = !zones_.empty()
-                                                   ? generatedMowRouteFromZones(*this)
-                                                   : mowRoute_;
-            j["mow"] = encodeMowPoints(exportMowPoints(exportedMowRoute));
             j["dock"] = encodePoints(exportPolygonPoints(dockRoute_));
             j["exclusions"] = nlohmann::json::array();
             for (const auto &ex : exclusions_)
@@ -411,19 +358,13 @@ namespace sunray
             {
                 nlohmann::json jz;
                 jz["id"] = z.id;
+                jz["name"] = z.name;
                 jz["order"] = z.order;
                 jz["polygon"] = encodePoints(z.polygon);
-                jz["settings"] = {
-                    {"name", z.settings.name},
-                    {"stripWidth", z.settings.stripWidth},
-                    {"angle", z.settings.angle},
-                    {"edgeMowing", z.settings.edgeMowing},
-                    {"edgeRounds", z.settings.edgeRounds},
-                    {"speed", z.settings.speed},
-                    {"pattern", z.settings.pattern == ZonePattern::SPIRAL ? "spiral" : "stripe"},
-                    {"reverseAllowed", z.settings.reverseAllowed},
-                    {"clearance", z.settings.clearance},
-                };
+                jz["activeProfile"] = z.activeProfileId;
+                jz["profiles"] = nlohmann::json::object();
+                for (const auto &[profileId, profile] : z.profiles)
+                    jz["profiles"][profileId] = encodeZoneProfile(profile);
                 j["zones"].push_back(jz);
             }
 
@@ -443,46 +384,14 @@ namespace sunray
         void Map::clear()
         {
             perimeterPoints_.clear();
-            freePoints_.clear();
-            allMowRoute_ = RoutePlan{};
-            mowRoute_ = RoutePlan{};
             dockRoute_ = RoutePlan{};
-            localRoute_ = RoutePlan{};
             exclusions_.clear();
             exclusionMeta_.clear();
             obstacles_.clear();
             zones_.clear();
             applyConfigDefaults();
-            freeRoute_ = FreeRouteContext{};
-            lastReplanAttempt_ms_ = 0;
             captureMeta_ = nlohmann::json::object();
-            mowPointsIdx = 0;
-            dockPointsIdx = 0;
-            freePointsIdx = 0;
-            shouldDock_ = false;
-            shouldMow_ = false;
-            isDocked_ = false;
             mapCRC_ = 0;
-        }
-
-        RoutePlan Map::buildMowRoutePlan(const std::vector<MowPoint> &points)
-        {
-            RoutePlan route;
-            route.sourceMode = WayType::MOW;
-            route.active = !points.empty();
-            route.points.reserve(points.size());
-            for (const auto &mp : points)
-            {
-                RoutePoint routePoint;
-                routePoint.p = mp.p;
-                routePoint.reverse = mp.rev;
-                routePoint.slow = mp.slow;
-                routePoint.reverseAllowed = false;
-                routePoint.clearance_m = 0.25f;
-                routePoint.sourceMode = WayType::MOW;
-                route.points.push_back(routePoint);
-            }
-            return route;
         }
 
         RoutePlan Map::buildDockRoutePlan(const PolygonPoints &points)
@@ -503,21 +412,6 @@ namespace sunray
                 route.points.push_back(routePoint);
             }
             return route;
-        }
-
-        void Map::activateMowRoute(const RoutePlan &route)
-        {
-            mowRoute_ = route;
-            mowRoute_.sourceMode = WayType::MOW;
-            mowRoute_.active = !mowRoute_.points.empty();
-            for (auto &routePoint : mowRoute_.points)
-            {
-                routePoint.sourceMode = WayType::MOW;
-                routePoint.clearance_m = routeClearanceForPoint(routePoint.p, WayType::MOW);
-                routePoint.reverseAllowed = routeReverseAllowedForPoint(routePoint.p, WayType::MOW);
-                if (!routePoint.reverseAllowed)
-                    routePoint.reverse = false;
-            }
         }
 
         void Map::applyConfigDefaults()
@@ -559,325 +453,10 @@ namespace sunray
                 }
             };
             accum(perimeterPoints_);
-            for (const auto &routePoint : mowRoute_.points)
-            {
-                crc ^= static_cast<long>(routePoint.p.x * 1000) ^ static_cast<long>(routePoint.p.y * 1000);
-            }
             accum(exportPolygonPoints(dockRoute_));
             for (auto &ex : exclusions_)
                 accum(ex);
             return crc;
-        }
-
-        // ── Mission control ────────────────────────────────────────────────────────────
-        //
-        // One-truth architecture:
-        //   startPlannedMowing(robotX, robotY, route)  ← PRIMARY PATH
-        //     Used by Robot::startMowingMission() after calling buildMissionMowRoutePreview().
-        //     Preview and runtime share the exact same RoutePlan.
-        //
-        //   startMowing() / startMowingZones()          ← LEGACY PATHS
-        //     Used only for raw mow: JSON points (no zone-based planning) and for
-        //     direct button-triggered starts without a mission document.
-        //     These paths produce a route that is NOT guaranteed to match the WebUI preview.
-
-        // [RAW MOW ONLY] Start from JSON points loaded into allMowRoute_ at map load time.
-        // This keeps the old raw-mow button path alive, but reuses the primary
-        // startPlannedMowing() activation logic instead of maintaining a second
-        // route-start implementation here.
-        bool Map::startMowing(float robotX, float robotY)
-        {
-            if (allMowRoute_.points.empty())
-                return false;
-            return startPlannedMowing(robotX, robotY, allMowRoute_);
-        }
-
-        bool Map::startPlannedMowing(float robotX, float robotY, const RoutePlan &route)
-        {
-            if (route.points.empty())
-                return false;
-
-            activateMowRoute(route);
-            if (mowRoute_.points.empty())
-                return false;
-
-            float bestDist = 1e9f;
-            int bestIdx = 0;
-            for (int i = 0; i < static_cast<int>(mowRoute_.points.size()); ++i)
-            {
-                const float d = Point(robotX, robotY).distanceTo(mowRoute_.points[i].p);
-                if (d < bestDist)
-                {
-                    bestDist = d;
-                    bestIdx = i;
-                }
-            }
-
-            mowPointsIdx = bestIdx;
-            shouldMow_ = true;
-            shouldDock_ = false;
-            wayMode = WayType::MOW;
-
-            setLastTargetPoint(robotX, robotY);
-            trackReverse = mowRoute_.points[mowPointsIdx].reverse;
-            trackSlow = mowRoute_.points[mowPointsIdx].slow;
-            targetPoint = mowRoute_.points[mowPointsIdx].p;
-            return true;
-        }
-
-        bool Map::startDocking(float robotX, float robotY)
-        {
-            if (dockRoute_.points.empty())
-                return false;
-
-            // Route from current position to first dock point, avoiding obstacles (C.7).
-            const Point approachTarget = dockApproachTarget();
-            const bool havePath = findPath({robotX, robotY}, approachTarget);
-            if (!havePath || freePoints_.empty())
-            {
-                if (!isInsideAllowedArea(robotX, robotY))
-                {
-                    dockPointsIdx = 0;
-                    shouldDock_ = true;
-                    shouldMow_ = false;
-                    wayMode = WayType::DOCK;
-                    freeRoute_ = FreeRouteContext{};
-                    localRoute_ = RoutePlan{};
-                    freePoints_.clear();
-                    freePointsIdx = 0;
-                    setLastTargetPoint(robotX, robotY);
-                    trackReverse = dockRoute_.points[dockPointsIdx].reverse;
-                    trackSlow = true;
-                    targetPoint = dockRoute_.points[dockPointsIdx].p;
-                    return true;
-                }
-                return false;
-            }
-
-            dockPointsIdx = 0;
-            shouldDock_ = true;
-            shouldMow_ = false;
-            setLastTargetPoint(robotX, robotY);
-            beginFreeRoute(WayType::DOCK,
-                           dockRoute_.points.front().p,
-                           false,
-                           (dockRoute_.points.size() <= 2),
-                           mowPointsIdx,
-                           0,
-                           localRoute_);
-            return true;
-        }
-
-        bool Map::retryDocking(float robotX, float robotY, float lateralOffsetM)
-        {
-            if (std::fabs(lateralOffsetM) < 1e-4f)
-            {
-                return startDocking(robotX, robotY);
-            }
-
-            if (dockRoute_.points.size() < 2)
-            {
-                return startDocking(robotX, robotY);
-            }
-
-            const Point &last = dockRoute_.points.back().p;
-            const Point &penultimate = dockRoute_.points[dockRoute_.points.size() - 2].p;
-            const float dx = last.x - penultimate.x;
-            const float dy = last.y - penultimate.y;
-            const float len = std::sqrt(dx * dx + dy * dy);
-            if (len < 1e-4f)
-            {
-                return startDocking(robotX, robotY);
-            }
-
-            const Point baseApproach = dockApproachTarget();
-            const float nx = (-dy / len) * lateralOffsetM;
-            const float ny = (dx / len) * lateralOffsetM;
-            const Point offsetApproach{baseApproach.x + nx, baseApproach.y + ny};
-
-            if (!findPath({robotX, robotY}, offsetApproach) || freePoints_.empty())
-            {
-                return startDocking(robotX, robotY);
-            }
-
-            dockPointsIdx = 0;
-            shouldDock_ = true;
-            shouldMow_ = false;
-            setLastTargetPoint(robotX, robotY);
-            beginFreeRoute(WayType::DOCK,
-                           dockRoute_.points.front().p,
-                           false,
-                           (dockRoute_.points.size() <= 2),
-                           mowPointsIdx,
-                           0,
-                           localRoute_);
-            return true;
-        }
-
-        bool Map::isDocking() const
-        {
-            return shouldDock_ && (wayMode == WayType::DOCK || wayMode == WayType::FREE);
-        }
-
-        bool Map::isUndocking() const
-        {
-            return !shouldDock_ && (wayMode == WayType::DOCK);
-        }
-
-        // ── Waypoint navigation ────────────────────────────────────────────────────────
-
-        bool Map::nextPoint(bool sim, float robotX, float robotY)
-        {
-            (void)robotX;
-            (void)robotY;
-            bool ok = false;
-            switch (wayMode)
-            {
-            case WayType::MOW:
-                ok = nextMowPoint(sim);
-                break;
-            case WayType::DOCK:
-                ok = nextDockPoint(sim);
-                break;
-            case WayType::FREE:
-                ok = nextFreePoint(sim);
-                break;
-            default:
-                return false;
-            }
-
-            // Dynamic replanning: if the new segment is blocked by a known obstacle,
-            // compute a free-path detour.
-            if (ok && wayMode != WayType::FREE)
-            {
-                for (const auto &obs : obstacles_)
-                {
-                    const float r = obs.radius_m + planner_.obstacleInflation_m;
-                    if (lineCircleIntersects(targetPoint, lastTargetPoint, obs.center, r))
-                    {
-                        const WayType resumeMode = wayMode;
-                        const Point resumeTarget = targetPoint;
-                        const bool resumeTrackReverse = trackReverse;
-                        const bool resumeTrackSlow = trackSlow;
-                        const int resumeMowIdx = mowPointsIdx;
-                        const int resumeDockIdx = dockPointsIdx;
-
-                        if (findPath(lastTargetPoint, targetPoint))
-                        {
-                            beginFreeRoute(resumeMode,
-                                           resumeTarget,
-                                           resumeTrackReverse,
-                                           resumeTrackSlow,
-                                           resumeMowIdx,
-                                           resumeDockIdx,
-                                           localRoute_);
-                        }
-                        break;
-                    }
-                }
-            }
-            return ok;
-        }
-
-        bool Map::nextMowPoint(bool sim)
-        {
-            if (mowRoute_.points.empty())
-                return false;
-            ++mowPointsIdx;
-            if (mowPointsIdx >= static_cast<int>(mowRoute_.points.size()))
-            {
-                mowPointsIdx = static_cast<int>(mowRoute_.points.size()) - 1;
-                percentCompleted = 100;
-                return false;
-            }
-            percentCompleted = static_cast<int>(100.0f * mowPointsIdx / mowRoute_.points.size());
-            lastTargetPoint = targetPoint;
-            trackReverse = mowRoute_.points[mowPointsIdx].reverse;
-            trackSlow = mowRoute_.points[mowPointsIdx].slow;
-            targetPoint = mowRoute_.points[mowPointsIdx].p;
-            return true;
-        }
-
-        bool Map::nextDockPoint(bool sim)
-        {
-            if (dockRoute_.points.empty())
-                return false;
-            ++dockPointsIdx;
-            if (dockPointsIdx >= static_cast<int>(dockRoute_.points.size()))
-                return false;
-            lastTargetPoint = targetPoint;
-            targetPoint = dockRoute_.points[dockPointsIdx].p;
-            trackReverse = dockRoute_.points[dockPointsIdx].reverse;
-            trackSlow = dockRoute_.points[dockPointsIdx].slow;
-            return true;
-        }
-
-        bool Map::nextFreePoint(bool sim)
-        {
-            (void)sim;
-            if (freePoints_.empty())
-                return false;
-            ++freePointsIdx;
-            if (freePointsIdx >= static_cast<int>(freePoints_.size()))
-            {
-                if (!freeRoute_.active)
-                    return false;
-
-                lastTargetPoint = targetPoint;
-                wayMode = freeRoute_.resumeMode;
-                targetPoint = freeRoute_.resumeTarget;
-                trackReverse = freeRoute_.resumeTrackReverse;
-                trackSlow = freeRoute_.resumeTrackSlow;
-                mowPointsIdx = freeRoute_.resumeMowIdx;
-                dockPointsIdx = freeRoute_.resumeDockIdx;
-                freeRoute_ = FreeRouteContext{};
-                localRoute_ = RoutePlan{};
-                freePoints_.clear();
-                freePointsIdx = 0;
-                return true;
-            }
-            lastTargetPoint = targetPoint;
-            targetPoint = localRoute_.points[freePointsIdx].p;
-            trackReverse = localRoute_.points[freePointsIdx].reverse;
-            trackSlow = localRoute_.points[freePointsIdx].slow;
-            return true;
-        }
-
-        bool Map::nextPointIsStraight() const
-        {
-            // Check angle change between current and next segment.
-            Point nextPt;
-            bool hasNext = false;
-
-            if (wayMode == WayType::MOW && mowPointsIdx + 1 < static_cast<int>(mowRoute_.points.size()))
-            {
-                nextPt = mowRoute_.points[mowPointsIdx + 1].p;
-                hasNext = true;
-            }
-            else if (wayMode == WayType::DOCK && dockPointsIdx + 1 < static_cast<int>(dockRoute_.points.size()))
-            {
-                nextPt = dockRoute_.points[dockPointsIdx + 1].p;
-                hasNext = true;
-            }
-
-            if (!hasNext)
-                return true; // no next → assume straight
-
-            const float a1 = pointsAngle(lastTargetPoint.x, lastTargetPoint.y,
-                                         targetPoint.x, targetPoint.y);
-            const float a2 = pointsAngle(targetPoint.x, targetPoint.y,
-                                         nextPt.x, nextPt.y);
-            return std::fabs(distancePI(a1, a2)) < (20.0f / 180.0f * static_cast<float>(M_PI));
-        }
-
-        float Map::distanceToTargetPoint(float rx, float ry) const
-        {
-            return Point(rx, ry).distanceTo(targetPoint);
-        }
-
-        float Map::distanceToLastTargetPoint(float rx, float ry) const
-        {
-            return Point(rx, ry).distanceTo(lastTargetPoint);
         }
 
         bool Map::getDockingPos(float &x, float &y, float &delta, int idx) const
@@ -900,35 +479,6 @@ namespace sunray
                 delta = 0.0f;
             }
             return true;
-        }
-
-        bool Map::mowingCompleted() const
-        {
-            return !mowRoute_.points.empty() && mowPointsIdx >= static_cast<int>(mowRoute_.points.size()) - 1;
-        }
-
-        void Map::setMowingPointPercent(float pct)
-        {
-            if (mowRoute_.points.empty())
-                return;
-            pct = std::clamp(pct, 0.0f, 100.0f);
-            mowPointsIdx = static_cast<int>(pct / 100.0f * (mowRoute_.points.size() - 1));
-        }
-
-        void Map::skipNextMowingPoint()
-        {
-            if (mowPointsIdx + 1 < static_cast<int>(mowRoute_.points.size()))
-            {
-                ++mowPointsIdx;
-                trackReverse = mowRoute_.points[mowPointsIdx].reverse;
-                trackSlow = mowRoute_.points[mowPointsIdx].slow;
-                targetPoint = mowRoute_.points[mowPointsIdx].p;
-            }
-        }
-
-        void Map::setLastTargetPoint(float x, float y)
-        {
-            lastTargetPoint = Point(x, y);
         }
 
         // ── Obstacle management ────────────────────────────────────────────────────────
@@ -996,42 +546,19 @@ namespace sunray
             return true;
         }
 
-        const ZoneSettings *Map::zoneSettingsForPoint(float x, float y) const
-        {
-            for (const auto &zone : zones_)
-            {
-                if (pointInPolygon(zone.polygon, x, y))
-                {
-                    return &zone.settings;
-                }
-            }
-            return nullptr;
-        }
-
         float Map::routeClearanceForPoint(const Point &point, WayType mode) const
         {
-            if (mode == WayType::MOW || mode == WayType::FREE)
-            {
-                if (const auto *settings = zoneSettingsForPoint(point.x, point.y))
-                {
-                    return std::max(0.05f, settings->clearance);
-                }
-            }
+            (void)point;
+            (void)mode;
             return std::max(0.05f, planner_.defaultClearance_m);
         }
 
         bool Map::routeReverseAllowedForPoint(const Point &point, WayType mode) const
         {
+            (void)point;
             if (mode == WayType::DOCK)
             {
                 return dockMeta_.approachMode == DockApproachMode::REVERSE_ALLOWED;
-            }
-            if (mode == WayType::MOW || mode == WayType::FREE)
-            {
-                if (const auto *settings = zoneSettingsForPoint(point.x, point.y))
-                {
-                    return settings->reverseAllowed;
-                }
             }
             return false;
         }
@@ -1211,302 +738,6 @@ namespace sunray
             return center;
         }
 
-        RouteSegment Map::currentTrackingSegment(float robotX, float robotY, float robotHeadingRad) const
-        {
-            RouteSegment segment;
-            segment.lastTarget = lastTargetPoint;
-            segment.target = targetPoint;
-            segment.reverse = trackReverse;
-            segment.slow = trackSlow;
-            segment.sourceMode = wayMode;
-            segment.clearance_m = planner_.defaultClearance_m;
-            segment.reverseAllowed = false;
-
-            if (wayMode == WayType::FREE && freePointsIdx >= 0 && freePointsIdx < static_cast<int>(localRoute_.points.size()))
-            {
-                segment.reverse = localRoute_.points[freePointsIdx].reverse;
-                segment.slow = localRoute_.points[freePointsIdx].slow;
-                segment.reverseAllowed = localRoute_.points[freePointsIdx].reverseAllowed;
-                segment.clearance_m = localRoute_.points[freePointsIdx].clearance_m;
-                segment.sourceMode = localRoute_.points[freePointsIdx].sourceMode;
-            }
-            else if (wayMode == WayType::MOW && mowPointsIdx >= 0 && mowPointsIdx < static_cast<int>(mowRoute_.points.size()))
-            {
-                segment.reverseAllowed = mowRoute_.points[mowPointsIdx].reverseAllowed;
-                segment.clearance_m = mowRoute_.points[mowPointsIdx].clearance_m;
-            }
-            else if (wayMode == WayType::DOCK && dockPointsIdx >= 0 && dockPointsIdx < static_cast<int>(dockRoute_.points.size()))
-            {
-                segment.reverseAllowed = dockRoute_.points[dockPointsIdx].reverseAllowed;
-                segment.clearance_m = dockRoute_.points[dockPointsIdx].clearance_m;
-            }
-
-            const bool finalAlignActive = dockingFinalAlignActive(robotX, robotY);
-            if (finalAlignActive)
-            {
-                segment.reverse = dockingShouldReverseOnFinalApproach(robotX, robotY, robotHeadingRad);
-                segment.slow = true;
-                segment.sourceMode = WayType::DOCK;
-                segment.reverseAllowed = dockingReverseAllowed();
-                segment.hasTargetHeading = true;
-                segment.targetHeadingRad = dockingFinalAlignHeadingRad();
-            }
-
-            segment.distanceToTarget_m = Point(robotX, robotY).distanceTo(segment.target);
-            segment.distanceToLastTarget_m = Point(robotX, robotY).distanceTo(segment.lastTarget);
-            segment.targetReached = segment.distanceToTarget_m < TRACK_TARGET_REACHED_TOLERANCE_M;
-            segment.targetReachedTolerance_m = TRACK_TARGET_REACHED_TOLERANCE_M;
-            if (!segment.hasTargetHeading)
-            {
-                segment.targetHeadingRad = std::atan2(segment.target.y - robotY, segment.target.x - robotX);
-                segment.hasTargetHeading = true;
-            }
-            segment.nextSegmentStraight = nextPointIsStraight();
-            segment.kidnapTolerance_m = kidnapToleranceForMode(segment.sourceMode);
-            return segment;
-        }
-
-        bool Map::refreshTracking(unsigned long now_ms, float robotX, float robotY)
-        {
-            return maybeReplanToCurrentTarget(now_ms, robotX, robotY);
-        }
-
-        bool Map::advanceTracking(float robotX, float robotY)
-        {
-            return nextPoint(false, robotX, robotY);
-        }
-
-        bool Map::dockingFinalAlignActive(float robotX, float robotY) const
-        {
-            if (!shouldDock_ || dockRoute_.points.empty() || !dockMeta_.hasFinalAlignHeading)
-                return false;
-            if (wayMode != WayType::DOCK && wayMode != WayType::FREE)
-                return false;
-
-            const Point dockGoal = dockRoute_.points.back().p;
-            const float activationRadius = std::max(0.15f, dockMeta_.slowZoneRadius_m);
-            return (Point(robotX, robotY).distanceTo(dockGoal) <= activationRadius) || (targetPoint.distanceTo(dockGoal) <= activationRadius);
-        }
-
-        float Map::dockingFinalAlignHeadingRad() const
-        {
-            return dockMeta_.finalAlignHeading_deg / 180.0f * static_cast<float>(M_PI);
-        }
-
-        bool Map::dockingReverseAllowed() const
-        {
-            return shouldDock_ && (dockMeta_.approachMode == DockApproachMode::REVERSE_ALLOWED);
-        }
-
-        bool Map::dockingShouldReverseOnFinalApproach(float robotX, float robotY, float robotHeadingRad) const
-        {
-            if (!dockingReverseAllowed() || !dockingFinalAlignActive(robotX, robotY))
-                return false;
-
-            const float forwardHeading = dockingFinalAlignHeadingRad();
-            const float reverseHeading = scalePI(forwardHeading + static_cast<float>(M_PI));
-            const float forwardError = std::fabs(distancePI(robotHeadingRad, forwardHeading));
-            const float reverseError = std::fabs(distancePI(robotHeadingRad, reverseHeading));
-            const float switchingMargin = 10.0f / 180.0f * static_cast<float>(M_PI);
-            return (reverseError + switchingMargin) < forwardError;
-        }
-
-        float Map::kidnapToleranceForMode(WayType mode) const
-        {
-            switch (mode)
-            {
-            case WayType::DOCK:
-                return std::max(0.6f, dockMeta_.slowZoneRadius_m + 0.25f);
-            case WayType::FREE:
-                return std::max(1.0f, planner_.defaultClearance_m + planner_.obstacleInflation_m + 0.5f);
-            case WayType::MOW:
-            default:
-                return 3.0f;
-            }
-        }
-
-        bool Map::currentSegmentNeedsReplan(float robotX, float robotY) const
-        {
-            PlannerContext context;
-            context.robotPose = {robotX, robotY};
-            context.source = {robotX, robotY};
-            context.destination = targetPoint;
-            context.missionMode = wayMode;
-            context.planningMode = (shouldDock_ || wayMode == WayType::DOCK) ? WayType::DOCK : WayType::MOW;
-            context.robotRadius_m = planner_.defaultClearance_m + planner_.obstacleInflation_m;
-            return Planner::segmentNeedsReplan(*this, context);
-        }
-
-        void Map::beginFreeRoute(WayType resumeMode,
-                                 const Point &resumeTarget,
-                                 bool resumeTrackReverse,
-                                 bool resumeTrackSlow,
-                                 int resumeMowIdx,
-                                 int resumeDockIdx,
-                                 const RoutePlan &route)
-        {
-            if (route.points.empty())
-                return;
-
-            freeRoute_.active = true;
-            freeRoute_.resumeMode = resumeMode;
-            freeRoute_.resumeTarget = resumeTarget;
-            freeRoute_.resumeTrackReverse = resumeTrackReverse;
-            freeRoute_.resumeTrackSlow = resumeTrackSlow;
-            freeRoute_.resumeMowIdx = resumeMowIdx;
-            freeRoute_.resumeDockIdx = resumeDockIdx;
-
-            localRoute_ = route;
-            localRoute_.sourceMode = resumeMode;
-            localRoute_.active = true;
-            freePoints_.clear();
-            freePoints_.reserve(localRoute_.points.size());
-            for (const auto &routePoint : localRoute_.points)
-            {
-                freePoints_.push_back(routePoint.p);
-            }
-
-            freePointsIdx = 0;
-            wayMode = WayType::FREE;
-            trackReverse = localRoute_.points.front().reverse;
-            trackSlow = localRoute_.points.front().slow;
-            targetPoint = localRoute_.points.front().p;
-        }
-
-        /// Returns true if the line segment src→dst passes within radius of center.
-        static bool lineCircleIntersects(const Point &src, const Point &dst,
-                                         const Point &center, float radius)
-        {
-            float dx = dst.x - src.x, dy = dst.y - src.y;
-            float len2 = dx * dx + dy * dy;
-            if (len2 < 1e-8f)
-                return src.distanceTo(center) < radius;
-            // Projection of center onto line, clamped to segment
-            float t = ((center.x - src.x) * dx + (center.y - src.y) * dy) / len2;
-            t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-            float cx = src.x + t * dx - center.x;
-            float cy = src.y + t * dy - center.y;
-            return (cx * cx + cy * cy) < radius * radius;
-        }
-
-        void Map::injectFreePath(const std::vector<Point> &waypoints)
-        {
-            if (waypoints.empty())
-                return;
-
-            RoutePlan route;
-            route.sourceMode = freeRoute_.active ? freeRoute_.resumeMode : wayMode;
-            route.active = true;
-            route.points.reserve(waypoints.size());
-            for (const auto &waypoint : waypoints)
-            {
-                RoutePoint routePoint;
-                routePoint.p = waypoint;
-                routePoint.sourceMode = route.sourceMode;
-                routePoint.clearance_m = routeClearanceForPoint(waypoint, route.sourceMode);
-                routePoint.reverseAllowed = routeReverseAllowedForPoint(waypoint, route.sourceMode);
-                route.points.push_back(routePoint);
-            }
-
-            const WayType resumeMode = freeRoute_.active ? freeRoute_.resumeMode : wayMode;
-            beginFreeRoute(resumeMode,
-                           targetPoint,
-                           trackReverse,
-                           trackSlow,
-                           mowPointsIdx,
-                           dockPointsIdx,
-                           route);
-        }
-
-        bool Map::findPath(const Point &src, const Point &dst)
-        {
-            freePoints_.clear();
-            freePointsIdx = 0;
-
-            PlannerContext context;
-            const RoutePoint *activePoint = activeRoutePointForPlanning(*this);
-            context.robotPose = src;
-            context.source = src;
-            context.destination = dst;
-            context.missionMode = activePoint ? activePoint->sourceMode : wayMode;
-            context.planningMode = (shouldDock_ || wayMode == WayType::DOCK) ? WayType::DOCK : WayType::MOW;
-            context.clearance_m = activePoint ? activePoint->clearance_m : routeClearanceForPoint(dst, context.missionMode);
-            context.reverseAllowed = activePoint ? activePoint->reverseAllowed : routeReverseAllowedForPoint(dst, context.missionMode);
-            context.semantic = (context.missionMode == WayType::MOW)
-                                   ? RouteSemantic::RECOVERY
-                                   : (context.missionMode == WayType::DOCK ? RouteSemantic::DOCK_APPROACH
-                                                                           : RouteSemantic::UNKNOWN);
-            if (activePoint)
-            {
-                context.zoneId = activePoint->zoneId;
-                context.componentId = activePoint->componentId;
-                if (context.missionMode == WayType::MOW &&
-                    !activePoint->zoneId.empty() &&
-                    activePoint->semantic != RouteSemantic::TRANSIT_INTER_ZONE)
-                {
-                    const Zone *zone = findZoneById(*this, activePoint->zoneId);
-                    if (zone)
-                        context.constraintZone = zone->polygon;
-                }
-            }
-            if (lastTargetPoint.distanceTo(src) > 1e-4f)
-            {
-                context.headingReferenceRad = pointsAngle(lastTargetPoint.x, lastTargetPoint.y, src.x, src.y);
-                context.hasHeadingReference = true;
-            }
-            context.robotRadius_m = context.clearance_m + planner_.obstacleInflation_m;
-
-            const RoutePlan route = Planner::planPath(*this, context);
-            freePoints_.reserve(route.points.size());
-            for (const auto &routePoint : route.points)
-            {
-                freePoints_.push_back(routePoint.p);
-            }
-            localRoute_ = route;
-            return !freePoints_.empty();
-        }
-
-        bool Map::replanToCurrentTarget(float robotX, float robotY)
-        {
-            if (wayMode == WayType::FREE)
-                return false;
-            if (targetPoint.distanceTo({robotX, robotY}) < 1e-4f)
-                return false;
-
-            const WayType resumeMode = wayMode;
-            const Point resumeTarget = targetPoint;
-            const bool resumeTrackReverse = trackReverse;
-            const bool resumeTrackSlow = trackSlow;
-            const int resumeMowIdx = mowPointsIdx;
-            const int resumeDockIdx = dockPointsIdx;
-
-            if (!findPath({robotX, robotY}, targetPoint) || freePoints_.empty())
-                return false;
-
-            setLastTargetPoint(robotX, robotY);
-            beginFreeRoute(resumeMode,
-                           resumeTarget,
-                           resumeTrackReverse,
-                           resumeTrackSlow,
-                           resumeMowIdx,
-                           resumeDockIdx,
-                           localRoute_);
-            return true;
-        }
-
-        bool Map::maybeReplanToCurrentTarget(unsigned long now_ms, float robotX, float robotY)
-        {
-            if (wayMode == WayType::FREE)
-                return false;
-            if (now_ms - lastReplanAttempt_ms_ < planner_.replanPeriod_ms)
-                return false;
-            if (!currentSegmentNeedsReplan(robotX, robotY))
-                return false;
-
-            lastReplanAttempt_ms_ = now_ms;
-            return replanToCurrentTarget(robotX, robotY);
-        }
-
         RoutePlan Map::previewPath(const Point &src,
                                    const Point &dst,
                                    WayType missionMode,
@@ -1530,7 +761,7 @@ namespace sunray
             context.clearance_m = clearance_m;
             context.robotRadius_m = (robotRadius_m > 0.0f) ? robotRadius_m : (clearance_m + planner_.obstacleInflation_m);
             context.constraintZone = constraintZone;
-            return Planner::planPath(*this, context);
+            return PathPlanner::planPath(*this, context);
         }
 
     } // namespace nav

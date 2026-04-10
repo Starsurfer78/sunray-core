@@ -28,6 +28,10 @@ class RobotStatus {
     this.runtimeHealth,
     this.uptimeSeconds,
     this.mowFaultActive,
+    this.uiMessage,
+    this.uiSeverity,
+    this.mowDistanceM,
+    this.mowDurationSec,
   });
 
   final ConnectionStateKind connectionState;
@@ -47,10 +51,16 @@ class RobotStatus {
   final double? batteryVoltage;
   final bool? chargerConnected;
   final bool? mcuConnected;
-  final double? mcuVersion;
-  final bool? runtimeHealth;
+  final String? mcuVersion;
+  final String? runtimeHealth;
   final int? uptimeSeconds;
   final bool? mowFaultActive;
+  final String? uiMessage;
+  final String? uiSeverity;
+  /// Cumulative mowed distance in metres (from telemetry `mow_dist_m`).
+  final double? mowDistanceM;
+  /// Active mowing duration in seconds (from telemetry `mow_time_s`).
+  final int? mowDurationSec;
 
   RobotStatus copyWith({
     ConnectionStateKind? connectionState,
@@ -68,10 +78,14 @@ class RobotStatus {
     double? batteryVoltage,
     bool? chargerConnected,
     bool? mcuConnected,
-    double? mcuVersion,
-    bool? runtimeHealth,
+    String? mcuVersion,
+    String? runtimeHealth,
     int? uptimeSeconds,
     bool? mowFaultActive,
+    String? uiMessage,
+    String? uiSeverity,
+    double? mowDistanceM,
+    int? mowDurationSec,
   }) {
     return RobotStatus(
       connectionState: connectionState ?? this.connectionState,
@@ -93,6 +107,10 @@ class RobotStatus {
       runtimeHealth: runtimeHealth ?? this.runtimeHealth,
       uptimeSeconds: uptimeSeconds ?? this.uptimeSeconds,
       mowFaultActive: mowFaultActive ?? this.mowFaultActive,
+      uiMessage: uiMessage ?? this.uiMessage,
+      uiSeverity: uiSeverity ?? this.uiSeverity,
+      mowDistanceM: mowDistanceM ?? this.mowDistanceM,
+      mowDurationSec: mowDurationSec ?? this.mowDurationSec,
     );
   }
 }

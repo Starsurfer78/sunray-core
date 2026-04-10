@@ -10,18 +10,18 @@
 // Coordinate system: local metres (east = +x, north = +y), origin set by AT+P.
 //
 // Key workflow:
-//   load(path)               — load map from JSON file (set by Mission Service)
-//   startPlannedMowing(x, y) — begin mowing mission from compiled route
-//   startDocking(x, y)       — begin dock approach
-//   nextPoint(x, y)          — advance to next waypoint; returns false when done
+//   load(path)              — load static map geometry from JSON file
+//   exportMapJson()         — export the static map document
+//   previewPath(src, dst)   — compute geometry-aware planner previews
 //   isInsideAllowedArea(x,y) — perimeter in, exclusions out
-//   addObstacle(x,y,t)       — mark a virtual obstacle (C.7: OnTheFlyObstacle)
+//   addObstacle(x,y,t)      — mark a virtual obstacle (C.7: OnTheFlyObstacle)
 
 #include "core/Config.h"
 #include "core/navigation/PlannerContext.h"
 #include "core/navigation/Route.h"
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -88,12 +88,26 @@ namespace sunray
             float clearance = 0.25f;     ///< planner clearance in metres
         };
 
+        /// A named set of ZoneSettings that can be stored per zone and activated by the user.
+        struct ZoneProfile
+        {
+            std::string name; ///< display name, e.g. "Diagonal 45°"
+            ZoneSettings settings;
+            uint64_t created = 0;  ///< Unix timestamp of creation
+            uint64_t lastUsed = 0; ///< Unix timestamp of last activation
+        };
+
         struct Zone
         {
             std::string id;
-            int order = 1; ///< legacy editor ordering until mission sequencing replaces it
+            std::string name; ///< display name set in the map editor
+            int order = 1;    ///< legacy editor ordering until mission sequencing replaces it
             PolygonPoints polygon;
-            ZoneSettings settings;
+
+            /// Named profiles for this zone (key = profile id, e.g. "längs").
+            std::map<std::string, ZoneProfile> profiles;
+            /// Id of the currently active profile; empty = use defaults + mission overrides.
+            std::string activeProfileId;
         };
 
         struct PlannerSettings
@@ -128,7 +142,7 @@ namespace sunray
         class Map
         {
         public:
-            friend class Planner;
+            friend class PathPlanner;
 
             explicit Map(std::shared_ptr<Config> config = nullptr);
 
@@ -154,68 +168,8 @@ namespace sunray
 
             long calcCRC() const;
 
-            // ── Mission control ────────────────────────────────────────────────────────
-
-            /// [RAW MOW ONLY] Begin mowing from current robot position using the map's
-            /// pre-loaded JSON mow route. Prefer startPlannedMowing() for mission starts.
-            bool startMowing(float robotX, float robotY);
-
-            /// [PRIMARY PATH] Begin mowing from a pre-compiled RoutePlan.
-            /// Robot::startMowingMission() calls buildMissionMowRoutePreview() to obtain
-            /// the route and passes it here — preview and runtime are guaranteed to match.
-            /// The robot position only determines the nearest entry index, not route content.
-            bool startPlannedMowing(float robotX, float robotY, const RoutePlan &route);
-
-            /// Begin dock approach from current robot position.
-            /// Finds nearest free-path entry point toward dock.
-            bool startDocking(float robotX, float robotY);
-
-            /// Retry docking (drive back to first docking point).
-            bool retryDocking(float robotX, float robotY, float lateralOffsetM = 0.0f);
-
-            /// Mark the map as manually docked (robot placed on dock without driving).
-            void setIsDocked(bool flag) { isDocked_ = flag; }
-
-            /// True if robot is currently following docking waypoints.
-            bool isDocking() const;
-
-            /// True if robot is currently following undocking waypoints.
-            bool isUndocking() const;
-
-            // ── Waypoint navigation ───────────────────────────────────────────────────
-
-            /// Advance to the next waypoint. Returns false if no further points.
-            bool nextPoint(bool sim, float robotX, float robotY);
-
-            /// Is the next upcoming segment a straight line (no sharp turn)?
-            bool nextPointIsStraight() const;
-
-            /// Distance from (rx,ry) to current target point.
-            float distanceToTargetPoint(float rx, float ry) const;
-
-            /// Distance from (rx,ry) to the previous (last) target point.
-            float distanceToLastTargetPoint(float rx, float ry) const;
-
             /// Get position and heading of the n-th docking point (default: last).
             bool getDockingPos(float &x, float &y, float &delta, int idx = -1) const;
-
-            /// True if mowing sequence is complete (all mow points visited).
-            bool mowingCompleted() const;
-
-            /// Jump to a percentage position in the mowing point list (0..100).
-            void setMowingPointPercent(float pct);
-
-            /// Skip the next mowing point.
-            void skipNextMowingPoint();
-
-            // ── Current target ────────────────────────────────────────────────────────
-
-            Point targetPoint;         ///< current target waypoint
-            Point lastTargetPoint;     ///< previous target (defines the line being tracked)
-            bool trackReverse = false; ///< drive in reverse to reach target
-            bool trackSlow = false;    ///< reduce speed (docking approach)
-            WayType wayMode = WayType::MOW;
-            int percentCompleted = 0;
 
             // ── Obstacle management ───────────────────────────────────────────────────
 
@@ -234,20 +188,6 @@ namespace sunray
             void cleanupExpiredObstacles(unsigned now_ms, unsigned expiry_ms = 3600000u);
 
             // ── Path injection (E.2 — GridMap A*) ────────────────────────────────────
-
-            /// Inject a pre-computed path as FREE waypoints.
-            /// Sets wayMode = FREE, freePointsIdx = 0, targetPoint = first waypoint.
-            /// The next call to nextFreePoint() will advance through the injected path,
-            /// then restore the explicit free-route resume context.
-            /// waypoints must NOT include the current robot position (start point).
-            void injectFreePath(const std::vector<Point> &waypoints);
-
-            /// Replan from the robot's current position to the current mission target and
-            /// switch into FREE path following on success.
-            bool replanToCurrentTarget(float robotX, float robotY);
-
-            /// Periodic replanning gate using plannerSettings().replanPeriod_ms.
-            bool maybeReplanToCurrentTarget(unsigned long now_ms, float robotX, float robotY);
 
             /// Compute a planner preview path without mutating map state.
             /// When constraintZone is non-empty, the A* grid is bounded to that polygon
@@ -271,9 +211,7 @@ namespace sunray
             // ── Raw data access (for telemetry / debug) ───────────────────────────────
 
             const PolygonPoints &perimeterPoints() const { return perimeterPoints_; }
-            const RoutePlan &mowRoutePlan() const { return mowRoute_; }
             const RoutePlan &dockRoutePlan() const { return dockRoute_; }
-            const RoutePlan &freeRoutePlan() const { return localRoute_; }
             const std::vector<PolygonPoints> &exclusions() const { return exclusions_; }
             const std::vector<Zone> &zones() const { return zones_; }
             const std::vector<OnTheFlyObstacle> &obstacles() const { return obstacles_; } ///< C.7
@@ -281,19 +219,8 @@ namespace sunray
             const std::vector<ExclusionMeta> &exclusionMeta() const { return exclusionMeta_; }
             const DockMeta &dockMeta() const { return dockMeta_; }
             const nlohmann::json &captureMeta() const { return captureMeta_; }
-            RouteSegment currentTrackingSegment(float robotX, float robotY, float robotHeadingRad) const;
-            bool refreshTracking(unsigned long now_ms, float robotX, float robotY);
-            bool advanceTracking(float robotX, float robotY);
-            bool dockingFinalAlignActive(float robotX, float robotY) const;
-            float dockingFinalAlignHeadingRad() const;
-            bool dockingReverseAllowed() const;
-            bool dockingShouldReverseOnFinalApproach(float robotX, float robotY, float robotHeadingRad) const;
             std::string zoneIdForPoint(float x, float y,
                                        const std::vector<std::string> &preferredOrder = {}) const;
-
-            int mowPointsIdx = 0;
-            int dockPointsIdx = 0;
-            int freePointsIdx = 0;
 
         private:
             // ── Geometry helpers ──────────────────────────────────────────────────────
@@ -311,44 +238,16 @@ namespace sunray
                                          const PolygonPoints &poly) const;
             bool segmentAllowed(const Point &src, const Point &dst) const;
             bool pathAllowed(const std::vector<Point> &path) const;
-            bool currentSegmentNeedsReplan(float robotX, float robotY) const;
-            const ZoneSettings *zoneSettingsForPoint(float x, float y) const;
             float routeClearanceForPoint(const Point &point, WayType mode) const;
             bool routeReverseAllowedForPoint(const Point &point, WayType mode) const;
             void applyConfigDefaults();
-            static RoutePlan buildMowRoutePlan(const std::vector<MowPoint> &points);
             static RoutePlan buildDockRoutePlan(const PolygonPoints &points);
-            void activateMowRoute(const RoutePlan &route);
-            void beginFreeRoute(WayType resumeMode,
-                                const Point &resumeTarget,
-                                bool resumeTrackReverse,
-                                bool resumeTrackSlow,
-                                int resumeMowIdx,
-                                int resumeDockIdx,
-                                const RoutePlan &route);
             Point dockApproachTarget() const;
-            float kidnapToleranceForMode(WayType mode) const;
-
-            // ── A* pathfinding (simplified for Phase 1) ───────────────────────────────
-
-            /// Insert free-path points between current position and target using A*.
-            bool findPath(const Point &src, const Point &dst);
-
-            // ── Waypoint state helpers ────────────────────────────────────────────────
-
-            bool nextMowPoint(bool sim);
-            bool nextDockPoint(bool sim);
-            bool nextFreePoint(bool sim);
-            void setLastTargetPoint(float x, float y);
 
             // ── Data ──────────────────────────────────────────────────────────────────
 
             PolygonPoints perimeterPoints_;
-            PolygonPoints freePoints_;
-            RoutePlan allMowRoute_;
-            RoutePlan mowRoute_;
             RoutePlan dockRoute_;
-            RoutePlan localRoute_;
             std::vector<PolygonPoints> exclusions_;
             std::vector<ExclusionMeta> exclusionMeta_;
             std::vector<OnTheFlyObstacle> obstacles_; ///< virtual obstacles from addObstacle() (C.7)
@@ -356,22 +255,6 @@ namespace sunray
             PlannerSettings planner_;
             DockMeta dockMeta_;
             nlohmann::json captureMeta_ = nlohmann::json::object(); ///< optional map capture metadata (C.14-g)
-
-            struct FreeRouteContext
-            {
-                bool active = false;
-                WayType resumeMode = WayType::MOW;
-                Point resumeTarget;
-                bool resumeTrackReverse = false;
-                bool resumeTrackSlow = false;
-                int resumeMowIdx = 0;
-                int resumeDockIdx = 0;
-            } freeRoute_;
-            unsigned long lastReplanAttempt_ms_ = 0;
-
-            bool isDocked_ = false;
-            bool shouldDock_ = false;
-            bool shouldMow_ = false;
 
             std::shared_ptr<Config> config_;
 

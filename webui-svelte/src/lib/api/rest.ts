@@ -80,19 +80,9 @@ export interface MapPoint {
 
 export interface MapZone {
   id: string
+  name: string
   order: number
   polygon: MapPoint[]
-  settings: {
-    name: string
-    stripWidth: number
-    angle?: number
-    edgeMowing?: boolean
-    edgeRounds?: number
-    speed: number
-    pattern: 'stripe' | 'spiral'
-    reverseAllowed?: boolean
-    clearance?: number
-  }
 }
 
 export interface MapPlannerSettings {
@@ -121,7 +111,6 @@ export interface MapExclusionMeta {
 export interface MapDocument {
   perimeter: Array<[number, number]> | MapPoint[]
   dock: Array<[number, number]> | MapPoint[]
-  mow: Array<[number, number]> | MapPoint[]
   exclusions: Array<Array<[number, number]>>
   zones?: MapZone[]
   planner?: MapPlannerSettings
@@ -166,6 +155,11 @@ export interface MissionDocument {
   zoneIds: string[]
   overrides: Record<string, MissionZoneOverridesDocument>
   schedule?: MissionScheduleDocument
+  planRef?: {
+    id: string
+    revision?: number
+    generatedAtMs?: number
+  }
 }
 
 export interface PlannerPreviewJob {
@@ -209,11 +203,35 @@ export interface RouteValidationError {
   zoneId: string
 }
 
+/** N3.3: single waypoint entry in the pre-computed flat mission sequence. */
+export interface WaypointEntry {
+  x: number
+  y: number
+  mowOn: boolean
+}
+
 export interface PlannerPreviewRoute {
   index: number
   ok: boolean
   valid?: boolean
   error?: string
+  planRef?: {
+    id: string
+    revision?: number
+    generatedAtMs?: number
+  }
+  plan?: {
+    missionId: string
+    zoneOrder: string[]
+    valid: boolean
+    invalidReason: string
+    zonePlans: Array<{
+      zoneId: string
+      zoneName: string
+      valid: boolean
+      invalidReason: string
+    }>
+  }
   validationErrors?: RouteValidationError[]
   debug?: {
     pointCount: number
@@ -235,6 +253,8 @@ export interface PlannerPreviewRoute {
     sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
     points: PlannerPreviewRoutePoint[]
   }
+  /** N3.3: flat ordered waypoint sequence including inter-zone transit segments. */
+  waypoints?: WaypointEntry[]
 }
 
 export interface PlannerPreviewRequest {
@@ -583,4 +603,47 @@ export async function restartService(): Promise<{ status: string }> {
   const text = await response.text()
   if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`)
   return JSON.parse(text) as { status: string }
+}
+
+// N4.2: Active mission plan (geometry + live index) ----------------------------
+
+export interface ActivePlanResponse {
+  missionId: string
+  waypoints: WaypointEntry[]
+  zoneOrder: string[]
+  waypointIndex: number
+  waypointTotal: number
+}
+
+export async function getActivePlan(): Promise<ActivePlanResponse> {
+  const response = await fetch('/api/mission/active-plan')
+  if (!response.ok) throw new Error(`getActivePlan: ${response.status}`)
+  return response.json() as Promise<ActivePlanResponse>
+}
+
+// N5.1/N5.2: Live map overlay (obstacles + active detour) --------------------
+
+export interface ObstacleEntry {
+  x: number
+  y: number
+  r: number    // radius in meters
+  hits: number
+}
+
+export interface DetourEntry {
+  active: boolean
+  waypoints: { x: number; y: number }[]
+  reentryX?: number
+  reentryY?: number
+}
+
+export interface LiveOverlayResponse {
+  obstacles: ObstacleEntry[]
+  detour: DetourEntry
+}
+
+export async function getLiveOverlay(): Promise<LiveOverlayResponse> {
+  const response = await fetch('/api/map/live')
+  if (!response.ok) throw new Error(`getLiveOverlay: ${response.status}`)
+  return response.json() as Promise<LiveOverlayResponse>
 }

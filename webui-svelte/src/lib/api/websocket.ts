@@ -3,10 +3,12 @@ import { telemetry } from '../stores/telemetry'
 import type { TelemetryEnvelope, WsMessage } from './types'
 import { logStore } from '../stores/logs'
 import { commandFeedback } from '../stores/commandFeedback'
+import { notifications, type NotificationTone } from '../stores/notificationStore'
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let active = false
+let lastUiMessage = ''
 
 function clearReconnectTimer() {
   if (reconnectTimer) {
@@ -44,7 +46,15 @@ function connect() {
       if (message.type === 'state') {
         // The current backend sends full state packets, but patching keeps the
         // UI robust if a future backend revision sends partial deltas.
-        telemetry.patch(message as Partial<TelemetryEnvelope>)
+        const stateMsg = message as TelemetryEnvelope
+        if (stateMsg.ui_message && stateMsg.ui_message !== lastUiMessage) {
+          lastUiMessage = stateMsg.ui_message
+          const severityMap: Record<string, NotificationTone> = { error: 'error', warn: 'warning', info: 'info' }
+          notifications.add(stateMsg.ui_message, severityMap[stateMsg.ui_severity] ?? 'info')
+        } else if (!stateMsg.ui_message) {
+          lastUiMessage = ''
+        }
+        telemetry.patch(stateMsg as Partial<TelemetryEnvelope>)
       } else if (message.type === 'log') {
         logStore.push(message.text)
       }

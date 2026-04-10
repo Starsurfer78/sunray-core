@@ -108,19 +108,9 @@
   function normalizeZone(zone: MapZone, index: number): Zone {
     return {
       id: zone.id,
+      name: zone.name ?? `Zone ${index + 1}`,
       order: zone.order ?? index + 1,
       polygon: normalizePoints(zone.polygon),
-      settings: {
-        name: zone.settings.name ?? `Zone ${index + 1}`,
-        stripWidth: zone.settings.stripWidth ?? 0.18,
-        angle: zone.settings.angle ?? 0,
-        edgeMowing: zone.settings.edgeMowing ?? true,
-        edgeRounds: zone.settings.edgeRounds ?? 1,
-        speed: zone.settings.speed ?? 1.0,
-        pattern: zone.settings.pattern ?? "stripe",
-        reverseAllowed: zone.settings.reverseAllowed ?? false,
-        clearance: zone.settings.clearance ?? 0.25,
-      },
     };
   }
 
@@ -128,7 +118,6 @@
     return {
       perimeter: normalizePoints(map.perimeter),
       dock: normalizePoints(map.dock),
-      mow: normalizePoints(map.mow),
       exclusions: (map.exclusions ?? []).map((e) =>
         normalizePoints(e as Array<[number, number]>),
       ),
@@ -203,7 +192,7 @@
       const intersects =
         yi > point.y !== yj > point.y &&
         point.x <
-          ((xj - xi) * (point.y - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+          ((xj - xi) * (point.y - yi)) / (yj - yi || Number.EPSILON) + xi;
 
       if (intersects) inside = !inside;
     }
@@ -245,7 +234,6 @@
     return {
       perimeter: $mapStore.map.perimeter.map((p) => [p.x, p.y]),
       dock: $mapStore.map.dock.map((p) => [p.x, p.y]),
-      mow: $mapStore.map.mow.map((p) => [p.x, p.y]),
       exclusions: $mapStore.map.exclusions.map((ex) =>
         ex.map((p) => [p.x, p.y]),
       ),
@@ -358,7 +346,11 @@
     const mapsState = await getStoredMaps();
     storedMaps = mapsState.maps;
     activeMapId = mapsState.active_id;
-    if (keepSelection && selectedMapId && storedMaps.some((m) => m.id === selectedMapId)) {
+    if (
+      keepSelection &&
+      selectedMapId &&
+      storedMaps.some((m) => m.id === selectedMapId)
+    ) {
       return;
     }
     selectedMapId = activeMapId || storedMaps[0]?.id || "";
@@ -385,7 +377,10 @@
       await refreshStoredMaps();
       showInfo("Karte aktiviert");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Aktivieren fehlgeschlagen", "error");
+      showInfo(
+        err instanceof Error ? err.message : "Aktivieren fehlgeschlagen",
+        "error",
+      );
     } finally {
       busy = false;
     }
@@ -403,7 +398,10 @@
         map: mapPayload(),
       });
       if (!result.ok) {
-        showInfo(result.error ?? "Speichern als neue Karte fehlgeschlagen", "error");
+        showInfo(
+          result.error ?? "Speichern als neue Karte fehlgeschlagen",
+          "error",
+        );
         return;
       }
       clearDraft();
@@ -411,7 +409,12 @@
       await refreshStoredMaps();
       showInfo("Neue Karte gespeichert und aktiviert");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Speichern als neue Karte fehlgeschlagen", "error");
+      showInfo(
+        err instanceof Error
+          ? err.message
+          : "Speichern als neue Karte fehlgeschlagen",
+        "error",
+      );
     } finally {
       busy = false;
     }
@@ -426,7 +429,8 @@
       showInfo("Aktive Karte kann nicht gelöscht werden", "warning");
       return;
     }
-    const mapName = storedMaps.find((m) => m.id === selectedMapId)?.name ?? selectedMapId;
+    const mapName =
+      storedMaps.find((m) => m.id === selectedMapId)?.name ?? selectedMapId;
     if (!confirm(`Karte "${mapName}" wirklich löschen?`)) return;
     busy = true;
     try {
@@ -438,7 +442,10 @@
       await refreshStoredMaps();
       showInfo("Karte gelöscht");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Löschen fehlgeschlagen", "error");
+      showInfo(
+        err instanceof Error ? err.message : "Löschen fehlgeschlagen",
+        "error",
+      );
     } finally {
       busy = false;
     }
@@ -491,7 +498,10 @@
       URL.revokeObjectURL(url);
       showInfo("GeoJSON exportiert");
     } catch (err) {
-      showInfo(err instanceof Error ? err.message : "Export fehlgeschlagen", "error");
+      showInfo(
+        err instanceof Error ? err.message : "Export fehlgeschlagen",
+        "error",
+      );
     } finally {
       busy = false;
     }
@@ -520,7 +530,10 @@
         await loadMap();
         showInfo("GeoJSON importiert");
       } catch (err) {
-        showInfo(err instanceof Error ? err.message : "Import fehlgeschlagen", "error");
+        showInfo(
+          err instanceof Error ? err.message : "Import fehlgeschlagen",
+          "error",
+        );
       } finally {
         busy = false;
       }
@@ -532,14 +545,13 @@
   $: dockActive = activeTool === "dock";
   $: zoneActive = activeTool === "zone";
   $: moveActive = activeTool === "move";
-  $: layer = (activeTool === "nogo"
-    ? "nogo"
-    : activeTool === "zone"
-      ? "zone"
-      : "perimeter") as Extract<
-    MapTool,
-    "perimeter" | "nogo" | "zone"
-  >;
+  $: layer = (
+    activeTool === "nogo"
+      ? "nogo"
+      : activeTool === "zone"
+        ? "zone"
+        : "perimeter"
+  ) as Extract<MapTool, "perimeter" | "nogo" | "zone">;
 
   function setLayer(l: "perimeter" | "nogo" | "zone") {
     if (l === "nogo" && $mapStore.map.exclusions.length === 0) {
@@ -596,7 +608,10 @@
 
   function addCurrentRobotPoint() {
     if (moveActive) {
-      showInfo("Im Verschieben-Modus können keine neuen Punkte gesetzt werden", "warning");
+      showInfo(
+        "Im Verschieben-Modus können keine neuen Punkte gesetzt werden",
+        "warning",
+      );
       return;
     }
 
@@ -614,7 +629,9 @@
     if (!result.accepted) {
       showInfo(
         result.reason || "Punkt konnte nicht gesetzt werden",
-        result.reason === "Punkt liegt bereits an dieser Stelle" ? "warning" : "error",
+        result.reason === "Punkt liegt bereits an dieser Stelle"
+          ? "warning"
+          : "error",
       );
       return;
     }
@@ -669,7 +686,7 @@
     }
     const zoneLabel =
       $mapStore.map.zones.find((zone) => zone.id === $mapStore.selectedZoneId)
-        ?.settings.name ?? "Zone";
+        ?.name ?? "Zone";
     mapStore.deleteSelectedZone();
     showInfo(`${zoneLabel} gelöscht`);
   }
@@ -740,11 +757,18 @@
       return;
     }
     mapStore.setTool("move");
-    showInfo("Docking-Pfad abgeschlossen. Jetzt Validierung und Speichern prüfen");
+    showInfo(
+      "Docking-Pfad abgeschlossen. Jetzt Validierung und Speichern prüfen",
+    );
   }
 
-  function handlePointRejected(event: CustomEvent<{ tool: string; reason?: string }>) {
-    showInfo(event.detail.reason || "Punkt wuerde Polygon schneiden", event.detail.reason ? "warning" : "error");
+  function handlePointRejected(
+    event: CustomEvent<{ tool: string; reason?: string }>,
+  ) {
+    showInfo(
+      event.detail.reason || "Punkt wuerde Polygon schneiden",
+      event.detail.reason ? "warning" : "error",
+    );
   }
 
   $: addBtnTitle = moveActive
@@ -755,15 +779,17 @@
         ? "Aktuelle Roboterposition als NoGo-Punkt speichern"
         : zoneActive
           ? "Aktuelle Roboterposition als Zonenpunkt speichern"
-        : "Aktuelle Roboterposition als Perimeterpunkt speichern";
+          : "Aktuelle Roboterposition als Perimeterpunkt speichern";
 
   $: connectionFresh =
-    $connection.connected && nowMs - $connection.lastSeen <= CONNECTION_FRESH_MS;
+    $connection.connected &&
+    nowMs - $connection.lastSeen <= CONNECTION_FRESH_MS;
   $: rtkFix = $telemetry.gps_sol === 4;
   $: rtkFloat = $telemetry.gps_sol === 5;
   $: acceptableAccuracy =
     $telemetry.gps_acc > 0 && $telemetry.gps_acc <= GOOD_ACCURACY_M;
-  $: mappingSignalReady = connectionFresh && (rtkFix || (rtkFloat && acceptableAccuracy));
+  $: mappingSignalReady =
+    connectionFresh && (rtkFix || (rtkFloat && acceptableAccuracy));
   $: preflightHint = !$connection.connected
     ? "WLAN getrennt: Aufnahme pausiert"
     : !connectionFresh
@@ -800,8 +826,7 @@
     dockEntryPoint &&
     (pointInPolygon(dockEntryPoint, $mapStore.map.perimeter) ||
       dockEntryDistance <= MAX_DOCK_ENTRY_DISTANCE_M);
-  $: dockPathValid =
-    $mapStore.map.dock.length >= 2 && dockEntryPlausible;
+  $: dockPathValid = $mapStore.map.dock.length >= 2 && dockEntryPlausible;
   $: validationIssues = [
     !perimeterValid
       ? perimeterTooSmall
@@ -837,11 +862,12 @@
     {
       id: "new",
       label: "Neue Karte",
-      status: $mapStore.map.perimeter.length === 0 &&
+      status:
+        $mapStore.map.perimeter.length === 0 &&
         $mapStore.map.dock.length === 0 &&
         noGoPointCount === 0
-        ? "active"
-        : "done",
+          ? "active"
+          : "done",
       detail:
         $mapStore.map.perimeter.length === 0 &&
         $mapStore.map.dock.length === 0 &&
@@ -917,18 +943,22 @@
           : validationIssues.length === 0
             ? "active"
             : "pending",
-      detail: !$mapStore.dirty && perimeterValid && dockPathValid
-        ? "Aktive Karte synchron"
-        : "Freigabe speichert die aktive Karte",
+      detail:
+        !$mapStore.dirty && perimeterValid && dockPathValid
+          ? "Aktive Karte synchron"
+          : "Freigabe speichert die aktive Karte",
     },
   ] satisfies WorkflowStep[];
-  $: currentStep = workflowSteps.find((step) => step.status === "active") ?? workflowSteps[workflowSteps.length - 1];
+  $: currentStep =
+    workflowSteps.find((step) => step.status === "active") ??
+    workflowSteps[workflowSteps.length - 1];
   $: nextStep =
     workflowSteps.find(
       (step) => step.status === "pending" || step.status === "blocked",
     ) ?? null;
   $: primaryBlocker =
-    validationIssues[0] ?? (!mappingSignalReady && !$mappingTestMode ? preflightHint : "");
+    validationIssues[0] ??
+    (!mappingSignalReady && !$mappingTestMode ? preflightHint : "");
   $: connectionAgeSeconds =
     $connection.lastSeen > 0
       ? Math.max(0, Math.round((nowMs - $connection.lastSeen) / 1000))
@@ -974,7 +1004,6 @@
   on:toggle={() => (sidebarCollapsed = !sidebarCollapsed)}
 >
   <div class="map-stage">
-
     <!-- Top toolbar -->
     <div class="map-toolbar">
       <span class="mt-section-label">Werkzeuge</span>
@@ -983,31 +1012,33 @@
           type="button"
           class:active={moveActive}
           title="Punkte verschieben"
-          on:click={toggleMove}
-        >↖ Zeiger</button>
+          on:click={toggleMove}>↖ Zeiger</button
+        >
         <button
           type="button"
           class:active={activeTool === "perimeter" && !moveActive}
           on:click={() => setLayer("perimeter")}
-        ><span class="mt-dot perimeter"></span>Perimeter</button>
+          ><span class="mt-dot perimeter"></span>Perimeter</button
+        >
         <button
           type="button"
           class:active={layer === "nogo" && !moveActive}
           on:click={() => setLayer("nogo")}
         >
           <span class="mt-dot nogo"></span>No-Go
-          {#if hasNogo}<span class="mt-badge">{$mapStore.map.exclusions.length}</span>{/if}
+          {#if hasNogo}<span class="mt-badge"
+              >{$mapStore.map.exclusions.length}</span
+            >{/if}
         </button>
-        <button
-          type="button"
-          class:active={dockActive}
-          on:click={toggleDock}
-        ><span class="mt-dot dock"></span>Dock-Pfad</button>
+        <button type="button" class:active={dockActive} on:click={toggleDock}
+          ><span class="mt-dot dock"></span>Dock-Pfad</button
+        >
         <button
           type="button"
           class:active={zoneActive}
           on:click={() => setLayer("zone")}
-        ><span class="mt-dot zone"></span>Zone</button>
+          ><span class="mt-dot zone"></span>Zone</button
+        >
       </div>
 
       <div class="mt-sep"></div>
@@ -1015,14 +1046,24 @@
       <div class="mt-actions">
         <button
           type="button"
-          title={undoLabel ? `Rückgängig: ${undoLabel}` : "Rückgängig (Strg/Cmd+Z)"}
+          title={undoLabel
+            ? `Rückgängig: ${undoLabel}`
+            : "Rückgängig (Strg/Cmd+Z)"}
           disabled={!mapHistory || !mapHistory.canUndo()}
-          on:click={undoMapEdit}>↶ Undo{#if undoLabel}<span class="mt-sub-label">{undoLabel}</span>{/if}</button>
+          on:click={undoMapEdit}
+          >↶ Undo{#if undoLabel}<span class="mt-sub-label">{undoLabel}</span
+            >{/if}</button
+        >
         <button
           type="button"
-          title={redoLabel ? `Wiederholen: ${redoLabel}` : "Wiederholen (Strg/Cmd+Shift+Z)"}
+          title={redoLabel
+            ? `Wiederholen: ${redoLabel}`
+            : "Wiederholen (Strg/Cmd+Shift+Z)"}
           disabled={!mapHistory || !mapHistory.canRedo()}
-          on:click={redoMapEdit}>↷ Redo{#if redoLabel}<span class="mt-sub-label">{redoLabel}</span>{/if}</button>
+          on:click={redoMapEdit}
+          >↷ Redo{#if redoLabel}<span class="mt-sub-label">{redoLabel}</span
+            >{/if}</button
+        >
         <select
           class="mt-map-select"
           bind:value={selectedMapId}
@@ -1030,21 +1071,43 @@
           disabled={busy || storedMaps.length === 0}
         >
           {#each storedMaps as map}
-            <option value={map.id}>{map.name}{map.id === activeMapId ? " (aktiv)" : ""}</option>
+            <option value={map.id}
+              >{map.name}{map.id === activeMapId ? " (aktiv)" : ""}</option
+            >
           {/each}
         </select>
-        <button type="button" title="Ausgewählte Karte aktivieren" disabled={busy} on:click={activateMap}>Aktivieren</button>
-        <button type="button" title="Aktuelle Bearbeitung als neue Karte speichern" disabled={busy} on:click={saveAsNewMap}>Speichern als</button>
-        <button type="button" title="Ausgewählte Karte löschen" disabled={busy || selectedMapId === activeMapId} on:click={removeMap}>Löschen</button>
-        <button type="button" title="GeoJSON exportieren" on:click={exportMap}>↑ GeoJSON</button>
-        <button type="button" title="GeoJSON importieren" on:click={importMap}>↓ GeoJSON</button>
+        <button
+          type="button"
+          title="Ausgewählte Karte aktivieren"
+          disabled={busy}
+          on:click={activateMap}>Aktivieren</button
+        >
+        <button
+          type="button"
+          title="Aktuelle Bearbeitung als neue Karte speichern"
+          disabled={busy}
+          on:click={saveAsNewMap}>Speichern als</button
+        >
+        <button
+          type="button"
+          title="Ausgewählte Karte löschen"
+          disabled={busy || selectedMapId === activeMapId}
+          on:click={removeMap}>Löschen</button
+        >
+        <button type="button" title="GeoJSON exportieren" on:click={exportMap}
+          >↑ GeoJSON</button
+        >
+        <button type="button" title="GeoJSON importieren" on:click={importMap}
+          >↓ GeoJSON</button
+        >
         <button type="button" disabled={busy} on:click={loadMap}>Laden</button>
         <button
           type="button"
           class:unsaved={$mapStore.dirty}
           disabled={!$mapStore.dirty || !canSaveMap}
           on:click={saveMap}
-        >Speichern{#if $mapStore.dirty}*{/if}</button>
+          >Speichern{#if $mapStore.dirty}*{/if}</button
+        >
       </div>
     </div>
 
@@ -1059,6 +1122,7 @@
       showHeader={false}
       showViewportActions={false}
       interactive={true}
+      showRuntimeLayers={false}
       {allowPointAdd}
       {pointAddBlockedReason}
       on:pointrejected={handlePointRejected}
@@ -1076,9 +1140,11 @@
               on:click={() => {
                 mapStore.selectExclusion(i);
                 mapStore.setTool("nogo");
-              }}>NoGo {i + 1}</button>
+              }}>NoGo {i + 1}</button
+            >
           {/each}
-          <button type="button" class="item-new" on:click={addNew}>+ Neu</button>
+          <button type="button" class="item-new" on:click={addNew}>+ Neu</button
+          >
         </div>
       {/if}
 
@@ -1088,20 +1154,34 @@
           class="big add"
           disabled={moveActive}
           title={addBtnTitle}
-          on:click={addCurrentRobotPoint}>+</button>
+          on:click={addCurrentRobotPoint}>+</button
+        >
         <button
           type="button"
           class="big remove"
           title="Letzten Punkt entfernen"
-          on:click={removeLastPoint}>−</button>
+          on:click={removeLastPoint}>−</button
+        >
       </div>
     </div>
 
     <!-- Bottom left: zoom -->
     <div class="zoom-stack">
-      <button type="button" title="Heranzoomen" on:click={() => mapCanvas?.zoomIn()}>+</button>
-      <button type="button" title="Herauszoomen" on:click={() => mapCanvas?.zoomOut()}>−</button>
-      <button type="button" title="Auf Inhalt zoomen" on:click={() => mapCanvas?.fitToContent()}>◎</button>
+      <button
+        type="button"
+        title="Heranzoomen"
+        on:click={() => mapCanvas?.zoomIn()}>+</button
+      >
+      <button
+        type="button"
+        title="Herauszoomen"
+        on:click={() => mapCanvas?.zoomOut()}>−</button
+      >
+      <button
+        type="button"
+        title="Auf Inhalt zoomen"
+        on:click={() => mapCanvas?.fitToContent()}>◎</button
+      >
     </div>
   </div>
 
@@ -1159,7 +1239,10 @@
         <span class="sb-label">2. Grenze aufnehmen</span>
         <div class="assistant-card" class:active={activeTool === "perimeter"}>
           <strong>{$mapStore.map.perimeter.length} Punkte</strong>
-          <span>Roboter entlang der Grenze abstellen und Punkt bei gutem RTK setzen.</span>
+          <span
+            >Roboter entlang der Grenze abstellen und Punkt bei gutem RTK
+            setzen.</span
+          >
           <div class="assistant-actions">
             <button
               type="button"
@@ -1224,14 +1307,21 @@
           <span class="sb-label">NoGo-Regeln</span>
           <div class="assistant-card">
             <strong>Interne Planner-Regeln</strong>
-            <span>NoGo-Typen und Clearance werden im Standardmodus intern über Defaults und Diagnose-/Servicewerte gesteuert.</span>
+            <span
+              >NoGo-Typen und Clearance werden im Standardmodus intern über
+              Defaults und Diagnose-/Servicewerte gesteuert.</span
+            >
           </div>
         </div>
       {/if}
 
       <div class="sb-section">
         <span class="sb-label">4. Docking-Pfad</span>
-        <div class="assistant-card" class:active={dockActive} class:blocked={!perimeterValid}>
+        <div
+          class="assistant-card"
+          class:active={dockActive}
+          class:blocked={!perimeterValid}
+        >
           <strong>{$mapStore.map.dock.length} Punkte</strong>
           <span>Pfad vom Garten zur Ladestation vollstaendig aufnehmen.</span>
           <div class="assistant-actions">
@@ -1270,7 +1360,11 @@
           <span class="sb-label">Docking-Logik</span>
           <div class="assistant-card">
             <strong>Service-Tuning</strong>
-            <span>Docking-Tuning und lokale Planner-Parameter sind im Standardmodus ausgeblendet und werden über interne Defaults beziehungsweise Config geregelt.</span>
+            <span
+              >Docking-Tuning und lokale Planner-Parameter sind im Standardmodus
+              ausgeblendet und werden über interne Defaults beziehungsweise
+              Config geregelt.</span
+            >
           </div>
         </div>
       {/if}
@@ -1278,7 +1372,11 @@
       <div class="sb-section">
         <span class="sb-label">5. Validieren & Speichern</span>
         <div class="assistant-card" class:blocked={validationIssues.length > 0}>
-          <strong>{validationIssues.length === 0 ? "Karte freigabebereit" : "Noch offen"}</strong>
+          <strong
+            >{validationIssues.length === 0
+              ? "Karte freigabebereit"
+              : "Noch offen"}</strong
+          >
           {#if validationIssues.length > 0}
             <ul class="issue-list">
               {#each validationIssues as issue}
@@ -1316,10 +1414,14 @@
           >
         </div>
         <div class="sb-stat">
-          <span>Perimeter</span><strong>{$mapStore.map.perimeter.length} Punkte</strong>
+          <span>Perimeter</span><strong
+            >{$mapStore.map.perimeter.length} Punkte</strong
+          >
         </div>
         <div class="sb-stat">
-          <span>Docking-Pfad</span><strong>{$mapStore.map.dock.length} Punkte</strong>
+          <span>Docking-Pfad</span><strong
+            >{$mapStore.map.dock.length} Punkte</strong
+          >
         </div>
         <div class="sb-stat">
           <span>NoGo</span><strong>{$mapStore.map.exclusions.length}</strong>
@@ -1330,12 +1432,13 @@
         <span class="sb-label">Zonen</span>
         <div class="assistant-card" class:active={zoneActive}>
           <strong>{$mapStore.map.zones.length} Zonen</strong>
-          <span>Zone auf der Karte anlegen, dann Punkte setzen und per Klick zwischen Zonen wechseln.</span>
+          <span
+            >Zone auf der Karte anlegen, dann Punkte setzen und per Klick
+            zwischen Zonen wechseln.</span
+          >
           <div class="assistant-actions">
-            <button
-              type="button"
-              class="sb-btn"
-              on:click={createZoneTool}>+ Neue Zone</button
+            <button type="button" class="sb-btn" on:click={createZoneTool}
+              >+ Neue Zone</button
             >
             <button
               type="button"
@@ -1354,7 +1457,7 @@
               on:click={() => selectZone(zone.id)}
             >
               <span class="zone-chip-dot"></span>
-              <span class="zone-chip-name">{zone.settings.name}</span>
+              <span class="zone-chip-name">{zone.name}</span>
               <span class="zone-chip-count">{zone.polygon.length}</span>
             </button>
           {/each}
@@ -1408,7 +1511,8 @@
     gap: 0.15rem;
   }
 
-  .mt-tools button, .mt-actions button {
+  .mt-tools button,
+  .mt-actions button {
     display: flex;
     align-items: center;
     gap: 0.3rem;
@@ -1421,7 +1525,9 @@
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
 
   .mt-sub-label {
@@ -1435,7 +1541,8 @@
     text-overflow: ellipsis;
   }
 
-  .mt-tools button:hover, .mt-actions button:hover:not(:disabled) {
+  .mt-tools button:hover,
+  .mt-actions button:hover:not(:disabled) {
     background: rgba(30, 58, 95, 0.4);
     color: #e2e8f0;
   }
@@ -1462,11 +1569,21 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .mt-dot.perimeter { background: #2563eb; }
-  .mt-dot.nogo      { background: #dc2626; }
-  .mt-dot.dock      { background: #d97706; }
-  .mt-dot.dock-corridor { background: #facc15; }
-  .mt-dot.zone      { background: #67e8f9; }
+  .mt-dot.perimeter {
+    background: #2563eb;
+  }
+  .mt-dot.nogo {
+    background: #dc2626;
+  }
+  .mt-dot.dock {
+    background: #d97706;
+  }
+  .mt-dot.dock-corridor {
+    background: #facc15;
+  }
+  .mt-dot.zone {
+    background: #67e8f9;
+  }
 
   .mt-badge {
     background: #1e3a5f;

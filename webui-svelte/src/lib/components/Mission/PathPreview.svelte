@@ -8,7 +8,10 @@
     type PlannerPreviewRoute,
     type RouteSemantic,
     type RouteValidationError,
+    type WaypointEntry,
   } from "../../api/rest";
+  import { missionStore } from "../../stores/missions";
+  import { sendCmd } from "../../api/websocket";
 
   export let zones: Zone[] = [];
   export let perimeter: Point[] = [];
@@ -89,6 +92,26 @@
       projected.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" L ") +
       " Z"
     );
+  }
+
+  /** N3.3: Group consecutive same-mowOn waypoints into polyline segments. */
+  function groupWaypointRuns(
+    wps: WaypointEntry[],
+  ): Array<{ mowOn: boolean; pts: WaypointEntry[] }> {
+    if (wps.length === 0) return [];
+    const runs: Array<{ mowOn: boolean; pts: WaypointEntry[] }> = [];
+    let current = { mowOn: wps[0].mowOn, pts: [wps[0]] };
+    for (let i = 1; i < wps.length; i++) {
+      if (wps[i].mowOn === current.mowOn) {
+        current.pts.push(wps[i]);
+      } else {
+        runs.push(current);
+        // Bridge: last point of prior run is first point of new run for continuity.
+        current = { mowOn: wps[i].mowOn, pts: [wps[i - 1], wps[i]] };
+      }
+    }
+    runs.push(current);
+    return runs;
   }
 
   function toWorldPathD(pts: Point[]): string {
@@ -303,7 +326,6 @@
     return {
       perimeter: source.perimeter.map((point) => [point.x, point.y]),
       dock: source.dock.map((point) => [point.x, point.y]),
-      mow: source.mow.map((point) => [point.x, point.y]),
       exclusions: source.exclusions.map((exclusion) =>
         exclusion.map((point) => [point.x, point.y]),
       ),
@@ -315,18 +337,8 @@
       zones: source.zones.map((zone) => ({
         id: zone.id,
         order: zone.order,
+        name: zone.name,
         polygon: zone.polygon.map((point) => [point.x, point.y]),
-        settings: {
-          name: zone.settings.name,
-          stripWidth: zone.settings.stripWidth,
-          angle: zone.settings.angle,
-          edgeMowing: zone.settings.edgeMowing,
-          edgeRounds: zone.settings.edgeRounds,
-          speed: zone.settings.speed,
-          pattern: zone.settings.pattern,
-          reverseAllowed: zone.settings.reverseAllowed,
-          clearance: zone.settings.clearance,
-        },
       })),
       planner: source.planner
         ? {
@@ -401,6 +413,18 @@
       const response = await previewPlannerRoutes(previewPayload);
       if (requestId !== plannerRequestId) return;
       plannerRoutes = response.routes ?? [];
+      if (mission) {
+        const firstRoute = response.routes[0];
+        if (firstRoute?.planRef && firstRoute.valid) {
+          missionStore.setMissionPlanRef(mission.id, {
+            id: firstRoute.planRef.id,
+            revision: firstRoute.planRef.revision,
+            generatedAtMs: firstRoute.planRef.generatedAtMs,
+          });
+        } else {
+          missionStore.setMissionPlanRef(mission.id, undefined);
+        }
+      }
       const hasRouteError = response.routes.some((entry) => !entry.ok);
       const hasValidationError = response.routes.some(
         (entry) => entry.valid === false,
@@ -435,6 +459,10 @@
     []) as RouteValidationError[];
   $: previewDebug = previewEntry?.debug;
   $: debugSemanticCounts = Object.entries(previewDebug?.semanticCounts ?? {});
+
+  // N3.3: flat waypoint sequence from server (mowOn=false = transit between zones).
+  $: previewWaypoints = (previewEntry?.waypoints ?? []) as WaypointEntry[];
+  $: waypointRuns = groupWaypointRuns(previewWaypoints);
 
   // Nur die ersten 3 Fehlerpunkte — kein roter Teppich
   $: errorMarkers = validationErrors
@@ -477,7 +505,7 @@
     ? missionZones.find((z) => z.id === firstError.zoneId)
     : null;
   $: errorSummary = firstError
-    ? `Übergang nicht planbar${firstErrorZone ? ` in Zone „${firstErrorZone.settings.name}"` : ""}`
+    ? `Übergang nicht planbar${firstErrorZone ? ` in Zone „${firstErrorZone.name}"` : ""}`
     : plannerError && plannerError !== "route_invalid"
       ? plannerError
       : "";
@@ -532,10 +560,9 @@
             class="ms-leg-dot"
             style="background:{zoneColors[i % zoneColors.length]}"
           ></span>
-          <span class="ms-leg-name">{zone.settings.name}</span>
+          <span class="ms-leg-name">{zone.name}</span>
           <span class="ms-leg-angle"
-            >{mission?.overrides?.[zone.id]?.angle ??
-              zone.settings.angle}°</span
+            >{mission?.overrides?.[zone.id]?.angle ?? 0}°</span
           >
         </button>
       {/each}
@@ -796,6 +823,28 @@
         </g>
       {/if}
 
+      <!-- 5c. N3.3 Waypoints layer: flat execution sequence in debug mode.
+           Green = mowing (mowOn=true), slate-dashed = inter-zone transit. -->
+      {#if showPaths && waypointRuns.length > 0 && debugMode}
+        <g clip-path={perimeter.length >= 3 ? "url(#mow-clip)" : undefined}>
+          {#each waypointRuns as run}
+            {#if run.pts.length >= 2}
+              <polyline
+                points={worldPoints(run.pts)}
+                fill="none"
+                stroke={run.mowOn ? "#22c55e" : "#94a3b8"}
+                stroke-opacity={run.mowOn ? "0.75" : "0.55"}
+                stroke-width={run.mowOn ? "0.9" : "0.7"}
+                stroke-dasharray={run.mowOn ? undefined : "3 3"}
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                vector-effect="non-scaling-stroke"
+              />
+            {/if}
+          {/each}
+        </g>
+      {/if}
+
       <!-- 6. Debug-Layer: Fehler-Segmente — nur in Debug-Ansicht -->
       {#if debugMode}
         {#each invalidSegments as seg}
@@ -821,13 +870,13 @@
     {#if showZones}
       {#each missionZones as zone, i}
         {@const color = zoneColors[i % zoneColors.length]}
-        {@const label = `${zone.settings.name} · ${mission?.overrides?.[zone.id]?.angle ?? zone.settings.angle}°`}
+        {@const label = `${zone.name} · ${mission?.overrides?.[zone.id]?.angle ?? 0}°`}
         {@const labelPos = labelPosition(polygonCenter(zone), bounds, label)}
 
         <g
           role="button"
           tabindex="0"
-          aria-label={`Zone ${zone.settings.name} auswählen`}
+          aria-label={`Zone ${zone.name} auswählen`}
           on:click|stopPropagation={() =>
             dispatch("selectzone", { zoneId: zone.id })}
           on:keydown={(e) => {
@@ -910,6 +959,12 @@
     >
       {plannerLoading ? "Wird berechnet…" : "Vorschau berechnen"}
     </button>
+    <!-- N6.2: start exactly the previewed plan -->
+    {#if hasPreviewRoute && !plannerLoading && plannerError === ""}
+      <button type="button" class="mow-btn" on:click={() => sendCmd("start")}>
+        Jetzt mähen ▶
+      </button>
+    {/if}
   {/if}
 </div>
 
@@ -1198,6 +1253,25 @@
   .preview-btn:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+
+  /* N6.2: "Jetzt mähen" button */
+  .mow-btn {
+    position: absolute;
+    bottom: 48px;
+    right: 10px;
+    z-index: 4;
+    padding: 6px 14px;
+    border: 1px solid #16a34a;
+    border-radius: 6px;
+    background: #052e16;
+    color: #4ade80;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mow-btn:hover {
+    background: #14532d;
   }
 
   /* ── Leer-Zustand ──────────────────────────────────────────── */

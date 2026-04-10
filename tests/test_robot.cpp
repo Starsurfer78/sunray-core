@@ -39,6 +39,13 @@ namespace sunray
             return robot.buildTelemetry();
         }
 
+        static void snapPoseToCurrentTarget(Robot &robot)
+        {
+            robot.stateEst_.setPose(robot.runtimeState().targetPoint().x,
+                                    robot.runtimeState().targetPoint().y,
+                                    robot.stateEst_.heading());
+        }
+
         static void advanceTimeMs(Robot &robot, unsigned long ms)
         {
             robot.startTime_ -= std::chrono::milliseconds(ms);
@@ -57,6 +64,11 @@ namespace sunray
                 robot.diagReq_.rightPwm = pwm;
             if (motor == "mow")
                 robot.diagReq_.mowPwm = pwm;
+        }
+
+        static const nav::RuntimeSnapshot &snapshot(const Robot &robot)
+        {
+            return robot.runtimeSnapshot_;
         }
     };
 }
@@ -174,9 +186,24 @@ static std::filesystem::path writeSimpleMap(const std::string &name)
     std::ofstream f(path);
     f << R"({
   "perimeter": [[-5,-5], [5,-5], [5,5], [-5,5]],
-  "mow": [[0,0], [1,0], [1,1]],
   "dock": [[0,-1]],
-  "exclusions": []
+    "exclusions": [],
+    "zones": [{
+        "id": "zone-a",
+        "order": 1,
+        "polygon": [[-1,-1], [2,-1], [2,2], [-1,2]],
+        "settings": {
+            "name": "A",
+            "stripWidth": 0.5,
+            "angle": 0,
+            "edgeMowing": true,
+            "edgeRounds": 1,
+            "speed": 1.0,
+            "pattern": "stripe",
+            "reverseAllowed": false,
+            "clearance": 0.25
+        }
+    }]
 })";
     return path;
 }
@@ -187,7 +214,6 @@ static std::filesystem::path writeZoneMap(const std::string &name)
     std::ofstream f(path);
     f << R"({
     "perimeter": [[0,0], [10,0], [10,10], [0,10]],
-    "mow": [[1,1], [2,1], [8,8]],
     "dock": [[0,-1]],
     "exclusions": [],
     "zones": [
@@ -212,6 +238,17 @@ static RobotFixture makeRobot(bool initResult = true)
     hw_owned->initResult = initResult;
     MockHardware *raw = hw_owned.get();
     return {std::make_unique<Robot>(std::move(hw_owned), makeConfig(), makeLogger()), raw};
+}
+
+static void advanceRobotToMow(Robot &robot, int maxSteps = 20)
+{
+    for (int step = 0; step < maxSteps && robot.activeOpName() != "Mow"; ++step)
+    {
+        if (robot.activeOpName() == "NavToStart")
+            RobotTelemetryAccess::snapPoseToCurrentTarget(robot);
+        robot.run();
+    }
+    REQUIRE(robot.activeOpName() == "Mow");
 }
 
 struct ThrowingHardware : public MockHardware
@@ -469,8 +506,7 @@ TEST_CASE("Robot: telemetry smoke test freezes current business semantics", "[ru
 
         robot->startMowing();
         robot->run();
-        robot->run();
-        REQUIRE(robot->activeOpName() == "Mow");
+        advanceRobotToMow(*robot);
 
         hw->sensors.lift = true;
         robot->run();
@@ -557,8 +593,7 @@ TEST_CASE("Robot: stop button hold logic matches Alfred command thresholds", "[r
     {
         robot->startMowing();
         robot->run();
-        robot->run();
-        REQUIRE(robot->activeOpName() == "Mow");
+        advanceRobotToMow(*robot);
 
         hw->sensors.stopButton = true;
         robot->run();
@@ -626,8 +661,7 @@ TEST_CASE("Robot: startMowing() transitions IDLE->NAV_TO_START->MOWING", "[state
     robot->startMowing();
     robot->run();
     REQUIRE(robot->activeOpName() == "NavToStart");
-    robot->run();
-    REQUIRE(robot->activeOpName() == "Mow");
+    advanceRobotToMow(*robot);
 }
 
 TEST_CASE("Robot: startMowingZones() activates compiled route before NavToStart", "[state]")
@@ -761,7 +795,8 @@ TEST_CASE("Robot: low battery triggers dock request", "[battery]")
     robot->init();
     REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_lowbat_map.json")));
     robot->startMowing();
-    robot->run(); // -> MOWING
+    advanceRobotToMow(*robot);         // NavToStart -> Mow
+    robot->setPose(0.0f, -0.5f, 0.0f); // position near dock so docking route can be built
 
     // Set battery below Alfred low-battery default (25.5V), above critical (18.9V)
     hw->battery.voltage = 25.0f;
@@ -793,9 +828,7 @@ TEST_CASE("Robot: perimeter violation during mowing requests docking", "[run][sa
     REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_perimeter_mow_map.json")));
 
     robot->startMowing();
-    robot->run();
-    robot->run();
-    REQUIRE(robot->activeOpName() == "Mow");
+    advanceRobotToMow(*robot);
 
     robot->setPose(6.0f, 0.0f, 0.0f);
     hw->motorCalls.clear();
@@ -835,9 +868,7 @@ TEST_CASE("Robot: MCU comm loss during mowing transitions to error and stops mot
     robot->run();
 
     robot->startMowing();
-    robot->run();
-    robot->run();
-    REQUIRE(robot->activeOpName() == "Mow");
+    advanceRobotToMow(*robot);
 
     hw->odometry.mcuConnected = false;
     hw->motorCalls.clear();
@@ -863,9 +894,7 @@ TEST_CASE("Robot: STM flash maintenance suppresses transient MCU comm-loss fault
     robot->run();
 
     robot->startMowing();
-    robot->run();
-    robot->run();
-    REQUIRE(robot->activeOpName() == "Mow");
+    advanceRobotToMow(*robot);
 
     robot->setStmFlashMaintenance(true);
     hw->odometry.mcuConnected = false;
@@ -896,9 +925,7 @@ TEST_CASE("Robot: stuck detection during mowing transitions to EscapeReverse", "
 
     hw->odometry.mcuConnected = true;
     robot.startMowing();
-    robot.run();
-    robot.run();
-    REQUIRE(robot.activeOpName() == "Mow");
+    advanceRobotToMow(robot);
 
     robot.run();
     RobotTelemetryAccess::advanceTimeMs(robot, 5);
@@ -925,9 +952,7 @@ TEST_CASE("Robot: repeated stuck recovery exhaustion escalates to Error", "[run]
 
     hw->odometry.mcuConnected = true;
     robot.startMowing();
-    robot.run();
-    robot.run();
-    REQUIRE(robot.activeOpName() == "Mow");
+    advanceRobotToMow(robot);
 
     robot.run();
     RobotTelemetryAccess::advanceTimeMs(robot, 5);
@@ -997,7 +1022,7 @@ TEST_CASE("Robot: loadMap() with invalid JSON returns false without throwing", "
 
     const auto path = std::filesystem::temp_directory_path() / "sunray_test_invalid_map.json";
     std::ofstream f(path);
-    f << R"({"perimeter":[[0,0]],"mow":[{"p":[1]}]})";
+    f << R"({"perimeter":[[0,0]],"dock":[[1]]})";
     f.close();
 
     bool ok = true;
@@ -1086,4 +1111,56 @@ TEST_CASE("Robot: loop shutdown leaves system LED red during power-off grace", "
     }
 
     REQUIRE(sawSystemRed);
+}
+
+// ── N5 tests: local obstacle detour ──────────────────────────────────────────
+
+TEST_CASE("N5.1: bumper hit records obstacle in map", "[n5][run][safety]")
+{
+    auto [robot, hw] = makeRobot();
+    robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_n5_obstacle_map.json")));
+    hw->odometry.mcuConnected = true;
+    robot->startMowing();
+    // Obstacles are recorded in EscapeReverseOp::begin() via map.addObstacle()
+    // Trigger transition to EscapeReverse via bumper
+    hw->sensors.bumperLeft = true;
+    robot->run();
+    robot->run();
+    hw->sensors.bumperLeft = false;
+    REQUIRE(robot->activeOpName() == "EscapeReverse");
+}
+
+TEST_CASE("N5.3: bumper escape returns to Mow on same mission plan (re-entry)", "[n5][run][safety]")
+{
+    auto hw_owned = std::make_unique<MockHardware>();
+    MockHardware *hw = hw_owned.get();
+    auto config = makeConfig();
+    Robot robot(std::move(hw_owned), config, makeLogger());
+
+    REQUIRE(robot.init());
+    REQUIRE(robot.loadMap(writeSimpleMap("sunray_test_n5_reentry_map.json")));
+    hw->odometry.mcuConnected = true;
+    robot.startMowing();
+    advanceRobotToMow(robot);
+
+    // Capture mow index before obstacle event
+    const int mowIdxBefore = robot.runtimeState().mowPointsIdx();
+
+    // Trigger bumper → EscapeReverse
+    hw->sensors.bumperLeft = true;
+    robot.run();
+    robot.run();
+    hw->sensors.bumperLeft = false;
+    REQUIRE(robot.activeOpName() == "EscapeReverse");
+
+    // During escape, runtimeSnapshot captures the detour context.
+    // Advance past escape timeout (3 s) and let robot resume.
+    RobotTelemetryAccess::advanceTimeMs(robot, 4000);
+    robot.run();
+    robot.run();
+
+    // After escape: robot should be back in Mow and on the same plan index.
+    REQUIRE(robot.activeOpName() == "Mow");
+    REQUIRE(robot.runtimeState().mowPointsIdx() == mowIdxBefore);
 }

@@ -18,6 +18,7 @@ class RobotStorage {
     return robotsJson
         .whereType<Map<String, dynamic>>()
         .map(_savedRobotFromJson)
+        .where((r) => r.id.isNotEmpty && r.lastHost.isNotEmpty)
         .toList(growable: false);
   }
 

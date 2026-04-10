@@ -43,7 +43,7 @@
             checked={selectedZoneIds.includes(zone.id)}
             on:change={() => toggleZone(zone.id)}
           />
-          <span>{zone.settings.name}</span>
+          <span>{zone.name}</span>
           <small>{zone.polygon.length} Punkte</small>
         </label>
       {/each}

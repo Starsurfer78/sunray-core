@@ -18,12 +18,19 @@ export interface MissionZoneOverrides {
   pattern?: 'stripe' | 'spiral'
 }
 
+export interface PlanRef {
+  id: string
+  revision?: number
+  generatedAtMs?: number
+}
+
 export interface Mission {
   id: string
   name: string
   zoneIds: string[]
   overrides: Record<string, MissionZoneOverrides>
   schedule?: MissionSchedule
+  planRef?: PlanRef
 }
 
 interface MissionState {
@@ -66,6 +73,13 @@ function normalizeMission(raw: Partial<Mission>, index: number): Mission {
     name: raw.name?.trim() || `Mission ${index + 1}`,
     zoneIds: Array.isArray(raw.zoneIds) ? raw.zoneIds.filter((entry): entry is string => typeof entry === 'string') : [],
     overrides: raw.overrides ?? {},
+    planRef: raw.planRef && typeof raw.planRef.id === 'string'
+      ? {
+        id: raw.planRef.id,
+        revision: typeof raw.planRef.revision === 'number' ? raw.planRef.revision : undefined,
+        generatedAtMs: typeof raw.planRef.generatedAtMs === 'number' ? raw.planRef.generatedAtMs : undefined,
+      }
+      : undefined,
     schedule: {
       ...defaultSchedule(),
       ...(raw.schedule ?? {}),
@@ -164,11 +178,17 @@ function createMissionStore() {
         mission.id === missionId ? { ...mission, name: name.trim() || mission.name } : mission,
       ),
     })),
+    setMissionPlanRef: (missionId: string, planRef: PlanRef | undefined) => apply((state) => ({
+      ...state,
+      missions: state.missions.map((mission) =>
+        mission.id === missionId ? { ...mission, planRef } : mission,
+      ),
+    })),
     setMissionZoneIds: (missionId: string, zoneIds: string[], zones: Zone[]) => apply((state) => ({
       ...state,
       missions: state.missions.map((mission) =>
         mission.id === missionId
-          ? { ...mission, zoneIds: sortZoneIds(zoneIds, zones) }
+          ? { ...mission, zoneIds: sortZoneIds(zoneIds, zones), planRef: undefined }
           : mission,
       ),
     })),
@@ -196,6 +216,7 @@ function createMissionStore() {
         if (mission.id !== missionId) return mission
         return {
           ...mission,
+          planRef: undefined,
           overrides: {
             ...mission.overrides,
             [zoneId]: {
@@ -212,7 +233,7 @@ function createMissionStore() {
         if (mission.id !== missionId) return mission
         const overrides = { ...mission.overrides }
         delete overrides[zoneId]
-        return { ...mission, overrides }
+        return { ...mission, overrides, planRef: undefined }
       }),
     })),
     syncZones: (zones: Zone[]) => apply((state) => sanitizeMissionState(state, zones)),
@@ -230,6 +251,10 @@ function sanitizeMissionState(state: MissionState, zones: Zone[]): MissionState 
       ...normalizeMission(mission, index),
       zoneIds,
       overrides,
+      planRef:
+        mission.planRef && zoneIds.length === mission.zoneIds.length
+          ? mission.planRef
+          : undefined,
     }
   })
   return {

@@ -1,4 +1,5 @@
-#include "core/navigation/MowRoutePlanner.h"
+#include "core/navigation/MissionCompiler.h"
+#include "core/navigation/StripingAlgorithm.h"
 
 #include <clipper2/clipper.h>
 
@@ -13,18 +14,6 @@ namespace sunray
 
         namespace
         {
-
-            struct Interval
-            {
-                float left = 0.0f;
-                float right = 0.0f;
-            };
-
-            struct Segment
-            {
-                Point a;
-                Point b;
-            };
 
             struct PreparedCoverageArea
             {
@@ -378,7 +367,8 @@ namespace sunray
                 const ZoneSettings &settings,
                 const PolygonPoints &zonePoly,
                 const std::string &zoneId,
-                bool allowReverseCurrent)
+                bool allowReverseCurrent,
+                RouteSemantic transitionSemantic = RouteSemantic::TRANSIT_BETWEEN_COMPONENTS)
             {
                 ComponentJoinChoice best;
                 if (currentRoute.points.empty() || nextRoute.points.empty())
@@ -401,7 +391,7 @@ namespace sunray
                             zonePoly,
                             zoneId,
                             {},
-                            RouteSemantic::TRANSIT_BETWEEN_COMPONENTS);
+                            transitionSemantic);
                         if (transition.points.empty())
                             continue;
 
@@ -419,191 +409,9 @@ namespace sunray
                 return best;
             }
 
-            static std::vector<Interval> normalizeIntervals(std::vector<Interval> intervals)
-            {
-                if (intervals.empty())
-                    return {};
-                std::sort(intervals.begin(), intervals.end(), [](const Interval &a, const Interval &b)
-                          {
-        if (a.left == b.left) return a.right < b.right;
-        return a.left < b.left; });
-
-                std::vector<Interval> merged;
-                merged.push_back(intervals.front());
-                for (size_t i = 1; i < intervals.size(); ++i)
-                {
-                    Interval &last = merged.back();
-                    if (intervals[i].left <= last.right + 1e-6f)
-                    {
-                        last.right = std::max(last.right, intervals[i].right);
-                    }
-                    else
-                    {
-                        merged.push_back(intervals[i]);
-                    }
-                }
-                return merged;
-            }
-
-            static std::vector<Interval> intersectIntervals(const std::vector<Interval> &a,
-                                                            const std::vector<Interval> &b)
-            {
-                std::vector<Interval> out;
-                size_t i = 0, j = 0;
-                while (i < a.size() && j < b.size())
-                {
-                    const float left = std::max(a[i].left, b[j].left);
-                    const float right = std::min(a[i].right, b[j].right);
-                    if (left <= right)
-                        out.push_back({left, right});
-                    if (a[i].right < b[j].right)
-                    {
-                        ++i;
-                    }
-                    else
-                    {
-                        ++j;
-                    }
-                }
-                return out;
-            }
-
-            static std::vector<Interval> subtractIntervals(const std::vector<Interval> &base,
-                                                           const std::vector<Interval> &cuts)
-            {
-                if (base.empty())
-                    return {};
-                if (cuts.empty())
-                    return base;
-
-                std::vector<Interval> out;
-                size_t j = 0;
-                for (const auto &b : base)
-                {
-                    float cursor = b.left;
-                    while (j < cuts.size() && cuts[j].right < cursor)
-                        ++j;
-                    size_t k = j;
-                    while (k < cuts.size() && cuts[k].left <= b.right)
-                    {
-                        if (cuts[k].left > cursor)
-                        {
-                            out.push_back({cursor, std::min(b.right, cuts[k].left)});
-                        }
-                        cursor = std::max(cursor, cuts[k].right);
-                        if (cursor >= b.right)
-                            break;
-                        ++k;
-                    }
-                    if (cursor < b.right)
-                        out.push_back({cursor, b.right});
-                }
-                return normalizeIntervals(out);
-            }
-
-            static std::vector<Interval> polygonIntervalsAtY(const PolygonPoints &poly, float y)
-            {
-                std::vector<float> xs;
-                if (poly.size() < 3)
-                    return {};
-                xs.reserve(poly.size());
-                for (size_t i = 0; i < poly.size(); ++i)
-                {
-                    const Point &a = poly[i];
-                    const Point &b = poly[(i + 1) % poly.size()];
-                    if ((a.y < y && b.y >= y) || (b.y < y && a.y >= y))
-                    {
-                        const float t = (y - a.y) / (b.y - a.y);
-                        xs.push_back(a.x + t * (b.x - a.x));
-                    }
-                }
-                std::sort(xs.begin(), xs.end());
-                std::vector<Interval> out;
-                for (size_t i = 0; i + 1 < xs.size(); i += 2)
-                {
-                    if (xs[i + 1] > xs[i])
-                        out.push_back({xs[i], xs[i + 1]});
-                }
-                return out;
-            }
-
-            static std::vector<Interval> effectiveIntervalsAtY(const PolygonPoints &zone,
-                                                               const PolygonPoints &perimeter,
-                                                               const std::vector<PolygonPoints> &exclusions,
-                                                               float y)
-            {
-                std::vector<Interval> intervals = polygonIntervalsAtY(zone, y);
-                if (!perimeter.empty())
-                {
-                    intervals = intersectIntervals(intervals, polygonIntervalsAtY(perimeter, y));
-                }
-                for (const auto &exclusion : exclusions)
-                {
-                    intervals = subtractIntervals(intervals, polygonIntervalsAtY(exclusion, y));
-                    if (intervals.empty())
-                        break;
-                }
-                return intervals;
-            }
-
             // ── Coverage helpers ──────────────────────────────────────────────────────────
-            // These functions produce Coverage segments (stripes and headland contours).
-            // They do NOT insert free-path transitions — that is the Transition layer's job.
-
-            static std::vector<Segment> buildStripeSegments(const PolygonPoints &zone,
-                                                            const PolygonPoints &perimeter,
-                                                            const std::vector<PolygonPoints> &exclusions,
-                                                            float stripWidth,
-                                                            float angleDeg)
-            {
-                if (zone.size() < 3 || stripWidth <= 0.0f)
-                    return {};
-
-                const float angle = angleDeg * static_cast<float>(M_PI) / 180.0f;
-                const float cosPos = std::cos(angle);
-                const float sinPos = std::sin(angle);
-
-                const PolygonPoints rotZone = rotatePolygon(zone, -angle);
-                const PolygonPoints rotPerimeter = perimeter.empty() ? PolygonPoints{} : rotatePolygon(perimeter, -angle);
-                std::vector<PolygonPoints> rotExclusions;
-                rotExclusions.reserve(exclusions.size());
-                for (const auto &ex : exclusions)
-                    rotExclusions.push_back(rotatePolygon(ex, -angle));
-
-                std::vector<Point> allPts = rotZone;
-                allPts.insert(allPts.end(), rotPerimeter.begin(), rotPerimeter.end());
-                for (const auto &ex : rotExclusions)
-                    allPts.insert(allPts.end(), ex.begin(), ex.end());
-                if (allPts.empty())
-                    return {};
-
-                float minY = allPts.front().y;
-                float maxY = allPts.front().y;
-                for (const auto &p : allPts)
-                {
-                    minY = std::min(minY, p.y);
-                    maxY = std::max(maxY, p.y);
-                }
-
-                // Build segments in strict row-by-row zigzag order (boustrophedon).
-                // Do NOT apply sortSegmentsNearestNeighbour() here: global nearest-neighbour
-                // reordering destroys the row sequence, forces long diagonal transitions and
-                // can lead to stripes being missed entirely on complex zone shapes.
-                std::vector<Segment> segments;
-                int rowIdx = 0;
-                for (float y = minY + stripWidth * 0.5f; y <= maxY + stripWidth * 0.01f; y += stripWidth, ++rowIdx)
-                {
-                    std::vector<Interval> intervals = effectiveIntervalsAtY(rotZone, rotPerimeter, rotExclusions, y);
-                    for (const auto &interval : intervals)
-                    {
-                        const Point a = rotatePoint({interval.left, y}, cosPos, sinPos);
-                        const Point b = rotatePoint({interval.right, y}, cosPos, sinPos);
-                        segments.push_back(rowIdx % 2 == 0 ? Segment{a, b} : Segment{b, a});
-                    }
-                }
-
-                return segments;
-            }
+            // Stripe generation is in StripingAlgorithm.cpp (shared with ZonePlanner).
+            // These functions produce route transitions and headland contours.
 
             static RoutePlan routeFromPolyline(const PolygonPoints &points,
                                                const ZoneSettings &settings,
@@ -812,6 +620,20 @@ namespace sunray
                 return settings;
             }
 
+            static ZonePlanSettingsSnapshot snapshotZoneSettings(const ZoneSettings &settings)
+            {
+                ZonePlanSettingsSnapshot snapshot;
+                snapshot.stripWidth_m = settings.stripWidth;
+                snapshot.angle_deg = settings.angle;
+                snapshot.edgeMowing = settings.edgeMowing;
+                snapshot.edgeRounds = settings.edgeRounds;
+                snapshot.speed_mps = settings.speed;
+                snapshot.pattern = (settings.pattern == ZonePattern::SPIRAL) ? "spiral" : "stripe";
+                snapshot.reverseAllowed = settings.reverseAllowed;
+                snapshot.clearance_m = settings.clearance;
+                return snapshot;
+            }
+
             /// Zone-aware transition: the A* grid is bounded to zonePoly so the path
             /// cannot take shortcuts through areas outside the active zone.
             /// If no path is found, route.valid is set to false — no silent direct-point fallback.
@@ -906,6 +728,87 @@ namespace sunray
 
         } // namespace
 
+        ZonePlan buildZonePlanPreview(const Map &map,
+                                      const Zone &zone,
+                                      const nlohmann::json &overrides)
+        {
+            nlohmann::json mission = {
+                {"zoneIds", {zone.id}},
+                {"overrides", {{zone.id, overrides.is_object() ? overrides : nlohmann::json::object()}}}};
+
+            const ZoneSettings effectiveSettings = [&]()
+            {
+                ZoneSettings base{};
+                if (!zone.activeProfileId.empty())
+                {
+                    auto it = zone.profiles.find(zone.activeProfileId);
+                    if (it != zone.profiles.end())
+                        base = it->second.settings;
+                }
+                return applyMissionOverrides(base, overrides);
+            }();
+            const RoutePlan route = buildMissionMowRoutePreview(map, mission);
+
+            ZonePlan plan;
+            plan.zoneId = zone.id;
+            plan.zoneName = zone.name;
+            plan.settings = snapshotZoneSettings(effectiveSettings);
+            plan.route = route;
+            plan.valid = route.valid;
+            plan.invalidReason = route.invalidReason;
+            if (!route.points.empty())
+            {
+                plan.startPoint = route.points.front().p;
+                plan.endPoint = route.points.back().p;
+                plan.hasStartPoint = true;
+                plan.hasEndPoint = true;
+            }
+
+            plan.waypoints = routePlanToWaypoints(plan.route);
+
+            return plan;
+        }
+
+        MissionPlan buildMissionPlanPreview(const Map &map, const nlohmann::json &missionJson)
+        {
+            MissionPlan plan;
+            plan.missionId = missionJson.value("id", std::string{});
+
+            if (missionJson.contains("zoneIds") && missionJson["zoneIds"].is_array())
+            {
+                for (const auto &zoneId : missionJson["zoneIds"])
+                {
+                    if (zoneId.is_string())
+                        plan.zoneOrder.push_back(zoneId.get<std::string>());
+                }
+            }
+
+            const nlohmann::json overrides = missionJson.contains("overrides") && missionJson["overrides"].is_object()
+                                                 ? missionJson["overrides"]
+                                                 : nlohmann::json::object();
+
+            for (const auto &zoneId : plan.zoneOrder)
+            {
+                for (const auto &zone : map.zones())
+                {
+                    if (zone.id != zoneId)
+                        continue;
+
+                    const nlohmann::json zoneOverrides = overrides.value(zone.id, nlohmann::json::object());
+                    plan.zonePlans.push_back(buildZonePlanPreview(map, zone, zoneOverrides));
+                    break;
+                }
+            }
+
+            plan.route = buildMissionMowRoutePreview(map, missionJson);
+            plan.valid = plan.route.valid;
+            plan.invalidReason = plan.route.invalidReason;
+
+            plan.waypoints = routePlanToWaypoints(plan.route);
+
+            return plan;
+        }
+
         RoutePlan buildMissionMowRoutePreview(const Map &map, const nlohmann::json &missionJson)
         {
             RoutePlan route;
@@ -921,18 +824,23 @@ namespace sunray
                         requestedZoneIds.push_back(id.get<std::string>());
                 }
             }
-            if (requestedZoneIds.empty())
-            {
-                for (const auto &zone : map.zones())
-                    requestedZoneIds.push_back(zone.id);
-            }
 
             const auto applyForZone = [&](const Zone &zone)
             {
                 const nlohmann::json overrides = missionJson.contains("overrides") && missionJson["overrides"].is_object()
                                                      ? missionJson["overrides"].value(zone.id, nlohmann::json::object())
                                                      : nlohmann::json::object();
-                return applyMissionOverrides(zone.settings, overrides);
+                // Start from the zone's active profile settings (if any), then apply
+                // mission-level overrides on top.  This gives the full priority chain:
+                //   defaults → active profile → mission overrides
+                ZoneSettings base{};
+                if (!zone.activeProfileId.empty())
+                {
+                    auto it = zone.profiles.find(zone.activeProfileId);
+                    if (it != zone.profiles.end())
+                        base = it->second.settings;
+                }
+                return applyMissionOverrides(base, overrides);
             };
 
             const auto findZone = [&](const std::string &id) -> const Zone *
@@ -1020,12 +928,16 @@ namespace sunray
                                                                        : std::vector<PolygonPoints>{compPoly};
                     for (const auto &infillPoly : infillPolys)
                     {
+                        const float exclusionPadding = settings.clearance +
+                                                       map.plannerSettings().obstacleInflation_m +
+                                                       map.plannerSettings().gridCellSize_m * 0.5f;
                         const std::vector<Segment> stripes = buildStripeSegments(
                             infillPoly,
                             prepared.perimeter,
                             prepared.exclusions,
                             settings.stripWidth,
-                            settings.angle);
+                            settings.angle,
+                            exclusionPadding);
                         appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, compPoly, zoneId, componentId);
                     }
                     if (!stripeRoute.points.empty())
@@ -1057,7 +969,8 @@ namespace sunray
                         settings,
                         prepared.zone,
                         zoneId,
-                        allowReverseCurrent);
+                        allowReverseCurrent,
+                        RouteSemantic::TRANSIT_BETWEEN_COMPONENTS);
 
                     if (!join.ok)
                     {

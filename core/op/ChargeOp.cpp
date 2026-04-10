@@ -1,5 +1,6 @@
 // ChargeOp.cpp — charging station management.
 #include "core/op/Op.h"
+#include "core/navigation/RuntimeState.h"
 #include "core/navigation/Map.h"
 
 namespace sunray
@@ -145,14 +146,14 @@ namespace sunray
 
     void ChargeOp::onTimetableStartMowing(OpContext &ctx)
     {
-        // Timetable says start — only leave dock if battery is sufficient.
+        // Timetable says start. Route activation now happens in Robot::tickSchedule().
         const float minV = ctx.config.get<float>("battery_low_v", 21.0f);
         if (ctx.battery.voltage < minV)
         {
             ctx.logger.warn("Charge", "timetable start — battery too low, staying");
             return;
         }
-        if (ctx.map && !ctx.map->startMowing(ctx.x, ctx.y))
+        if (ctx.runtimeState && !ctx.runtimeState->hasActiveMowingPlan())
         {
             ctx.logger.error("Charge", "timetable start — no active mowing route available");
             return;

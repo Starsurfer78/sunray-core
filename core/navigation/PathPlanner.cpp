@@ -1,4 +1,4 @@
-#include "core/navigation/Planner.h"
+#include "core/navigation/PathPlanner.h"
 
 #include "core/navigation/GridMap.h"
 #include "core/navigation/Map.h"
@@ -31,10 +31,10 @@ namespace sunray
 
         } // namespace
 
-        bool Planner::segmentNeedsReplan(const Map &map, const PlannerContext &context)
+        bool PathPlanner::segmentNeedsReplan(const Map &map, const PlannerContext &context)
         {
             const Point segmentStart =
-                (map.lastTargetPoint.distanceTo(context.robotPose) < 0.25f) ? map.lastTargetPoint : context.robotPose;
+                (context.lastTarget.distanceTo(context.robotPose) < 0.25f) ? context.lastTarget : context.robotPose;
             const Point segmentEnd = context.destination;
 
             for (const auto &obs : map.obstacles_)
@@ -48,7 +48,7 @@ namespace sunray
             return false;
         }
 
-        RoutePlan Planner::planPath(const Map &map, const PlannerContext &context)
+        RoutePlan PathPlanner::planPath(const Map &map, const PlannerContext &context)
         {
             const float cellSize = std::max(0.05f, map.planner_.gridCellSize_m);
             const float margin = std::max(2.0f, context.clearance_m * 4.0f);

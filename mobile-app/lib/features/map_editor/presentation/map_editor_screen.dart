@@ -14,6 +14,36 @@ import '../models/map_editor_state.dart';
 class MapEditorScreen extends ConsumerWidget {
   const MapEditorScreen({super.key});
 
+  // ── Undo / Redo helpers ──────────────────────────────────────────────────
+
+  static void _setGeometry(WidgetRef ref, MapGeometry next) {
+    final current = ref.read(mapGeometryProvider);
+    final stack = ref.read(mapUndoStackProvider);
+    ref.read(mapUndoStackProvider.notifier).state = [...stack, current];
+    ref.read(mapRedoStackProvider.notifier).state = const <MapGeometry>[];
+    ref.read(mapGeometryProvider.notifier).state = next;
+  }
+
+  static void _undo(WidgetRef ref) {
+    final stack = ref.read(mapUndoStackProvider);
+    if (stack.isEmpty) return;
+    final previous = stack.last;
+    final redo = ref.read(mapRedoStackProvider);
+    ref.read(mapRedoStackProvider.notifier).state = [...redo, ref.read(mapGeometryProvider)];
+    ref.read(mapUndoStackProvider.notifier).state = stack.sublist(0, stack.length - 1);
+    ref.read(mapGeometryProvider.notifier).state = previous;
+  }
+
+  static void _redo(WidgetRef ref) {
+    final stack = ref.read(mapRedoStackProvider);
+    if (stack.isEmpty) return;
+    final next = stack.last;
+    final undo = ref.read(mapUndoStackProvider);
+    ref.read(mapUndoStackProvider.notifier).state = [...undo, ref.read(mapGeometryProvider)];
+    ref.read(mapRedoStackProvider.notifier).state = stack.sublist(0, stack.length - 1);
+    ref.read(mapGeometryProvider.notifier).state = next;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final geometry = ref.watch(mapGeometryProvider);
@@ -21,6 +51,8 @@ class MapEditorScreen extends ConsumerWidget {
     final controller = ref.watch(mapEditorControllerProvider);
     final status = ref.watch(connectionStateProvider);
     final activeRobot = ref.watch(activeRobotProvider);
+    final undoStack = ref.watch(mapUndoStackProvider);
+    final redoStack = ref.watch(mapRedoStackProvider);
     final activePoints = controller.activePoints(geometry, editorState);
     final segmentPoints = _segmentTargets(activePoints);
     final activeObjectLabel = _activeObjectLabel(geometry, editorState);
@@ -29,6 +61,16 @@ class MapEditorScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Karte'),
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Rückgängig',
+            onPressed: undoStack.isEmpty ? null : () => _undo(ref),
+            icon: const Icon(Icons.undo_rounded),
+          ),
+          IconButton(
+            tooltip: 'Wiederherstellen',
+            onPressed: redoStack.isEmpty ? null : () => _redo(ref),
+            icon: const Icon(Icons.redo_rounded),
+          ),
           IconButton(
             tooltip: 'Karte speichern',
             onPressed: () => _saveMap(context, ref, geometry, activeRobot),
@@ -149,7 +191,7 @@ class MapEditorScreen extends ConsumerWidget {
                           final current = ref.read(mapEditorStateProvider);
                           final target = segmentPoints.firstWhere((segment) => segment.insertIndex == insertIndex);
                           final nextGeometry = controller.insertPoint(geometry, current, insertIndex, target.point);
-                          ref.read(mapGeometryProvider.notifier).state = nextGeometry;
+                          _setGeometry(ref, nextGeometry);
                         },
                         selectedPointIndex: editorState.selectedPointIndex,
                         showPerimeter: editorState.showPerimeter,
@@ -304,7 +346,7 @@ class MapEditorScreen extends ConsumerWidget {
                                         editorState,
                                         editorState.selectedPointIndex!,
                                       );
-                                      ref.read(mapGeometryProvider.notifier).state = nextGeometry;
+                                      _setGeometry(ref, nextGeometry);
                                       ref.read(mapEditorStateProvider.notifier).state = editorState.copyWith(
                                             clearSelectedPoint: true,
                                           );
@@ -316,8 +358,7 @@ class MapEditorScreen extends ConsumerWidget {
                           Expanded(
                             child: FilledButton.tonal(
                               onPressed: () {
-                                ref.read(mapGeometryProvider.notifier).state =
-                                    controller.deleteActiveObject(geometry, editorState);
+                                _setGeometry(ref, controller.deleteActiveObject(geometry, editorState));
                                 ref.read(mapEditorStateProvider.notifier).state = editorState.copyWith(
                                       clearSelectedPoint: true,
                                       clearActiveZone: editorState.activeObject == EditableMapObjectType.zone,
@@ -366,8 +407,7 @@ class MapEditorScreen extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    ref.read(mapGeometryProvider.notifier).state =
-        controller.deleteActiveObject(geometry, editorState);
+    _setGeometry(ref, controller.deleteActiveObject(geometry, editorState));
     ref.read(mapEditorStateProvider.notifier).state = editorState.copyWith(
       mode: MapEditorMode.view,
       clearSelectedPoint: true,
@@ -425,7 +465,7 @@ class MapEditorScreen extends ConsumerWidget {
         );
       case EditableMapObjectType.noGo:
         final next = controller.addNoGo(geometry);
-        ref.read(mapGeometryProvider.notifier).state = next;
+        _setGeometry(ref, next);
         ref.read(mapEditorStateProvider.notifier).state = MapEditorState(
           mode: MapEditorMode.record,
           activeObject: EditableMapObjectType.noGo,
@@ -434,7 +474,7 @@ class MapEditorScreen extends ConsumerWidget {
       case EditableMapObjectType.zone:
         final next = controller.addZone(geometry);
         final zoneId = next.zones.isEmpty ? null : next.zones.last.id;
-        ref.read(mapGeometryProvider.notifier).state = next;
+        _setGeometry(ref, next);
         ref.read(mapEditorStateProvider.notifier).state = MapEditorState(
           mode: MapEditorMode.record,
           activeObject: EditableMapObjectType.zone,
@@ -464,13 +504,13 @@ class MapEditorScreen extends ConsumerWidget {
         editorState.selectedPointIndex!,
         point,
       );
-      ref.read(mapGeometryProvider.notifier).state = next;
+      _setGeometry(ref, next);
       ref.read(mapEditorStateProvider.notifier).state = editorState.copyWith(clearSelectedPoint: true);
       return;
     }
 
     final next = controller.addPoint(geometry, editorState, point);
-    ref.read(mapGeometryProvider.notifier).state = next;
+    _setGeometry(ref, next);
   }
 
   String _activeObjectLabel(MapGeometry geometry, MapEditorState state) {

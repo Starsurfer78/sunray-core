@@ -450,7 +450,7 @@ class _DiscoveryResults extends StatelessWidget {
               name: robot.name,
               subtitle:
                   '${robot.host}:${robot.port} · ${robot.statusHint ?? 'gefunden'}',
-              ctaLabel: 'Hinzufuegen',
+              ctaLabel: 'Hinzufügen',
               isBusy: connectionState.connectionState ==
                       ConnectionStateKind.connecting &&
                   connectionState.robotName == robot.name,

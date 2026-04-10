@@ -57,22 +57,21 @@ class RobotMapView extends StatefulWidget {
 class _RobotMapViewState extends State<RobotMapView> {
   late final MapController _mapController;
   bool _hasAutoCentered = false;
+  // Set to true once flutter_map fires onMapReady; move() silently fails before.
+  bool _mapReady = false;
+
+  /// Returns true only for a GPS fix with real coordinates.
+  /// The backend sends gps_lat: 0 / gps_lon: 0 when there is no fix, so we
+  /// must treat (0, 0) as invalid to avoid locking _hasAutoCentered too early.
+  static bool _isValidGps(double? lat, double? lon) =>
+      lat != null && lon != null && (lat != 0.0 || lon != 0.0);
 
   @override
   void initState() {
     super.initState();
     _mapController = MapController();
-    // Auto-center if GPS is already available when widget is first shown.
-    if (widget.status?.gpsLat != null && widget.status?.gpsLon != null) {
-      _hasAutoCentered = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _mapController.move(
-          LatLng(widget.status!.gpsLat!, widget.status!.gpsLon!),
-          19,
-        );
-      });
-    }
+    // Do NOT attempt move() here: FlutterMap is not yet initialized.
+    // _tryAutoCenter() is called from _onMapReady() after the first frame.
   }
 
   @override
@@ -84,26 +83,31 @@ class _RobotMapViewState extends State<RobotMapView> {
   @override
   void didUpdateWidget(RobotMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // First time GPS arrives: auto-center the camera.
-    if (!_hasAutoCentered &&
-        widget.status?.gpsLat != null &&
-        widget.status?.gpsLon != null) {
-      _hasAutoCentered = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _mapController.move(
-          LatLng(widget.status!.gpsLat!, widget.status!.gpsLon!),
-          19,
-        );
-      });
-    }
+    // Called whenever the parent passes new props (e.g. GPS coordinates).
+    // If the map is already ready this moves it synchronously; otherwise
+    // _onMapReady() will pick it up once FlutterMap finishes initializing.
+    _tryAutoCenter();
+  }
+
+  void _onMapReady() {
+    _mapReady = true;
+    _tryAutoCenter();
+  }
+
+  void _tryAutoCenter() {
+    if (_hasAutoCentered || !_mapReady) return;
+    final lat = widget.status?.gpsLat;
+    final lon = widget.status?.gpsLon;
+    if (!_isValidGps(lat, lon)) return;
+    _hasAutoCentered = true;
+    _mapController.move(LatLng(lat!, lon!), 19);
   }
 
   void _centerOnRobot() {
     final lat = widget.status?.gpsLat;
     final lon = widget.status?.gpsLon;
-    if (lat == null || lon == null) return;
-    _mapController.move(LatLng(lat, lon), 19);
+    if (!_isValidGps(lat, lon)) return;
+    _mapController.move(LatLng(lat!, lon!), 19);
   }
 
   @override
@@ -119,7 +123,7 @@ class _RobotMapViewState extends State<RobotMapView> {
             initialZoom: _zoomForBounds(bounds),
           );
 
-    final hasRobot = widget.status?.gpsLat != null && widget.status?.gpsLon != null;
+    final hasRobot = _isValidGps(widget.status?.gpsLat, widget.status?.gpsLon);
 
     return Stack(
       children: <Widget>[
@@ -128,6 +132,7 @@ class _RobotMapViewState extends State<RobotMapView> {
           options: MapOptions(
             initialCenter: camera.initialCenter,
             initialZoom: camera.initialZoom,
+            onMapReady: _onMapReady,
             interactionOptions: InteractionOptions(
               flags: widget.interactive
                   ? InteractiveFlag.all
@@ -361,7 +366,8 @@ class _RobotMapViewState extends State<RobotMapView> {
         for (final zone in widget.map.zones) ...zone.points,
       ...widget.activePoints,
       ...widget.segmentPoints.map((segment) => segment.point),
-      if (widget.status?.gpsLat != null && widget.status?.gpsLon != null)
+      if (widget.status?.gpsLat != null && widget.status?.gpsLon != null &&
+          _isValidGps(widget.status!.gpsLat, widget.status!.gpsLon))
         MapPoint(x: widget.status!.gpsLon!, y: widget.status!.gpsLat!),
       ...widget.previewRoutePoints,
     ];

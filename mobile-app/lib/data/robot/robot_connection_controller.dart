@@ -8,6 +8,7 @@ import '../../domain/robot/robot_status.dart';
 import '../../domain/robot/saved_robot.dart';
 import '../../domain/mission/mission.dart';
 import '../../shared/providers/app_providers.dart';
+import '../../shared/services/notification_service.dart';
 import 'robot_repository.dart';
 import 'robot_ws.dart';
 
@@ -33,6 +34,8 @@ class RobotConnectionController {
   SavedRobot? _connectedRobot;
   bool _manualDisconnect = false;
   int _reconnectAttempt = 0;
+  String? _lastPhase;
+  String? _lastUiMessage;
 
   static const Duration _watchdogTimeout = Duration(seconds: 10);
 
@@ -313,10 +316,14 @@ class RobotConnectionController {
       // Diagnose fields
       final chargerConnected = decoded['charger_connected'] as bool?;
       final mcuConnected = decoded['mcu_connected'] as bool?;
-      final mcuVersion = decoded['mcu_v'] as num?;
-      final runtimeHealth = decoded['runtime_health'] as bool?;
+      final mcuVersion = decoded['mcu_v'] as String?;
+      final runtimeHealth = decoded['runtime_health'] as String?;
+      final uiMessage = decoded['ui_message'] as String?;
+      final uiSeverity = decoded['ui_severity'] as String?;
       final uptimeSeconds = decoded['uptime_s'] as num?;
       final mowFaultPin = decoded['mow_fault_pin'] as bool?;
+      final mowDistanceM = decoded['mow_dist_m'] as num?;
+      final mowDurationSec = decoded['mow_time_s'] as num?;
 
       _ref.read(connectionStateProvider.notifier).state = RobotStatus(
         connectionState: ConnectionStateKind.connected,
@@ -333,14 +340,48 @@ class RobotConnectionController {
         batteryVoltage: batteryVoltage?.toDouble(),
         chargerConnected: chargerConnected,
         mcuConnected: mcuConnected,
-        mcuVersion: mcuVersion?.toDouble(),
+        mcuVersion: mcuVersion,
         runtimeHealth: runtimeHealth,
         uptimeSeconds: uptimeSeconds?.toInt(),
         mowFaultActive: mowFaultPin,
+        uiMessage: uiMessage,
+        uiSeverity: uiSeverity,
+        mowDistanceM: mowDistanceM?.toDouble(),
+        mowDurationSec: mowDurationSec?.toInt(),
       );
       _reconnectAttempt = 0;
     } catch (_) {
       // Ignore malformed telemetry packets to keep the session stable.
+    }
+    _maybeNotify(statePhase, uiSeverity, uiMessage);
+  }
+
+  static const _notifyIdMowDone = 1;
+  static const _notifyIdError   = 2;
+
+  void _maybeNotify(String? phase, String? severity, String? message) {
+    final prev = _lastPhase;
+    _lastPhase = phase;
+
+    // Notify when mowing has just ended
+    if (prev == 'mowing' && phase != 'mowing' && phase != null) {
+      NotificationService.instance.showAlert(
+        id: _notifyIdMowDone,
+        title: 'Mähen abgeschlossen',
+        body: 'Alfred hat das Mähen beendet.',
+      );
+    }
+
+    // Notify on new error messages
+    if (severity == 'error' && message != null && message != _lastUiMessage) {
+      _lastUiMessage = message;
+      NotificationService.instance.showAlert(
+        id: _notifyIdError,
+        title: 'Alfred: Fehler',
+        body: message,
+      );
+    } else if (severity != 'error') {
+      _lastUiMessage = null;
     }
   }
 

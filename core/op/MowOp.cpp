@@ -2,6 +2,8 @@
 #include "core/op/Op.h"
 #include "core/navigation/Map.h"
 #include "core/navigation/LineTracker.h"
+#include "core/navigation/RuntimeState.h"
+#include "core/navigation/WaypointExecutor.h"
 
 namespace sunray
 {
@@ -11,10 +13,12 @@ namespace sunray
         ctx.logger.info("Mow", "OP_MOW");
         ctx.hw.setMotorPwm(0, 0, 200); // start mow blade
 
+        // N2.5: prefer WaypointExecutor plan check; fall back to legacy RuntimeState
         const bool hasActiveMowRoute =
-            ctx.map &&
-            ctx.map->wayMode == nav::WayType::MOW &&
-            !ctx.map->mowRoutePlan().points.empty();
+            (ctx.waypointExecutor && ctx.waypointExecutor->hasPlan()) ||
+            (ctx.runtimeState &&
+             ctx.runtimeState->wayMode() == nav::WayType::MOW &&
+             ctx.runtimeState->hasActiveMowingPlan());
         if (!hasActiveMowRoute)
         {
             ctx.logger.error("Mow", "no active mowing route => IDLE");
@@ -38,9 +42,22 @@ namespace sunray
             onPerimeterViolated(ctx);
             return;
         }
-        if (ctx.lineTracker && ctx.map && ctx.stateEst)
+
+        // Dynamically control mow motor based on current route segment:
+        // - On  during coverage (edge/infill) and same-zone stripe transitions.
+        // - Off during inter-zone transit, dock approach, and recovery segments.
+        if (ctx.runtimeState)
         {
-            ctx.lineTracker->track(ctx, *ctx.map, *ctx.stateEst);
+            const bool enableMowMotor = ctx.config.get<bool>("enable_mow_motor", true);
+            const int mowPwm = enableMowMotor && ctx.runtimeState->currentMowOn()
+                                   ? ctx.config.get<int>("mow_pwm", 200)
+                                   : 0;
+            ctx.hw.setMotorPwm(0, 0, mowPwm);
+        }
+
+        if (ctx.lineTracker && ctx.map && ctx.runtimeState && ctx.stateEst)
+        {
+            ctx.lineTracker->track(ctx, *ctx.map, *ctx.runtimeState, *ctx.stateEst);
         }
     }
 

@@ -26,82 +26,88 @@
 // Forward declarations — avoid including Op.h here to keep navigation/
 // independent of op/ in the include graph. Op.h includes us via Robot.h,
 // not the other way around; we get OpContext via the .cpp include.
-namespace sunray {
+namespace sunray
+{
     struct OpContext;
-    namespace nav {
+    namespace nav
+    {
         class Map;
+        class RuntimeState;
         class StateEstimator;
     }
 }
 
-namespace sunray {
-namespace nav {
+namespace sunray
+{
+    namespace nav
+    {
 
-class LineTracker {
-public:
-    explicit LineTracker(std::shared_ptr<Config> config = nullptr);
+        class LineTracker
+        {
+        public:
+            explicit LineTracker(std::shared_ptr<Config> config = nullptr);
 
-    /// Reset internal rotation state (call at begin() of each Op using tracking).
-    void reset();
+            /// Reset internal rotation state (call at begin() of each Op using tracking).
+            void reset();
 
-    /// Execute one tracking iteration.
-    /// Reads pose from estimator, computes Stanley steering, fires Op events.
-    void track(OpContext& ctx, Map& map, const StateEstimator& estimator);
+            /// Execute one tracking iteration.
+            /// Reads pose from estimator, computes Stanley steering, fires Op events.
+            void track(OpContext &ctx, Map &map, RuntimeState &runtime, const StateEstimator &estimator);
 
-    // ── State accessors (for telemetry) ────────────────────────────────────────
+            // ── State accessors (for telemetry) ────────────────────────────────────────
 
-    float lateralError()      const { return lateralError_; }
-    float targetDist()        const { return targetDist_; }
-    bool  angleToTargetFits() const { return angleToTargetFits_; }
-    bool  kidnapped()         const { return stateKidnapped_; }
+            float lateralError() const { return lateralError_; }
+            float targetDist() const { return targetDist_; }
+            bool angleToTargetFits() const { return angleToTargetFits_; }
+            bool kidnapped() const { return stateKidnapped_; }
 
-private:
-    // ── Geometry helpers ──────────────────────────────────────────────────────
+        private:
+            // ── Geometry helpers ──────────────────────────────────────────────────────
 
-    /// Signed perpendicular distance from (px,py) to infinite line (x1,y1)→(x2,y2).
-    static float distanceLineInfinite(float px, float py,
-                                       float x1, float y1,
-                                       float x2, float y2);
+            /// Signed perpendicular distance from (px,py) to infinite line (x1,y1)→(x2,y2).
+            static float distanceLineInfinite(float px, float py,
+                                              float x1, float y1,
+                                              float x2, float y2);
 
-    /// Distance from (px,py) to finite segment (x1,y1)→(x2,y2).
-    static float distanceLine(float px, float py,
-                               float x1, float y1,
-                               float x2, float y2);
+            /// Distance from (px,py) to finite segment (x1,y1)→(x2,y2).
+            static float distanceLine(float px, float py,
+                                      float x1, float y1,
+                                      float x2, float y2);
 
-    static float scalePI(float v);
-    static float distancePI(float a, float b);
-    static float scalePIangles(float setAngle, float currAngle);
+            static float scalePI(float v);
+            static float distancePI(float a, float b);
+            static float scalePIangles(float setAngle, float currAngle);
 
-    // ── Config ────────────────────────────────────────────────────────────────
+            // ── Config ────────────────────────────────────────────────────────────────
 
-    std::shared_ptr<Config> config_;
+            std::shared_ptr<Config> config_;
 
-    // ── Tracking state (reset by reset()) ────────────────────────────────────
+            // ── Tracking state (reset by reset()) ────────────────────────────────────
 
-    bool  rotateLeft_        = false;
-    bool  rotateRight_       = false;
-    bool  angleToTargetFits_ = false;
-    bool  stateKidnapped_    = false;
-    float lateralError_      = 0.0f;
-    float targetDist_        = 0.0f;
-    float trackerDiffDelta_  = 0.0f;
+            bool rotateLeft_ = false;
+            bool rotateRight_ = false;
+            bool angleToTargetFits_ = false;
+            bool stateKidnapped_ = false;
+            float lateralError_ = 0.0f;
+            float targetDist_ = 0.0f;
+            float trackerDiffDelta_ = 0.0f;
 
-    // OBSTACLE_DETECTION_ROTATION state
-    float         rotBlockImuYawStart_    = 0.0f;  ///< IMU yaw at start of rotation phase
-    unsigned long rotBlockStartMs_        = 0;     ///< timestamp when rotation phase began
-    bool          rotBlockArmed_          = false; ///< true while in rotation phase with valid IMU
+            // OBSTACLE_DETECTION_ROTATION state
+            float rotBlockImuYawStart_ = 0.0f;  ///< IMU yaw at start of rotation phase
+            unsigned long rotBlockStartMs_ = 0; ///< timestamp when rotation phase began
+            bool rotBlockArmed_ = false;        ///< true while in rotation phase with valid IMU
 
-    // ── Constants ─────────────────────────────────────────────────────────────
+            // ── Constants ─────────────────────────────────────────────────────────────
 
-    static constexpr float PI = static_cast<float>(M_PI);
+            static constexpr float PI = static_cast<float>(M_PI);
 
-    /// Robot is "at target" when distance drops below this (metres).
-    static constexpr float TARGET_REACHED_TOLERANCE = 0.2f;
+            /// Robot is "at target" when distance drops below this (metres).
+            static constexpr float TARGET_REACHED_TOLERANCE = 0.2f;
 
-    /// Angular velocity used when rotating toward waypoint (≈ 0.5 rad/s).
-    static constexpr float ROTATE_SPEED_RADPS =
-        29.0f / 180.0f * static_cast<float>(M_PI);
-};
+            /// Angular velocity used when rotating toward waypoint (≈ 0.5 rad/s).
+            static constexpr float ROTATE_SPEED_RADPS =
+                29.0f / 180.0f * static_cast<float>(M_PI);
+        };
 
-} // namespace nav
+    } // namespace nav
 } // namespace sunray

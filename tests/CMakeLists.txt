@@ -16,6 +16,7 @@ add_executable(sunray_tests
     test_navigation.cpp
     test_op_machine.cpp
     test_history_database.cpp
+    test_boustrophedon.cpp
 )
 
 target_link_libraries(sunray_tests PRIVATE

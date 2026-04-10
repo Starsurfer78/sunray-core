@@ -1,3 +1,13 @@
+// OpenLoopDriveController.cpp — direct differential-drive command mapping.
+//
+// The controller applies the standard wheel-speed split for a differential
+// drive robot:
+//   left  = v - omega * wheelBase / 2
+//   right = v + omega * wheelBase / 2
+//
+// These wheel speeds are then normalized against the configured nominal motor
+// speed and converted to raw PWM values.
+
 #include "core/control/OpenLoopDriveController.h"
 
 #include <algorithm>

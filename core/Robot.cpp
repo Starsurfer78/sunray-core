@@ -11,8 +11,10 @@
 
 #include "core/Robot.h"
 #include "core/MqttClient.h"
-#include "core/navigation/MowRoutePlanner.h"
+#include "core/navigation/MissionCompiler.h"
 #include "core/navigation/RouteValidator.h"
+#include "core/navigation/RuntimeState.h"
+#include "core/navigation/WaypointExecutor.h"
 
 #include <filesystem>
 #include <fstream>
@@ -41,7 +43,7 @@ namespace sunray
     Robot::Robot(std::unique_ptr<HardwareInterface> hw,
                  std::shared_ptr<Config> config,
                  std::shared_ptr<Logger> logger)
-        : hw_(std::move(hw)), config_(std::move(config)), logger_(std::move(logger)), stateEst_(config_), map_(config_), lineTracker_(config_), startTime_(std::chrono::steady_clock::now())
+        : hw_(std::move(hw)), config_(std::move(config)), logger_(std::move(logger)), stateEst_(config_), map_(config_), runtimeState_(config_), lineTracker_(config_), startTime_(std::chrono::steady_clock::now())
     {
         if (!hw_)
             throw std::invalid_argument("Robot: hw must not be nullptr");
@@ -266,8 +268,15 @@ namespace sunray
         ctx.now_ms = now_ms_;
         if (active)
         {
-            if (Op *op = opMgr_.activeOp())
+            const std::string opName = activeOpName();
+            if (opName == "Idle" || opName == "Charge")
+            {
+                startMowing();
+            }
+            else if (Op *op = opMgr_.activeOp())
+            {
                 op->onTimetableStartMowing(ctx);
+            }
         }
         else
         {
@@ -320,7 +329,7 @@ namespace sunray
         ctx.insidePerimeter = map_.isLoaded()
                                   ? map_.isInsideAllowedArea(stateEst_.x(), stateEst_.y())
                                   : true;
-        ctx.isDockingRoute = map_.isDocking();
+        ctx.isDockingRoute = runtimeState_.isDocking();
         ctx.gpsHasFix = stateEst_.gpsHasFix();
         ctx.gpsHasFloat = stateEst_.gpsHasFloat();
         ctx.gpsFixAge_ms = (gpsLastFixTime_ms_ == 0) ? now_ms_
@@ -328,7 +337,9 @@ namespace sunray
         ctx.resumeBlockedByMapChange = resumeBlockedByMapChange_;
         ctx.stateEst = &stateEst_;
         ctx.map = &map_;
+        ctx.runtimeState = &runtimeState_;
         ctx.lineTracker = &lineTracker_;
+        ctx.waypointExecutor = &waypointExecutor_;
         ctx.driveController = &driveController_;
         ctx.now_ms = now_ms_;
         ctx.dt_ms = lastDt_ms_;
@@ -398,6 +409,15 @@ namespace sunray
                 {
                     stuckRecoveryExhaustedLatched_ = false;
                 }
+            }
+            // If GPS was already lost before NavToStart became active (latch fired while
+            // still in Idle), reset the latch so NavToStartOp::onGpsNoSignal is
+            // dispatched on the very next cycle rather than being silently suppressed.
+            if (afterOp == "NavToStart" && gps_ &&
+                !stateEst_.gpsHasFix() && !stateEst_.gpsHasFloat())
+            {
+                gpsNoSignalLatched_ = false;
+                gpsSignalLostStart_ms_ = 0;
             }
             if (eventReason != "none" || afterOp == "Error")
             {
@@ -717,6 +737,43 @@ namespace sunray
             ws_->pushTelemetry(td);
         if (mqtt_)
             mqtt_->pushTelemetry(td);
+
+        // N5.1/N5.2: push live map overlay (obstacles + active detour) to REST cache.
+        if (ws_)
+        {
+            nlohmann::json overlay;
+            nlohmann::json obsArray = nlohmann::json::array();
+            for (const auto &obs : map_.obstacles())
+            {
+                nlohmann::json o;
+                o["x"] = obs.center.x;
+                o["y"] = obs.center.y;
+                o["r"] = obs.radius_m;
+                o["hits"] = obs.hitCount;
+                obsArray.push_back(std::move(o));
+            }
+            overlay["obstacles"] = obsArray;
+
+            const auto &det = runtimeSnapshot_.activeDetour;
+            nlohmann::json detourJson;
+            detourJson["active"] = det.active;
+            nlohmann::json dptsArray = nlohmann::json::array();
+            for (const auto &p : det.route.points)
+            {
+                nlohmann::json pt;
+                pt["x"] = p.p.x;
+                pt["y"] = p.p.y;
+                dptsArray.push_back(std::move(pt));
+            }
+            detourJson["waypoints"] = dptsArray;
+            if (det.hasReentryPoint)
+            {
+                detourJson["reentryX"] = det.reentryPoint.x;
+                detourJson["reentryY"] = det.reentryPoint.y;
+            }
+            overlay["detour"] = detourJson;
+            ws_->pushLiveOverlay(std::move(overlay));
+        }
     }
 
     void Robot::tickSessionTracking()
@@ -817,6 +874,9 @@ namespace sunray
             case PendingExternalCommand::Type::SetPose:
                 setPose(cmd.x, cmd.y, cmd.heading);
                 break;
+            case PendingExternalCommand::Type::ResumeActiveMission:
+                resumeActiveMission();
+                break;
             }
         }
     }
@@ -878,6 +938,20 @@ namespace sunray
         enqueueExternalCommand(std::move(cmd));
     }
 
+    void Robot::requestResumeActiveMission()
+    {
+        PendingExternalCommand cmd;
+        cmd.type = PendingExternalCommand::Type::ResumeActiveMission;
+        enqueueExternalCommand(std::move(cmd));
+    }
+
+    void Robot::storePendingMissionPlan(nav::MissionPlan plan)
+    {
+        std::lock_guard<std::mutex> lk(pendingPlanMutex_);
+        pendingMissionPlan_ = std::move(plan);
+        hasPendingMissionPlan_ = true;
+    }
+
     // Helper: build a minimal OpContext for operator commands.
     // Navigation objects are included so that Op::begin() can start the map route.
     static OpContext makeCommandCtx(HardwareInterface &hw, Config &config, Logger &logger,
@@ -888,7 +962,9 @@ namespace sunray
                                     unsigned gpsFixAge_ms,
                                     bool resumeBlockedByMapChange,
                                     nav::StateEstimator *est, nav::Map *map,
-                                    nav::LineTracker *tracker)
+                                    nav::RuntimeState *runtimeState,
+                                    nav::LineTracker *tracker,
+                                    nav::WaypointExecutor *wpExec = nullptr)
     {
         OpContext ctx{hw, config, logger, opMgr};
         ctx.sensors = sensors;
@@ -905,7 +981,9 @@ namespace sunray
         ctx.resumeBlockedByMapChange = resumeBlockedByMapChange;
         ctx.stateEst = est;
         ctx.map = map;
+        ctx.runtimeState = runtimeState;
         ctx.lineTracker = tracker;
+        ctx.waypointExecutor = wpExec;
         ctx.now_ms = now_ms;
         return ctx;
     }
@@ -918,13 +996,46 @@ namespace sunray
                                      "Start verweigert: keine aktive Karte geladen");
             return false;
         }
-        if (map_.mowRoutePlan().points.empty())
+        if (map_.zones().empty())
         {
-            rejectStartMowingMission("start_rejected_no_mow_points",
-                                     "Start verweigert: Karte hat keine Mähpunkte");
+            rejectStartMowingMission("start_rejected_no_zones",
+                                     "Start verweigert: Karte hat keine Mähzonen");
             return false;
         }
         return true;
+    }
+
+    nav::MissionPlan Robot::buildOperatorMissionPlan(const std::vector<std::string> &zoneIds) const
+    {
+        nlohmann::json mission = nlohmann::json::object();
+        mission["id"] = zoneIds.empty() ? "adhoc-map" : "adhoc-zones";
+        mission["name"] = zoneIds.empty() ? "Ad-hoc Full Map Start" : "Ad-hoc Zone Start";
+        mission["zoneIds"] = nlohmann::json::array();
+        mission["overrides"] = nlohmann::json::object();
+
+        if (zoneIds.empty())
+        {
+            for (const auto &zone : map_.zones())
+                mission["zoneIds"].push_back(zone.id);
+        }
+        else
+        {
+            for (const auto &zoneId : zoneIds)
+                mission["zoneIds"].push_back(zoneId);
+        }
+
+        return nav::buildMissionPlanPreview(map_, mission);
+    }
+
+    void Robot::buildAndStartWaypointPlan(const nav::MissionPlan &plan)
+    {
+        waypointExecutor_.startPlan(plan.route);
+        waypointExecutor_.seekToIndex(runtimeState_.mowPointsIdx());
+    }
+
+    bool Robot::canStartPlannedMission(const nav::MissionPlan &plan)
+    {
+        return canStartPlannedMission(plan.route);
     }
 
     bool Robot::canStartPlannedMission(const nav::RoutePlan &route)
@@ -1006,38 +1117,52 @@ namespace sunray
         return nlohmann::json::object();
     }
 
-    namespace
-    {
-        nlohmann::json adHocZoneMissionDocument(const std::vector<std::string> &zoneIds)
-        {
-            nlohmann::json mission = nlohmann::json::object();
-            mission["id"] = "adhoc-zones";
-            mission["name"] = "Ad-hoc Zone Start";
-            mission["zoneIds"] = zoneIds;
-            mission["overrides"] = nlohmann::json::object();
-            return mission;
-        }
-    }
-
     void Robot::startMowing()
     {
         if (!canStartMowingMission())
             return;
+
+        // N6.3: resume interrupted mission (robot docked mid-run) instead of rebuilding.
+        if (hasInterruptedMission_)
+        {
+            resumeActiveMission();
+            return;
+        }
+
+        // N6.1: prefer the plan cached from the most-recent planner preview.
+        nav::MissionPlan plan;
+        {
+            std::lock_guard<std::mutex> lk(pendingPlanMutex_);
+            if (hasPendingMissionPlan_)
+            {
+                plan = std::move(pendingMissionPlan_);
+                hasPendingMissionPlan_ = false;
+            }
+        }
+        if (plan.route.points.empty())
+            plan = buildOperatorMissionPlan();
+
+        if (!canStartPlannedMission(plan))
+            return;
         clearActiveMissionTracking();
-        if (!map_.startMowing(stateEst_.x(), stateEst_.y()))
+        activateMissionPlan(plan);
+        if (!runtimeState_.startPlannedMowing(map_, stateEst_.x(), stateEst_.y(), plan))
         {
             rejectStartMowingMission("start_rejected_no_mow_points",
                                      "Start verweigert: Mähroute konnte nicht aktiviert werden");
+            clearActiveMissionTracking();
             return;
         }
+        buildAndStartWaypointPlan(plan);
 
         unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                                                  : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
         auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
                                   sensors_, battery_, odometry_, now_ms_,
                                   stateEst_.x(), stateEst_.y(), stateEst_.heading(),
-                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &runtimeState_, &lineTracker_, &waypointExecutor_);
         armMissionResumeGuard();
+        refreshActiveMissionProgress();
         recordEvent("info", "operator_command", "operator_start_mowing",
                     "Mähauftrag wurde gestartet");
         opMgr_.changeOperationTypeByOperator(ctx, "Mow");
@@ -1057,9 +1182,8 @@ namespace sunray
             return;
         }
 
-        const nlohmann::json missionDoc = adHocZoneMissionDocument(zoneIds);
-        const nav::RoutePlan plannedRoute = nav::buildMissionMowRoutePreview(map_, missionDoc);
-        if (!canStartPlannedMission(plannedRoute))
+        const nav::MissionPlan plan = buildOperatorMissionPlan(zoneIds);
+        if (!canStartPlannedMission(plan))
             return;
         clearActiveMissionTracking();
 
@@ -1068,18 +1192,17 @@ namespace sunray
         auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
                                   sensors_, battery_, odometry_, now_ms_,
                                   stateEst_.x(), stateEst_.y(), stateEst_.heading(),
-                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &runtimeState_, &lineTracker_, &waypointExecutor_);
         armMissionResumeGuard();
-        activeMissionId_.clear();
-        activeMissionZoneIds_ = zoneIds;
-        activeMissionZoneIndex_ = 0;
-        if (!map_.startPlannedMowing(stateEst_.x(), stateEst_.y(), plannedRoute))
+        activateMissionPlan(plan);
+        if (!runtimeState_.startPlannedMowing(map_, stateEst_.x(), stateEst_.y(), plan))
         {
             rejectStartMowingMission("start_rejected_no_mow_points",
                                      "Start verweigert: Zonenroute konnte nicht aktiviert werden");
             clearActiveMissionTracking();
             return;
         }
+        buildAndStartWaypointPlan(plan);
         refreshActiveMissionProgress();
         recordEvent("info", "operator_command", "operator_start_mowing_zones",
                     "Zonen-Mähauftrag wurde gestartet");
@@ -1106,8 +1229,8 @@ namespace sunray
         if (!zoneIds.empty())
             missionDoc["zoneIds"] = zoneIds;
 
-        const nav::RoutePlan plannedRoute = nav::buildMissionMowRoutePreview(map_, missionDoc);
-        if (!canStartPlannedMission(plannedRoute))
+        const nav::MissionPlan plan = nav::buildMissionPlanPreview(map_, missionDoc);
+        if (!canStartPlannedMission(plan))
             return;
 
         unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
@@ -1115,31 +1238,17 @@ namespace sunray
         auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
                                   sensors_, battery_, odometry_, now_ms_,
                                   stateEst_.x(), stateEst_.y(), stateEst_.heading(),
-                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &runtimeState_, &lineTracker_, &waypointExecutor_);
         armMissionResumeGuard();
-        activeMissionId_ = missionId;
-        activeMissionZoneIds_.clear();
-        if (missionDoc.contains("zoneIds") && missionDoc["zoneIds"].is_array())
-        {
-            for (const auto &zoneId : missionDoc["zoneIds"])
-            {
-                if (zoneId.is_string())
-                    activeMissionZoneIds_.push_back(zoneId.get<std::string>());
-            }
-        }
-        if (activeMissionZoneIds_.empty())
-        {
-            for (const auto &zone : map_.zones())
-                activeMissionZoneIds_.push_back(zone.id);
-        }
-        activeMissionZoneIndex_ = 0;
-        if (!map_.startPlannedMowing(stateEst_.x(), stateEst_.y(), plannedRoute))
+        activateMissionPlan(plan);
+        if (!runtimeState_.startPlannedMowing(map_, stateEst_.x(), stateEst_.y(), plan))
         {
             rejectStartMowingMission("start_rejected_no_mow_points",
                                      "Start verweigert: Missionsroute konnte nicht aktiviert werden");
             clearActiveMissionTracking();
             return;
         }
+        buildAndStartWaypointPlan(plan);
         refreshActiveMissionProgress();
         recordEvent("info", "operator_command", "operator_start_mission",
                     "Mission wurde gestartet");
@@ -1148,17 +1257,78 @@ namespace sunray
 
     void Robot::startDocking()
     {
+        // N6.3: preserve interrupted mission state so the operator can resume.
+        if (!activeMissionPlan_.route.points.empty())
+        {
+            interruptedMissionPlan_ = activeMissionPlan_;
+            interruptedMowPointsIdx_ = runtimeState_.mowPointsIdx();
+            hasInterruptedMission_ = true;
+        }
         clearActiveMissionTracking();
         unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
                                                  : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
         auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
                                   sensors_, battery_, odometry_, now_ms_,
                                   stateEst_.x(), stateEst_.y(), stateEst_.heading(),
-                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &runtimeState_, &lineTracker_, &waypointExecutor_);
         armMissionResumeGuard();
         recordEvent("info", "operator_command", "operator_start_docking",
                     "Docking wurde gestartet");
         opMgr_.changeOperationTypeByOperator(ctx, "Dock");
+    }
+
+    void Robot::resumeActiveMission()
+    {
+        if (!hasInterruptedMission_ || interruptedMissionPlan_.route.points.empty())
+        {
+            rejectStartMowingMission("resume_rejected_no_plan",
+                                     "Fortsetzung nicht möglich: kein unterbrochener Auftrag vorhanden");
+            return;
+        }
+        if (!canStartPlannedMission(interruptedMissionPlan_))
+            return;
+
+        nav::MissionPlan plan = std::move(interruptedMissionPlan_);
+        const int resumeIdx = interruptedMowPointsIdx_;
+        interruptedMissionPlan_ = nav::MissionPlan{};
+        interruptedMowPointsIdx_ = -1;
+        hasInterruptedMission_ = false;
+
+        // Pending preview plan is obsolete once we resume
+        {
+            std::lock_guard<std::mutex> lk(pendingPlanMutex_);
+            hasPendingMissionPlan_ = false;
+        }
+
+        clearActiveMissionTracking();
+        activateMissionPlan(plan);
+        if (!runtimeState_.startPlannedMowing(map_, stateEst_.x(), stateEst_.y(), plan))
+        {
+            rejectStartMowingMission("resume_rejected_no_mow_points",
+                                     "Fortsetzung verweigert: Route konnte nicht reaktiviert werden");
+            clearActiveMissionTracking();
+            return;
+        }
+        // N6.3: restore exact progress point instead of nearest-position heuristic.
+        if (resumeIdx >= 0)
+            runtimeState_.seekToMowIndex(resumeIdx);
+
+        buildAndStartWaypointPlan(plan);
+
+        if (resumeIdx >= 0)
+            waypointExecutor_.seekToIndex(resumeIdx);
+
+        unsigned age = (gpsLastFixTime_ms_ == 0) ? now_ms_
+                                                 : static_cast<unsigned>(now_ms_ - gpsLastFixTime_ms_);
+        auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
+                                  sensors_, battery_, odometry_, now_ms_,
+                                  stateEst_.x(), stateEst_.y(), stateEst_.heading(),
+                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &runtimeState_, &lineTracker_, &waypointExecutor_);
+        armMissionResumeGuard();
+        refreshActiveMissionProgress();
+        recordEvent("info", "operator_command", "operator_resume_mission",
+                    "Unterbrochener Mähauftrag wird fortgesetzt");
+        opMgr_.changeOperationTypeByOperator(ctx, "Mow");
     }
 
     void Robot::emergencyStop()
@@ -1172,7 +1342,7 @@ namespace sunray
         auto ctx = makeCommandCtx(*hw_, *config_, *logger_, opMgr_,
                                   sensors_, battery_, odometry_, now_ms_,
                                   stateEst_.x(), stateEst_.y(), stateEst_.heading(),
-                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &lineTracker_);
+                                  age, resumeBlockedByMapChange_, &stateEst_, &map_, &runtimeState_, &lineTracker_, &waypointExecutor_);
         const std::string message =
             previousOp == "Idle"
                 ? "Not-Stopp ausgeloest, Roboter bleibt in Bereitschaft"
@@ -1183,6 +1353,10 @@ namespace sunray
         opMgr_.changeOperationTypeByOperator(ctx, "Idle");
         resumeBlockedByMapChange_ = false;
         activeMissionMapFingerprint_.clear();
+        // N6.3: hard stop clears any interrupted mission
+        interruptedMissionPlan_ = nav::MissionPlan{};
+        interruptedMowPointsIdx_ = -1;
+        hasInterruptedMission_ = false;
 
         {
             std::lock_guard<std::mutex> lk(diagMutex_);
@@ -1224,38 +1398,111 @@ namespace sunray
 
     void Robot::clearActiveMissionTracking()
     {
-        activeMissionId_.clear();
-        activeMissionZoneIds_.clear();
-        activeMissionZoneIndex_ = 0;
+        activeMissionPlan_ = nav::MissionPlan{};
+        runtimeSnapshot_ = nav::RuntimeSnapshot{};
+        runtimeState_.clear();
+        if (ws_)
+            ws_->pushActivePlan(nlohmann::json::object()); // N4.2: clear stored plan
+    }
+
+    void Robot::activateMissionPlan(const nav::MissionPlan &plan)
+    {
+        activeMissionPlan_ = plan;
+        runtimeSnapshot_ = nav::RuntimeSnapshot{};
+        runtimeSnapshot_.missionId = plan.missionId;
+        runtimeSnapshot_.hasActiveMissionPlan = !plan.route.points.empty();
+
+        // N4.2: push plan geometry to WebSocket server once so the dashboard
+        // can fetch it via GET /api/mission/active-plan.
+        if (ws_)
+        {
+            nlohmann::json wpArray = nlohmann::json::array();
+            for (const auto &wp : nav::routePlanToWaypoints(plan.route))
+                wpArray.push_back({{"x", wp.x}, {"y", wp.y}, {"mowOn", wp.mowOn}});
+            nlohmann::json planJson = {
+                {"missionId", plan.missionId},
+                {"zoneOrder", plan.zoneOrder},
+                {"waypoints", std::move(wpArray)},
+            };
+            ws_->pushActivePlan(std::move(planJson));
+        }
     }
 
     void Robot::refreshActiveMissionProgress()
     {
-        if (activeMissionId_.empty())
+        runtimeSnapshot_.missionId = activeMissionPlan_.missionId;
+        runtimeSnapshot_.hasActiveMissionPlan = !activeMissionPlan_.route.points.empty();
+        runtimeSnapshot_.hasActiveZonePlan = false;
+        runtimeSnapshot_.activeZoneId.clear();
+        runtimeSnapshot_.activePointIndex = -1;
+        runtimeSnapshot_.hasCurrentTarget = false;
+        runtimeSnapshot_.completedRoute = nav::RoutePlan{};
+        runtimeSnapshot_.activeDetour = nav::LocalDetour{};
+
+        if (activeMissionPlan_.route.points.empty())
             return;
-        if (activeMissionZoneIds_.empty())
+
+        if (runtimeState_.wayMode() == nav::WayType::MOW &&
+            runtimeState_.mowPointsIdx() >= 0 &&
+            runtimeState_.mowPointsIdx() < static_cast<int>(activeMissionPlan_.route.points.size()))
         {
-            activeMissionZoneIndex_ = 0;
-            return;
+            runtimeSnapshot_.activePointIndex = runtimeState_.mowPointsIdx();
+            const auto &activePoint = activeMissionPlan_.route.points[runtimeState_.mowPointsIdx()];
+            runtimeSnapshot_.activeZoneId = activePoint.zoneId;
+
+            runtimeSnapshot_.completedRoute.sourceMode = activeMissionPlan_.route.sourceMode;
+            runtimeSnapshot_.completedRoute.valid = activeMissionPlan_.route.valid;
+            runtimeSnapshot_.completedRoute.invalidReason = activeMissionPlan_.route.invalidReason;
+            runtimeSnapshot_.completedRoute.points.assign(
+                activeMissionPlan_.route.points.begin(),
+                activeMissionPlan_.route.points.begin() + runtimeState_.mowPointsIdx());
         }
 
-        const std::string zoneId =
-            map_.zoneIdForPoint(map_.targetPoint.x, map_.targetPoint.y, activeMissionZoneIds_);
-        if (zoneId.empty())
+        if (runtimeSnapshot_.activeZoneId.empty() && !activeMissionPlan_.zoneOrder.empty())
         {
-            if (activeMissionZoneIndex_ == 0)
-                activeMissionZoneIndex_ = 1;
-            return;
+            runtimeSnapshot_.activeZoneId =
+                map_.zoneIdForPoint(runtimeState_.targetPoint().x, runtimeState_.targetPoint().y, activeMissionPlan_.zoneOrder);
         }
 
-        for (std::size_t index = 0; index < activeMissionZoneIds_.size(); ++index)
+        if (runtimeState_.hasActiveMowingPlan() || runtimeState_.wayMode() == nav::WayType::FREE)
         {
-            if (activeMissionZoneIds_[index] == zoneId)
+            runtimeSnapshot_.currentTarget = runtimeState_.targetPoint();
+            runtimeSnapshot_.hasCurrentTarget = true;
+        }
+
+        if (runtimeState_.wayMode() == nav::WayType::FREE && !runtimeState_.freeRoutePlan().points.empty())
+        {
+            runtimeSnapshot_.activeDetour.route = runtimeState_.freeRoutePlan();
+            runtimeSnapshot_.activeDetour.reentryPoint = runtimeState_.targetPoint();
+            runtimeSnapshot_.activeDetour.hasReentryPoint = true;
+            runtimeSnapshot_.activeDetour.resumeZoneId = runtimeSnapshot_.activeZoneId;
+            runtimeSnapshot_.activeDetour.resumePointIndex = runtimeSnapshot_.activePointIndex;
+            runtimeSnapshot_.activeDetour.active = true;
+        }
+
+        for (const auto &zonePlan : activeMissionPlan_.zonePlans)
+        {
+            if (zonePlan.zoneId == runtimeSnapshot_.activeZoneId)
             {
-                activeMissionZoneIndex_ = static_cast<int>(index) + 1;
+                runtimeSnapshot_.hasActiveZonePlan = true;
                 return;
             }
         }
+    }
+
+    int Robot::activeMissionZoneIndex() const
+    {
+        if (activeMissionPlan_.zoneOrder.empty())
+            return 0;
+        if (runtimeSnapshot_.activeZoneId.empty())
+            return 1;
+
+        for (std::size_t index = 0; index < activeMissionPlan_.zoneOrder.size(); ++index)
+        {
+            if (activeMissionPlan_.zoneOrder[index] == runtimeSnapshot_.activeZoneId)
+                return static_cast<int>(index) + 1;
+        }
+        return 1;
     }
 
     nlohmann::json Robot::getHistoryEvents(unsigned limit) const
@@ -1670,29 +1917,18 @@ namespace sunray
             d.session_id = currentSession_.id;
             d.session_started_at_ms = currentSession_.startedAtMs;
         }
-        d.mission_id = activeMissionId_;
-        d.mission_zone_count = static_cast<int>(activeMissionZoneIds_.size());
-        d.mission_zone_index = activeMissionZoneIndex_;
-        if (!activeMissionId_.empty() && !activeMissionZoneIds_.empty())
-        {
-            const std::string zoneId =
-                map_.zoneIdForPoint(map_.targetPoint.x, map_.targetPoint.y, activeMissionZoneIds_);
-            if (!zoneId.empty())
-            {
-                for (std::size_t index = 0; index < activeMissionZoneIds_.size(); ++index)
-                {
-                    if (activeMissionZoneIds_[index] == zoneId)
-                    {
-                        d.mission_zone_index = static_cast<int>(index) + 1;
-                        break;
-                    }
-                }
-            }
-            else if (d.mission_zone_index == 0)
-            {
-                d.mission_zone_index = 1;
-            }
-        }
+        d.mission_id = runtimeSnapshot_.missionId;
+        d.mission_zone_count = static_cast<int>(activeMissionPlan_.zoneOrder.size());
+        d.mission_zone_index = activeMissionZoneIndex();
+        // N4.1: waypoint-level progress
+        d.waypoint_index = runtimeSnapshot_.activePointIndex;
+        d.waypoint_total = static_cast<int>(activeMissionPlan_.route.points.size());
+        // N4.3: current navigation target
+        d.target_x = runtimeSnapshot_.currentTarget.x;
+        d.target_y = runtimeSnapshot_.currentTarget.y;
+        d.has_target = runtimeSnapshot_.hasCurrentTarget;
+        // N6.3: pending resume after dock
+        d.has_interrupted_mission = hasInterruptedMission_;
 
         if (opName == "Error")
         {

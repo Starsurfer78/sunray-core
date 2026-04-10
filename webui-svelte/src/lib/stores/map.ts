@@ -31,23 +31,11 @@ export interface ExclusionMeta {
   costScale?: number
 }
 
-export interface ZoneSettings {
-  name: string
-  stripWidth: number
-  angle: number
-  edgeMowing: boolean
-  edgeRounds: number
-  speed: number
-  pattern: 'stripe' | 'spiral'
-  reverseAllowed?: boolean
-  clearance?: number
-}
-
 export interface Zone {
   id: string
+  name: string
   order: number
   polygon: Point[]
-  settings: ZoneSettings
 }
 
 export type MapTool = 'perimeter' | 'dock' | 'dock-corridor' | 'zone' | 'nogo' | 'move'
@@ -55,7 +43,6 @@ export type MapTool = 'perimeter' | 'dock' | 'dock-corridor' | 'zone' | 'nogo' |
 export interface RobotMap {
   perimeter: Point[]
   dock: Point[]
-  mow: Point[]
   exclusions: Point[][]
   exclusionMeta?: ExclusionMeta[]
   zones: Zone[]
@@ -88,18 +75,6 @@ function clamp(value: number, min: number, max: number) {
 
 type Segment = { a: Point; b: Point }
 
-const defaultZoneSettings: ZoneSettings = {
-  name: 'Zone',
-  stripWidth: 0.18,
-  angle: 0,
-  edgeMowing: true,
-  edgeRounds: 1,
-  speed: 1.0,
-  pattern: 'stripe',
-  reverseAllowed: false,
-  clearance: 0.25,
-}
-
 const defaultPlannerSettings: PlannerSettings = {
   defaultClearance: 0.25,
   perimeterSoftMargin: 0.15,
@@ -120,7 +95,6 @@ const defaultDockMeta: DockMeta = {
 const emptyMap: RobotMap = {
   perimeter: [],
   dock: [],
-  mow: [],
   exclusions: [],
   exclusionMeta: [],
   zones: [],
@@ -147,27 +121,20 @@ function createId(prefix: string): string {
 function createZone(id: string, order: number): Zone {
   return {
     id,
+    name: `Zone ${order}`,
     order,
     polygon: [],
-    settings: {
-      ...defaultZoneSettings,
-      name: `Zone ${order}`,
-    },
   }
 }
 
-function normalizeZoneSettings(settings: Partial<ZoneSettings> | undefined, fallbackName: string): ZoneSettings {
-  return {
-    name: settings?.name ?? fallbackName,
-    stripWidth: settings?.stripWidth ?? defaultZoneSettings.stripWidth,
-    angle: settings?.angle ?? defaultZoneSettings.angle,
-    edgeMowing: settings?.edgeMowing ?? defaultZoneSettings.edgeMowing,
-    edgeRounds: settings?.edgeRounds ?? defaultZoneSettings.edgeRounds,
-    speed: settings?.speed ?? defaultZoneSettings.speed,
-    pattern: settings?.pattern ?? defaultZoneSettings.pattern,
-    reverseAllowed: settings?.reverseAllowed ?? defaultZoneSettings.reverseAllowed,
-    clearance: settings?.clearance ?? defaultZoneSettings.clearance,
-  }
+function normalizeZones(zones: Zone[] | undefined): Zone[] {
+  if (!zones) return []
+  return zones.map((zone, index) => ({
+    id: zone.id,
+    name: zone.name ?? `Zone ${index + 1}`,
+    order: zone.order ?? index + 1, // legacy editor ordering until missions own sequencing
+    polygon: zone.polygon ?? [],
+  }))
 }
 
 function normalizePlannerSettings(settings: Partial<PlannerSettings> | undefined): PlannerSettings {
@@ -203,16 +170,6 @@ function normalizeExclusionMeta(meta: ExclusionMeta[] | undefined, exclusionCoun
   }
 
   return normalized
-}
-
-function normalizeZones(zones: Zone[] | undefined): Zone[] {
-  if (!zones) return []
-  return zones.map((zone, index) => ({
-    id: zone.id,
-    order: zone.order ?? index + 1, // legacy editor ordering until missions own sequencing
-    polygon: zone.polygon ?? [],
-    settings: normalizeZoneSettings(zone.settings, `Zone ${index + 1}`),
-  }))
 }
 
 function orientation(a: Point, b: Point, c: Point) {
@@ -303,7 +260,6 @@ function createMapStore() {
       map: {
         perimeter: map.perimeter ?? [],
         dock: map.dock ?? [],
-        mow: map.mow ?? [],
         exclusions: map.exclusions ?? [],
         exclusionMeta: normalizeExclusionMeta(map.exclusionMeta, map.exclusions?.length ?? 0),
         zones: normalizeZones(map.zones),
@@ -319,7 +275,6 @@ function createMapStore() {
       map: {
         perimeter: map.perimeter ?? [],
         dock: map.dock ?? [],
-        mow: map.mow ?? [],
         exclusions: map.exclusions ?? [],
         exclusionMeta: normalizeExclusionMeta(map.exclusionMeta, map.exclusions?.length ?? 0),
         zones: normalizeZones(map.zones),
@@ -340,70 +295,70 @@ function createMapStore() {
       let result: AddPointResult = { accepted: false }
 
       update((state) => {
-      const next = structuredClone(state)
-      if (next.selectedTool === 'perimeter') {
-        if (wouldDuplicatePoint(next.map.perimeter, point)) {
-          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (!wouldCreateOpenPathIntersection(next.map.perimeter, point)) {
-          next.map.perimeter.push(point)
-          result = { accepted: true }
-        } else {
-          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
+        const next = structuredClone(state)
+        if (next.selectedTool === 'perimeter') {
+          if (wouldDuplicatePoint(next.map.perimeter, point)) {
+            result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+          } else if (!wouldCreateOpenPathIntersection(next.map.perimeter, point)) {
+            next.map.perimeter.push(point)
+            result = { accepted: true }
+          } else {
+            result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
+          }
+        } else if (next.selectedTool === 'dock') {
+          if (wouldDuplicatePoint(next.map.dock, point)) {
+            result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+          } else {
+            next.map.dock.push(point)
+            result = { accepted: true }
+          }
+        } else if (next.selectedTool === 'dock-corridor') {
+          next.map.dockMeta = normalizeDockMeta(next.map.dockMeta)
+          if (wouldDuplicatePoint(next.map.dockMeta.corridor, point)) {
+            result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+          } else if (!wouldCreateOpenPathIntersection(next.map.dockMeta.corridor, point)) {
+            next.map.dockMeta.corridor.push(point)
+            result = { accepted: true }
+          } else {
+            result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
+          }
+        } else if (next.selectedTool === 'nogo') {
+          if (next.selectedExclusionIndex === null) {
+            next.map.exclusions.push([])
+            next.map.exclusionMeta ??= []
+            next.map.exclusionMeta.push({ type: 'hard' })
+            next.selectedExclusionIndex = next.map.exclusions.length - 1
+          }
+          const exclusion = next.map.exclusions[next.selectedExclusionIndex]
+          if (exclusion && wouldDuplicatePoint(exclusion, point)) {
+            result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+          } else if (exclusion && !wouldCreateOpenPathIntersection(exclusion, point)) {
+            exclusion.push(point)
+            result = { accepted: true }
+          } else {
+            result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
+          }
+        } else if (next.selectedTool === 'zone') {
+          let zone = next.map.zones.find((entry) => entry.id === next.selectedZoneId)
+          if (!zone) {
+            const id = createId('zone')
+            zone = createZone(id, next.map.zones.length + 1)
+            next.map.zones.push(zone)
+            next.selectedZoneId = id
+          }
+          if (wouldDuplicatePoint(zone.polygon, point)) {
+            result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
+          } else if (!wouldCreateOpenPathIntersection(zone.polygon, point)) {
+            zone.polygon.push(point)
+            result = { accepted: true }
+          } else {
+            result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
+          }
         }
-      } else if (next.selectedTool === 'dock') {
-        if (wouldDuplicatePoint(next.map.dock, point)) {
-          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else {
-          next.map.dock.push(point)
-          result = { accepted: true }
+        if (result.accepted) {
+          next.dirty = true
         }
-      } else if (next.selectedTool === 'dock-corridor') {
-        next.map.dockMeta = normalizeDockMeta(next.map.dockMeta)
-        if (wouldDuplicatePoint(next.map.dockMeta.corridor, point)) {
-          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (!wouldCreateOpenPathIntersection(next.map.dockMeta.corridor, point)) {
-          next.map.dockMeta.corridor.push(point)
-          result = { accepted: true }
-        } else {
-          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
-        }
-      } else if (next.selectedTool === 'nogo') {
-        if (next.selectedExclusionIndex === null) {
-          next.map.exclusions.push([])
-          next.map.exclusionMeta ??= []
-          next.map.exclusionMeta.push({ type: 'hard' })
-          next.selectedExclusionIndex = next.map.exclusions.length - 1
-        }
-        const exclusion = next.map.exclusions[next.selectedExclusionIndex]
-        if (exclusion && wouldDuplicatePoint(exclusion, point)) {
-          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (exclusion && !wouldCreateOpenPathIntersection(exclusion, point)) {
-          exclusion.push(point)
-          result = { accepted: true }
-        } else {
-          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
-        }
-      } else if (next.selectedTool === 'zone') {
-        let zone = next.map.zones.find((entry) => entry.id === next.selectedZoneId)
-        if (!zone) {
-          const id = createId('zone')
-          zone = createZone(id, next.map.zones.length + 1)
-          next.map.zones.push(zone)
-          next.selectedZoneId = id
-        }
-        if (wouldDuplicatePoint(zone.polygon, point)) {
-          result = { accepted: false, reason: 'Punkt liegt bereits an dieser Stelle' }
-        } else if (!wouldCreateOpenPathIntersection(zone.polygon, point)) {
-          zone.polygon.push(point)
-          result = { accepted: true }
-        } else {
-          result = { accepted: false, reason: 'Punkt wuerde Polygon schneiden' }
-        }
-      }
-      if (result.accepted) {
-        next.dirty = true
-      }
-      return next
+        return next
       })
 
       return result
@@ -580,28 +535,7 @@ function createMapStore() {
     renameZone: (zoneId: string, name: string) => update((state) => {
       const next = structuredClone(state)
       const zone = next.map.zones.find((entry) => entry.id === zoneId)
-      if (zone) zone.settings.name = name
-      next.dirty = true
-      return next
-    }),
-    updateZoneSettings: (zoneId: string, patch: Partial<ZoneSettings>) => update((state) => {
-      const next = structuredClone(state)
-      const zone = next.map.zones.find((entry) => entry.id === zoneId)
-      if (!zone) return next
-
-      zone.settings = {
-        ...zone.settings,
-        ...patch,
-      }
-
-      if (zone.settings.angle < 0) zone.settings.angle = 0
-      if (zone.settings.angle > 179) zone.settings.angle = 179
-      if (zone.settings.edgeRounds < 1) zone.settings.edgeRounds = 1
-      if (zone.settings.edgeRounds > 5) zone.settings.edgeRounds = 5
-      zone.settings.stripWidth = clamp(zone.settings.stripWidth, 0.05, 1)
-      zone.settings.speed = clamp(zone.settings.speed, 0.1, 3)
-      zone.settings.clearance = clamp(zone.settings.clearance ?? defaultZoneSettings.clearance ?? 0.25, 0, 2)
-
+      if (zone) zone.name = name
       next.dirty = true
       return next
     }),
@@ -647,7 +581,7 @@ function createMapStore() {
       }
       if (next.map.exclusionMeta[exclusionIndex].clearance !== undefined) {
         next.map.exclusionMeta[exclusionIndex].clearance = clamp(
-          next.map.exclusionMeta[exclusionIndex].clearance ?? defaultZoneSettings.clearance ?? 0.25,
+          next.map.exclusionMeta[exclusionIndex].clearance ?? 0.25,
           0,
           2,
         )

@@ -29,10 +29,14 @@ class RobotWsClient {
   void sendCommand(String command, [Map<String, dynamic>? payload]) {
     final channel = _channel;
     if (channel == null) return;
-    channel.sink.add(jsonEncode(<String, dynamic>{
-      'cmd': command,
-      ...?payload,
-    }));
+    try {
+      channel.sink.add(jsonEncode(<String, dynamic>{
+        'cmd': command,
+        ...?payload,
+      }));
+    } on StateError {
+      // Channel was already closed; the reconnect watchdog will handle recovery.
+    }
   }
 
   Future<void> disconnect() async {

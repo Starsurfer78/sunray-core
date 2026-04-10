@@ -62,17 +62,9 @@
   function normalizeZone(zone: MapZone, index: number): Zone {
     return {
       id: zone.id,
+      name: zone.name ?? `Zone ${index + 1}`,
       order: zone.order ?? index + 1,
       polygon: normalizePoints(zone.polygon),
-      settings: {
-        name: zone.settings.name ?? `Zone ${index + 1}`,
-        stripWidth: zone.settings.stripWidth ?? 0.18,
-        angle: zone.settings.angle ?? 0,
-        edgeMowing: zone.settings.edgeMowing ?? true,
-        edgeRounds: zone.settings.edgeRounds ?? 1,
-        speed: zone.settings.speed ?? 1.0,
-        pattern: zone.settings.pattern ?? "stripe",
-      },
     };
   }
 
@@ -133,6 +125,7 @@
       zoneIds: doc.zoneIds ?? [],
       overrides: doc.overrides ?? {},
       schedule: doc.schedule,
+      planRef: doc.planRef,
     };
   }
 
@@ -145,7 +138,6 @@
       mapStore.load({
         perimeter: normalizePoints(map.perimeter),
         dock: normalizePoints(map.dock),
-        mow: normalizePoints(map.mow),
         exclusions: (map.exclusions ?? []).map((exclusion) =>
           normalizePoints(exclusion as Array<[number, number]>),
         ),
@@ -275,9 +267,7 @@
   }
 
   function zoneName(zoneId: string): string {
-    return (
-      $mapStore.map.zones.find((z) => z.id === zoneId)?.settings.name ?? zoneId
-    );
+    return $mapStore.map.zones.find((z) => z.id === zoneId)?.name ?? zoneId;
   }
 
   function zoneColor(zoneId: string): string {
@@ -477,7 +467,7 @@
                 : "Keine Zone in dieser Mission"}
             </option>
             {#each selectedMissionZones as zone}
-              <option value={zone.id}>{zone.settings.name}</option>
+              <option value={zone.id}>{zone.name}</option>
             {/each}
           </select>
         </div>
@@ -593,7 +583,7 @@
             >
               {#each selectableZones as zone}
                 <option value={zone.id}>
-                  {zone.settings.name}
+                  {zone.name}
                 </option>
               {/each}
             </select>

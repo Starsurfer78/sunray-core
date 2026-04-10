@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
-  import { missionStore, type Mission } from '../../stores/missions'
+  import { missionStore, type Mission, type MissionZoneOverrides } from '../../stores/missions'
   import type { Zone } from '../../stores/map'
 
   export let mission: Mission
@@ -13,10 +13,19 @@
     save: void
   }>()
 
-  function effectiveValue<K extends keyof Zone['settings']>(key: K): Zone['settings'][K] | null {
-    if (!zone) return null
+  const systemDefaults: Required<MissionZoneOverrides> = {
+    stripWidth: 0.18,
+    angle: 0,
+    edgeMowing: true,
+    edgeRounds: 1,
+    speed: 1.0,
+    pattern: 'stripe',
+  }
+
+  function effectiveValue<K extends keyof MissionZoneOverrides>(key: K): MissionZoneOverrides[K] {
+    if (!zone) return systemDefaults[key]
     const override = mission.overrides[zone.id] ?? {}
-    return (override[key as keyof typeof override] ?? zone.settings[key]) as Zone['settings'][K]
+    return override[key] ?? systemDefaults[key]
   }
 
   function updateOverride<K extends 'stripWidth' | 'angle' | 'edgeMowing' | 'edgeRounds' | 'speed'>(
@@ -36,7 +45,7 @@
     {#if showHeader}
       <div class="ms-set-header">
         <span class="ms-set-zone-dot" style="background:{color}"></span>
-        <span class="ms-set-title">{zone.settings.name}</span>
+        <span class="ms-set-title">{zone.name}</span>
         <span class="ms-set-hint">Einstellungen gelten für diese Zone in der aktuellen Mission</span>
         <button type="button" class="ms-set-close" on:click={() => dispatch('close')}>✕</button>
       </div>

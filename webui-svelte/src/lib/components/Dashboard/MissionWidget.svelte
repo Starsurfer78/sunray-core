@@ -30,11 +30,12 @@
       zoneIds: doc.zoneIds ?? [],
       overrides: doc.overrides ?? {},
       schedule: doc.schedule,
+      planRef: doc.planRef,
     };
   }
 
   function zoneName(zoneId: string): string {
-    return zones.find((zone) => zone.id === zoneId)?.settings.name ?? zoneId;
+    return zones.find((zone) => zone.id === zoneId)?.name ?? zoneId;
   }
 
   function toMinutes(time: string): number {
@@ -132,22 +133,32 @@
       : "";
 
   $: runningProgress =
-    $telemetry.mission_zone_count > 0
+    $telemetry.waypoint_total > 0
       ? Math.max(
           0,
           Math.min(
             100,
             Math.round(
-              ($telemetry.mission_zone_index / $telemetry.mission_zone_count) *
-                100,
+              ($telemetry.waypoint_index / $telemetry.waypoint_total) * 100,
             ),
           ),
         )
-      : 0;
+      : $telemetry.mission_zone_count > 0
+        ? Math.max(
+            0,
+            Math.min(
+              100,
+              Math.round(
+                ($telemetry.mission_zone_index /
+                  $telemetry.mission_zone_count) *
+                  100,
+              ),
+            ),
+          )
+        : 0;
 
   $: missionIsRunning =
-    Boolean(runningMission) &&
-    activeMissionOps.includes($telemetry.op);
+    Boolean(runningMission) && activeMissionOps.includes($telemetry.op);
 </script>
 
 <section class="panel mission-panel">
