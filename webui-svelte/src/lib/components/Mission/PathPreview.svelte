@@ -262,10 +262,18 @@
   let previewInputSignature = "";
   let debugExpanded = true;
 
-  // User-Ansicht: nur Coverage-Bahnen sichtbar, ruhige Grüntöne
+  // User-Ansicht: kompletter Fahrweg, ruhige Farben
   const coverageColor: Partial<Record<RouteSemantic, string>> = {
     coverage_edge: "#34d399", // emerald — Randmähen
     coverage_infill: "#4ade80", // green   — Innenbahnen
+  };
+  const routePreviewColor: Partial<Record<RouteSemantic, string>> = {
+    ...coverageColor,
+    transit_within_zone: "#fbbf24", // amber — Bahnwechsel
+    transit_between_components: "#c084fc", // violet
+    transit_inter_zone: "#38bdf8", // sky
+    recovery: "#94a3b8",
+    unknown: "#94a3b8",
   };
 
   // Debug-Ansicht: alle Semantiken mit technischen Farben
@@ -280,10 +288,13 @@
     unknown: "#475569", // muted
   };
 
-  // Nur Coverage-Runs für die User-Ansicht
-  $: coverageRuns = semanticRuns.filter(
-    (r) => r.semantic === "coverage_edge" || r.semantic === "coverage_infill",
+  $: routePreviewRuns = semanticRuns.filter(
+    (r) => r.semantic !== "dock_approach",
   );
+
+  function isCoverageSemantic(semantic: RouteSemantic) {
+    return semantic === "coverage_edge" || semantic === "coverage_infill";
+  }
 
   interface SemanticRun {
     semantic: RouteSemantic;
@@ -787,17 +798,22 @@
         </g>
       {/if}
 
-      <!-- 5a. User-Ansicht: nur Coverage-Bahnen (Rand + Infill), kein Transit-Ballast -->
+      <!-- 5a. User-Ansicht: kompletter Fahrweg, Bahnwechsel dezent gestrichelt -->
       {#if showPaths && hasPreviewRoute && !debugMode}
         <g clip-path={perimeter.length >= 3 ? "url(#mow-clip)" : undefined}>
-          {#each coverageRuns as run}
+          {#each routePreviewRuns as run}
             {#if run.points.length >= 2}
               <polyline
                 points={worldPoints(run.points)}
                 fill="none"
-                stroke={coverageColor[run.semantic] ?? "#4ade80"}
-                stroke-opacity="0.9"
-                stroke-width="0.7"
+                stroke={routePreviewColor[run.semantic] ?? "#94a3b8"}
+                stroke-opacity={isCoverageSemantic(run.semantic)
+                  ? "0.9"
+                  : "0.72"}
+                stroke-width={isCoverageSemantic(run.semantic) ? "0.7" : "0.6"}
+                stroke-dasharray={isCoverageSemantic(run.semantic)
+                  ? undefined
+                  : "3 3"}
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 vector-effect="non-scaling-stroke"
