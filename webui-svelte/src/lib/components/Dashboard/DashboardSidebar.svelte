@@ -45,18 +45,28 @@
     $telemetry.gps_acc > 0 ? $telemetry.gps_acc.toFixed(2) : "—";
   $: gpsRoverSvLabel =
     $telemetry.gps_num_sv > 0 ? String($telemetry.gps_num_sv) : "—";
+  $: gpsHasRtcm = $telemetry.gps_dgps_age_ms > 0 || $telemetry.gps_sol >= 4;
+  $: gpsRtcmFresh =
+    gpsHasRtcm && $telemetry.gps_dgps_age_ms <= RTCM_WARN_MS;
   $: gpsCorrectedSignalsLabel =
-    $telemetry.gps_num_corr_signals > 0
-      ? String($telemetry.gps_num_corr_signals)
-      : "—";
+    $telemetry.gps_num_corr_signals > 0 ? String($telemetry.gps_num_corr_signals) : "0";
   $: gpsRtcmAgeLabel =
     $telemetry.gps_dgps_age_ms > 0
       ? ($telemetry.gps_dgps_age_ms / 1000).toFixed(1)
       : "—";
+  $: gpsRtcmStateLabel = gpsRtcmFresh
+    ? "frisch"
+    : gpsHasRtcm
+      ? "alt"
+      : "nie";
   $: gpsRtcmAgeWarn =
-    $telemetry.gps_sol >= 4 && $telemetry.gps_dgps_age_ms > RTCM_WARN_MS;
+    gpsHasRtcm && $telemetry.gps_dgps_age_ms > RTCM_WARN_MS;
+  $: gpsCorrectedSignalsWarn =
+    !gpsRtcmFresh && $telemetry.gps_sol >= 4 && $telemetry.gps_num_corr_signals <= 0;
   $: gpsQualityWarnings = [
+    ...(!gpsHasRtcm ? ["Keine RTCM-Nachrichten gesehen"] : []),
     ...(gpsRtcmAgeWarn ? [`RTCM veraltet (${gpsRtcmAgeLabel}s)`] : []),
+    ...(gpsCorrectedSignalsWarn ? ["Keine korrigierten Signale"] : []),
   ];
   $: gpsQualityWarn = gpsQualityWarnings.length > 0;
   $: gpsQualityBanner = gpsQualityWarn
@@ -157,7 +167,7 @@
       <div class="sr-gps-meta">
         <span class="sr-gps-meta-item">{gpsStatusLabel}</span>
         <span class="sr-gps-meta-item" class:warn={gpsRtcmAgeWarn}
-          >RTCM {gpsRtcmAgeLabel}s</span
+          >RTCM {gpsRtcmStateLabel} · {gpsRtcmAgeLabel}s</span
         >
       </div>
       <div class="sr-coords">{gpsLatLabel}<br />{gpsLonLabel}</div>
