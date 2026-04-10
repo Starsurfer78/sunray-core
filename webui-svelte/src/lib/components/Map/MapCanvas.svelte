@@ -839,18 +839,18 @@
           {@const dockPointLabel = labelAnchor(point, `${index + 1}`)}
           <g>
             <rect
-              x={dockPointLabel.x - 10}
-              y={dockPointLabel.y - 15}
-              width="16"
-              height="15"
-              rx="7.5"
-              fill="rgba(7, 13, 24, 0.72)"
-              stroke="rgba(244, 184, 96, 0.25)"
-              stroke-width="1"
+              x={dockPointLabel.x - 12}
+              y={dockPointLabel.y - 17}
+              width="20"
+              height="18"
+              rx="9"
+              fill="rgba(7, 13, 24, 0.85)"
+              stroke="rgba(244, 184, 96, 0.6)"
+              stroke-width="1.5"
             />
             <text
               x={dockPointLabel.x}
-              y={dockPointLabel.y - 5}
+              y={dockPointLabel.y - 4}
               text-anchor="middle"
               class="label dock-point-label">{index + 1}</text
             >
@@ -1082,9 +1082,9 @@
               width={labelWidth}
               height="15"
               rx="7.5"
-              fill="rgba(7, 13, 24, 0.72)"
-              stroke="rgba(103, 232, 249, 0.34)"
-              stroke-width="1"
+              fill="rgba(7, 13, 24, 0.85)"
+              stroke="rgba(103, 232, 249, 0.55)"
+              stroke-width="1.2"
             />
             <text
               x={center.x}
@@ -1344,12 +1344,14 @@
   }
 
   .label {
-    font-size: 8.5px;
+    font-size: 9px;
     font-weight: 700;
     paint-order: stroke;
     stroke: rgba(7, 13, 24, 0.88);
-    stroke-width: 1.5px;
+    stroke-width: 1px;
     stroke-linejoin: round;
+    user-select: none;
+    pointer-events: none;
   }
 
   .zone-label {

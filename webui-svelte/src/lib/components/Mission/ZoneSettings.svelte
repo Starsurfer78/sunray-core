@@ -235,8 +235,8 @@
   .ms-ang-row {
     display: flex;
     align-items: center;
-    gap: 5px;
-    width: 130px;
+    gap: 8px;
+    width: 180px;
   }
 
   .ms-ang-row input[type='range'] {
@@ -245,15 +245,17 @@
     height: 3px;
     cursor: pointer;
     padding: 0;
+    min-width: 0;
   }
 
   .ms-ang-val {
     font-size: 11px;
     color: #60a5fa;
     font-family: monospace;
-    width: 30px;
+    width: 40px;
     text-align: right;
     flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .ms-toggle-row {
