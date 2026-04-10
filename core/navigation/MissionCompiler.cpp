@@ -558,11 +558,31 @@ namespace sunray
                     !pointInPolygonLocal(poly, to.x, to.y))
                     return false;
 
-                if (segmentCrossesPolygonLocal(from, to, poly))
+                // Stripe endpoints often lie exactly on the zone boundary, so a naive
+                // "any crossing → false" produces false positives (t ≈ 0 or t ≈ 1 on the
+                // segment). The old single-midpoint check was insufficient for concave
+                // polygons where the segment exits through a concave notch but the midpoint
+                // is still inside the main body.
+                //
+                // Correct approach: only strictly-interior crossings (t well away from the
+                // endpoints) indicate that the segment genuinely leaves the polygon.
+                static constexpr float kEndpointEps = 1e-4f;
+                const float sdx = to.x - from.x;
+                const float sdy = to.y - from.y;
+                const std::size_t n = poly.size();
+                for (std::size_t i = 0, j = n - 1; i < n; j = i++)
                 {
-                    const Point mid{(from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f};
-                    if (!pointInPolygonLocal(poly, mid.x, mid.y))
-                        return false;
+                    const float edx = poly[i].x - poly[j].x;
+                    const float edy = poly[i].y - poly[j].y;
+                    const float cross = sdx * edy - sdy * edx;
+                    if (std::fabs(cross) < 1e-10f)
+                        continue;
+                    // t: position along from→to (0 = from, 1 = to)
+                    // u: position along poly[j]→poly[i] (0..1 = on the edge)
+                    const float t = ((poly[j].x - from.x) * edy - (poly[j].y - from.y) * edx) / cross;
+                    const float u = ((poly[j].x - from.x) * sdy - (poly[j].y - from.y) * sdx) / cross;
+                    if (t > kEndpointEps && t < 1.0f - kEndpointEps && u >= 0.0f && u <= 1.0f)
+                        return false; // segment exits the polygon through a concave notch
                 }
                 return true;
             }
@@ -745,6 +765,7 @@ namespace sunray
                 }
                 bool haveLast = entryPoint != nullptr;
                 Point last = entryPoint ? *entryPoint : Point{};
+                std::size_t lastUsedLane = lanes.size(); // sentinel: no lane used yet
 
                 while (lanesRemaining > 0)
                 {
@@ -752,11 +773,10 @@ namespace sunray
                     float bestCost = std::numeric_limits<float>::infinity();
                     std::vector<Segment> bestOriented;
 
-                    for (std::size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex)
+                    auto tryLane = [&](std::size_t laneIndex)
                     {
-                        if (laneUsed[laneIndex] || lanes[laneIndex].empty())
-                            continue;
-
+                        if (laneIndex >= lanes.size() || laneUsed[laneIndex] || lanes[laneIndex].empty())
+                            return;
                         for (const bool reverseRows : {false, true})
                         {
                             std::vector<Segment> oriented =
@@ -773,6 +793,31 @@ namespace sunray
                                 bestOriented = std::move(oriented);
                             }
                         }
+                    };
+
+                    // Phase 1: prefer the nearest adjacent lane to maintain boustrophedon order
+                    // and avoid long diagonal transits. Expand outward from lastUsedLane until a
+                    // reachable lane is found. Only fall through to phase 2 if all adjacent lanes
+                    // are blocked (infinite A* cost).
+                    if (lastUsedLane < lanes.size())
+                    {
+                        for (std::size_t delta = 1; delta < lanes.size(); ++delta)
+                        {
+                            if (lastUsedLane >= delta)
+                                tryLane(lastUsedLane - delta);
+                            if (lastUsedLane + delta < lanes.size())
+                                tryLane(lastUsedLane + delta);
+                            if (bestLane != lanes.size())
+                                break; // found a reachable lane at this delta, stop expanding
+                        }
+                    }
+
+                    // Phase 2: global greedy — used for the very first lane (no lastUsedLane),
+                    // or when all adjacent lanes are unreachable (e.g. blocked by obstacles).
+                    if (bestLane == lanes.size())
+                    {
+                        for (std::size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex)
+                            tryLane(laneIndex);
                     }
 
                     if (bestLane == lanes.size())
@@ -795,6 +840,7 @@ namespace sunray
                         continue;
 
                     laneUsed[bestLane] = true;
+                    lastUsedLane = bestLane;
                     --lanesRemaining;
                     ordered.insert(ordered.end(), bestOriented.begin(), bestOriented.end());
                     last = bestOriented.back().b;
@@ -1264,7 +1310,13 @@ namespace sunray
                             settings.stripWidth,
                             settings.angle,
                             exclusionPadding);
-                        const Point *stripeEntry = stripeRoute.points.empty() ? nullptr : &stripeRoute.points.back().p;
+                        // For subsequent infill polygons continue from the last stripe endpoint;
+                        // for the first polygon pass no hint so the lane ordering begins with a
+                        // clean boustrophedon (bottom-to-top). The headland→infill jump is already
+                        // handled by appendTransition below and does not need an ordering bias here.
+                        const Point *stripeEntry = stripeRoute.points.empty()
+                                                       ? nullptr
+                                                       : &stripeRoute.points.back().p;
                         const std::vector<Segment> orderedStripes =
                             orderStripeSegmentsByLane(map, stripes, settings, compPoly, settings.angle, stripeEntry);
                         appendSegmentsWithTransitions(stripeRoute, map, orderedStripes, settings, compPoly, zoneId, componentId);

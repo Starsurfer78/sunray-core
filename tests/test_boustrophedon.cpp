@@ -427,7 +427,9 @@ TEST_CASE("RoutePlan -> Waypoints keeps one-to-one indices and mow semantics", "
     route.sourceMode = WayType::MOW;
     route.points = {
         {{0.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::COVERAGE_EDGE, "z1", "z1:c1"},
-        {{1.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::TRANSIT_WITHIN_ZONE, "z1", "z1:c1"},
+        // TRANSIT_WITHIN_ZONE keeps blade on (motor stays running during same-zone stripe
+        // transitions to avoid stop/start overhead). Use TRANSIT_INTER_ZONE to test mowOn=false.
+        {{1.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::TRANSIT_INTER_ZONE, "z1", "z1:c1"},
         {{2.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
     };
 
@@ -444,7 +446,8 @@ TEST_CASE("WaypointExecutor — startPlan(RoutePlan) and seek stay aligned", "[w
     route.sourceMode = WayType::MOW;
     route.points = {
         {{0.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::COVERAGE_EDGE, "z1", "z1:c1"},
-        {{1.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::TRANSIT_WITHIN_ZONE, "z1", "z1:c1"},
+        // TRANSIT_INTER_ZONE: blade off (crossing between zones or leaving mowing area)
+        {{1.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::TRANSIT_INTER_ZONE, "z1", "z1:c1"},
         {{2.0f, 0.0f}, false, false, false, 0.25f, WayType::MOW, RouteSemantic::COVERAGE_INFILL, "z1", "z1:c1"},
     };
 
