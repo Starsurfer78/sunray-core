@@ -53,12 +53,9 @@
     $telemetry.gps_dgps_age_ms > 0
       ? ($telemetry.gps_dgps_age_ms / 1000).toFixed(1)
       : "—";
-  $: gpsCorrectedSignalsWarn =
-    $telemetry.gps_sol >= 4 && $telemetry.gps_num_corr_signals === 0;
   $: gpsRtcmAgeWarn =
     $telemetry.gps_sol >= 4 && $telemetry.gps_dgps_age_ms > RTCM_WARN_MS;
   $: gpsQualityWarnings = [
-    ...(gpsCorrectedSignalsWarn ? ["Keine korrigierten Signale"] : []),
     ...(gpsRtcmAgeWarn ? [`RTCM veraltet (${gpsRtcmAgeLabel}s)`] : []),
   ];
   $: gpsQualityWarn = gpsQualityWarnings.length > 0;
