@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace sunray
@@ -627,7 +628,53 @@ namespace sunray
                 return segments;
             }
 
-            static std::vector<Segment> orderStripeSegmentsByLane(const std::vector<Segment> &segments,
+            static float transitionCostForStripeOrdering(const Map &map,
+                                                         const Point &from,
+                                                         const Point &to,
+                                                         const ZoneSettings &settings,
+                                                         const PolygonPoints &zonePoly)
+            {
+                if (directTransitionAllowed(map, from, to, zonePoly))
+                    return from.distanceTo(to);
+
+                const RoutePlan transition = map.previewPath(
+                    from,
+                    to,
+                    WayType::MOW,
+                    WayType::MOW,
+                    0.0f,
+                    false,
+                    settings.reverseAllowed,
+                    settings.clearance,
+                    settings.clearance + map.plannerSettings().obstacleInflation_m,
+                    zonePoly);
+
+                if (transition.points.empty())
+                    return std::numeric_limits<float>::infinity();
+
+                float length = 0.0f;
+                Point prev = from;
+                for (const auto &point : transition.points)
+                {
+                    length += prev.distanceTo(point.p);
+                    prev = point.p;
+                }
+                return length;
+            }
+
+            static std::vector<Segment> orientStripeLane(std::vector<Segment> lane,
+                                                         bool reverseRows,
+                                                         const Point *entryPoint)
+            {
+                if (reverseRows)
+                    std::reverse(lane.begin(), lane.end());
+                return orientSegmentsGreedy(std::move(lane), entryPoint);
+            }
+
+            static std::vector<Segment> orderStripeSegmentsByLane(const Map &map,
+                                                                  const std::vector<Segment> &segments,
+                                                                  const ZoneSettings &settings,
+                                                                  const PolygonPoints &zonePoly,
                                                                   float angleDeg,
                                                                   const Point *entryPoint = nullptr)
             {
@@ -689,22 +736,68 @@ namespace sunray
 
                 std::vector<Segment> ordered;
                 ordered.reserve(segments.size());
+                std::vector<bool> laneUsed(lanes.size(), false);
+                std::size_t lanesRemaining = 0;
+                for (const auto &lane : lanes)
+                {
+                    if (!lane.empty())
+                        ++lanesRemaining;
+                }
                 bool haveLast = entryPoint != nullptr;
                 Point last = entryPoint ? *entryPoint : Point{};
-                for (auto lane : lanes)
+
+                while (lanesRemaining > 0)
                 {
-                    if (lane.empty())
+                    std::size_t bestLane = lanes.size();
+                    float bestCost = std::numeric_limits<float>::infinity();
+                    std::vector<Segment> bestOriented;
+
+                    for (std::size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex)
+                    {
+                        if (laneUsed[laneIndex] || lanes[laneIndex].empty())
+                            continue;
+
+                        for (const bool reverseRows : {false, true})
+                        {
+                            std::vector<Segment> oriented =
+                                orientStripeLane(lanes[laneIndex], reverseRows, haveLast ? &last : nullptr);
+                            if (oriented.empty())
+                                continue;
+                            const float cost = haveLast
+                                                   ? transitionCostForStripeOrdering(map, last, oriented.front().a, settings, zonePoly)
+                                                   : 0.0f;
+                            if (cost < bestCost)
+                            {
+                                bestCost = cost;
+                                bestLane = laneIndex;
+                                bestOriented = std::move(oriented);
+                            }
+                        }
+                    }
+
+                    if (bestLane == lanes.size())
+                    {
+                        // If no planner-visible transition exists, keep deterministic row order.
+                        // appendTransition() will mark the route invalid instead of inserting an
+                        // unsafe shortcut, but this keeps the remaining coverage stable.
+                        for (std::size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex)
+                        {
+                            if (!laneUsed[laneIndex] && !lanes[laneIndex].empty())
+                            {
+                                bestLane = laneIndex;
+                                bestOriented = orientStripeLane(lanes[laneIndex], false, haveLast ? &last : nullptr);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (bestLane == lanes.size() || bestOriented.empty())
                         continue;
 
-                    std::vector<Segment> forward = orientSegmentsGreedy(lane, haveLast ? &last : nullptr);
-                    std::reverse(lane.begin(), lane.end());
-                    std::vector<Segment> backward = orientSegmentsGreedy(lane, haveLast ? &last : nullptr);
-
-                    const float forwardCost = haveLast ? last.distanceTo(forward.front().a) : 0.0f;
-                    const float backwardCost = haveLast ? last.distanceTo(backward.front().a) : 0.0f;
-                    const std::vector<Segment> &chosen = backwardCost < forwardCost ? backward : forward;
-                    ordered.insert(ordered.end(), chosen.begin(), chosen.end());
-                    last = chosen.back().b;
+                    laneUsed[bestLane] = true;
+                    --lanesRemaining;
+                    ordered.insert(ordered.end(), bestOriented.begin(), bestOriented.end());
+                    last = bestOriented.back().b;
                     haveLast = true;
                 }
 
@@ -1173,7 +1266,7 @@ namespace sunray
                             exclusionPadding);
                         const Point *stripeEntry = stripeRoute.points.empty() ? nullptr : &stripeRoute.points.back().p;
                         const std::vector<Segment> orderedStripes =
-                            orderStripeSegmentsByLane(stripes, settings.angle, stripeEntry);
+                            orderStripeSegmentsByLane(map, stripes, settings, compPoly, settings.angle, stripeEntry);
                         appendSegmentsWithTransitions(stripeRoute, map, orderedStripes, settings, compPoly, zoneId, componentId);
                     }
                     if (!stripeRoute.points.empty())
