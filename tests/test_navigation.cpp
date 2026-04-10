@@ -1742,38 +1742,29 @@ TEST_CASE("WorkingArea E2: tiny slanted hard exclusion stays route-free in real-
     if (!result.errors.empty())
         INFO("first validator error=" << result.errors.front().message);
 
-    // In complex real-world geometry with a small exclusion that splits a large zone
-    // into two components with a tight corridor, the planner may legitimately fail to
-    // find a transition path and mark the plan invalid. Both outcomes are acceptable:
-    // a valid plan that avoids the exclusion, or an invalid plan with a non-empty reason.
-    if (result.valid && route.valid)
+    REQUIRE(route.valid);
+    REQUIRE(result.valid);
+
+    const auto pointInPolygon = [](const PolygonPoints &poly, float px, float py)
     {
-        const auto pointInPolygon = [](const PolygonPoints &poly, float px, float py)
+        bool inside = false;
+        const std::size_t count = poly.size();
+        for (std::size_t i = 0, j = count - 1; i < count; j = i++)
         {
-            bool inside = false;
-            const std::size_t count = poly.size();
-            for (std::size_t i = 0, j = count - 1; i < count; j = i++)
+            const float xi = poly[i].x;
+            const float yi = poly[i].y;
+            const float xj = poly[j].x;
+            const float yj = poly[j].y;
+            if (((yi > py) != (yj > py)) &&
+                (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
             {
-                const float xi = poly[i].x;
-                const float yi = poly[i].y;
-                const float xj = poly[j].x;
-                const float yj = poly[j].y;
-                if (((yi > py) != (yj > py)) &&
-                    (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
-                {
-                    inside = !inside;
-                }
+                inside = !inside;
             }
-            return inside;
-        };
-        for (const auto &point : route.points)
-            REQUIRE_FALSE(pointInPolygon(map.exclusions()[0], point.p.x, point.p.y));
-    }
-    else
-    {
-        // Planner correctly flagged the plan as invalid with an informative reason.
-        REQUIRE_FALSE(route.invalidReason.empty());
-    }
+        }
+        return inside;
+    };
+    for (const auto &point : route.points)
+        REQUIRE_FALSE(pointInPolygon(map.exclusions()[0], point.p.x, point.p.y));
 }
 
 TEST_CASE("WorkingArea F: two exclusions in one zone — all holes respected", "[coverage]")

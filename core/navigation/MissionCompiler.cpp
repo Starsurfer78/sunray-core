@@ -475,7 +475,7 @@ namespace sunray
             // Transitions are zone-aware: TRANSIT_WITHIN_ZONE paths are constrained to the
             // active zone polygon; TRANSIT_INTER_ZONE paths have no zone constraint.
 
-            static void appendTransition(RoutePlan &route,
+            static bool appendTransition(RoutePlan &route,
                                          const Map &map,
                                          const Point &from,
                                          const Point &to,
@@ -500,6 +500,215 @@ namespace sunray
                     }
                 }
                 return inside;
+            }
+
+            static bool segmentsIntersectLocal(const Point &a0, const Point &a1,
+                                               const Point &b0, const Point &b1)
+            {
+                const float d1x = a1.x - a0.x;
+                const float d1y = a1.y - a0.y;
+                const float d2x = b1.x - b0.x;
+                const float d2y = b1.y - b0.y;
+                const float cross = d1x * d2y - d1y * d2x;
+                if (std::fabs(cross) < 1e-10f)
+                    return false;
+
+                const float t = ((b0.x - a0.x) * d2y - (b0.y - a0.y) * d2x) / cross;
+                const float u = ((b0.x - a0.x) * d1y - (b0.y - a0.y) * d1x) / cross;
+                return t >= 0.0f && t <= 1.0f && u >= 0.0f && u <= 1.0f;
+            }
+
+            static bool segmentCrossesPolygonLocal(const Point &from, const Point &to,
+                                                   const PolygonPoints &poly)
+            {
+                if (poly.size() < 3)
+                    return false;
+                for (std::size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
+                {
+                    if (segmentsIntersectLocal(from, to, poly[j], poly[i]))
+                        return true;
+                }
+                return false;
+            }
+
+            static bool lineCircleIntersectsLocal(const Point &from, const Point &to,
+                                                  const Point &center, float radius)
+            {
+                const float dx = to.x - from.x;
+                const float dy = to.y - from.y;
+                const float lengthSq = dx * dx + dy * dy;
+                if (lengthSq < 1e-8f)
+                    return from.distanceTo(center) <= radius;
+
+                const float t = std::clamp(((center.x - from.x) * dx + (center.y - from.y) * dy) / lengthSq,
+                                           0.0f,
+                                           1.0f);
+                const Point closest{from.x + t * dx, from.y + t * dy};
+                return closest.distanceTo(center) <= radius;
+            }
+
+            static bool segmentInsidePolygonSurface(const PolygonPoints &poly,
+                                                    const Point &from,
+                                                    const Point &to)
+            {
+                if (poly.size() < 3)
+                    return true;
+                if (!pointInPolygonLocal(poly, from.x, from.y) ||
+                    !pointInPolygonLocal(poly, to.x, to.y))
+                    return false;
+
+                if (segmentCrossesPolygonLocal(from, to, poly))
+                {
+                    const Point mid{(from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f};
+                    if (!pointInPolygonLocal(poly, mid.x, mid.y))
+                        return false;
+                }
+                return true;
+            }
+
+            static bool directTransitionAllowed(const Map &map,
+                                                const Point &from,
+                                                const Point &to,
+                                                const PolygonPoints &zonePoly)
+            {
+                if (!map.isInsideAllowedArea(from.x, from.y) ||
+                    !map.isInsideAllowedArea(to.x, to.y))
+                    return false;
+
+                if (!zonePoly.empty() && !segmentInsidePolygonSurface(zonePoly, from, to))
+                    return false;
+
+                const auto &perimeter = map.perimeterPoints();
+                if (perimeter.size() >= 3 && segmentCrossesPolygonLocal(from, to, perimeter))
+                {
+                    const Point mid{(from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f};
+                    if (!map.isInsideAllowedArea(mid.x, mid.y))
+                        return false;
+                }
+
+                const auto &exclusions = map.exclusions();
+                const auto &exclusionMeta = map.exclusionMeta();
+                for (std::size_t exclusionIndex = 0; exclusionIndex < exclusions.size(); ++exclusionIndex)
+                {
+                    const bool isHard = exclusionIndex >= exclusionMeta.size() ||
+                                        exclusionMeta[exclusionIndex].type == ExclusionType::HARD;
+                    if (isHard && segmentCrossesPolygonLocal(from, to, exclusions[exclusionIndex]))
+                        return false;
+                }
+
+                for (const auto &obstacle : map.obstacles())
+                {
+                    const float radius = obstacle.radius_m + map.plannerSettings().obstacleInflation_m;
+                    if (lineCircleIntersectsLocal(from, to, obstacle.center, radius))
+                        return false;
+                }
+
+                return true;
+            }
+
+            static Segment reversedSegment(const Segment &segment)
+            {
+                return Segment{segment.b, segment.a};
+            }
+
+            static std::vector<Segment> orientSegmentsGreedy(std::vector<Segment> segments,
+                                                             const Point *entryPoint)
+            {
+                if (segments.empty())
+                    return segments;
+
+                Point last = entryPoint ? *entryPoint : segments.front().b;
+                for (auto &segment : segments)
+                {
+                    if (last.distanceTo(segment.b) < last.distanceTo(segment.a))
+                        segment = reversedSegment(segment);
+                    last = segment.b;
+                }
+                return segments;
+            }
+
+            static std::vector<Segment> orderStripeSegmentsByLane(const std::vector<Segment> &segments,
+                                                                  float angleDeg,
+                                                                  const Point *entryPoint = nullptr)
+            {
+                if (segments.size() < 2)
+                    return segments;
+
+                struct StripeRun
+                {
+                    Segment segment;
+                    float rowY = 0.0f;
+                    float minX = 0.0f;
+                    std::size_t lane = 0;
+                };
+
+                const float angle = -angleDeg * static_cast<float>(M_PI) / 180.0f;
+                const float cosA = std::cos(angle);
+                const float sinA = std::sin(angle);
+                std::vector<StripeRun> runs;
+                runs.reserve(segments.size());
+                for (const auto &segment : segments)
+                {
+                    const Point a = rotatePoint(segment.a, cosA, sinA);
+                    const Point b = rotatePoint(segment.b, cosA, sinA);
+                    runs.push_back({segment, (a.y + b.y) * 0.5f, std::min(a.x, b.x), 0});
+                }
+
+                std::sort(runs.begin(), runs.end(), [](const StripeRun &lhs, const StripeRun &rhs)
+                          {
+                    if (std::fabs(lhs.rowY - rhs.rowY) > 1e-3f) return lhs.rowY < rhs.rowY;
+                    return lhs.minX < rhs.minX; });
+
+                std::vector<std::vector<StripeRun>> rows;
+                for (const auto &run : runs)
+                {
+                    if (rows.empty() || std::fabs(rows.back().front().rowY - run.rowY) > 1e-3f)
+                        rows.push_back({run});
+                    else
+                        rows.back().push_back(run);
+                }
+
+                std::size_t laneCount = 0;
+                for (auto &row : rows)
+                {
+                    std::sort(row.begin(), row.end(), [](const StripeRun &lhs, const StripeRun &rhs)
+                              { return lhs.minX < rhs.minX; });
+                    for (std::size_t lane = 0; lane < row.size(); ++lane)
+                    {
+                        row[lane].lane = lane;
+                        laneCount = std::max(laneCount, lane + 1);
+                    }
+                }
+
+                std::vector<std::vector<Segment>> lanes(laneCount);
+                for (const auto &row : rows)
+                {
+                    for (const auto &run : row)
+                        lanes[run.lane].push_back(run.segment);
+                }
+
+                std::vector<Segment> ordered;
+                ordered.reserve(segments.size());
+                bool haveLast = entryPoint != nullptr;
+                Point last = entryPoint ? *entryPoint : Point{};
+                for (auto lane : lanes)
+                {
+                    if (lane.empty())
+                        continue;
+
+                    std::vector<Segment> forward = orientSegmentsGreedy(lane, haveLast ? &last : nullptr);
+                    std::reverse(lane.begin(), lane.end());
+                    std::vector<Segment> backward = orientSegmentsGreedy(lane, haveLast ? &last : nullptr);
+
+                    const float forwardCost = haveLast ? last.distanceTo(forward.front().a) : 0.0f;
+                    const float backwardCost = haveLast ? last.distanceTo(backward.front().a) : 0.0f;
+                    const std::vector<Segment> &chosen = backwardCost < forwardCost ? backward : forward;
+                    ordered.insert(ordered.end(), chosen.begin(), chosen.end());
+                    last = chosen.back().b;
+                    haveLast = true;
+                }
+
+                return ordered;
             }
 
             /// Clip contour to runs inside zonePoly and outside exclusions.
@@ -592,7 +801,8 @@ namespace sunray
                     return;
                 }
 
-                appendTransition(route, map, route.points.back().p, segment.a, settings, zonePoly, zoneId, componentId);
+                if (!appendTransition(route, map, route.points.back().p, segment.a, settings, zonePoly, zoneId, componentId))
+                    return;
                 if (!samePoint(route.points.back().p, segment.a))
                 {
                     route.points.push_back(makePoint(segment.a));
@@ -637,7 +847,7 @@ namespace sunray
             /// Zone-aware transition: the A* grid is bounded to zonePoly so the path
             /// cannot take shortcuts through areas outside the active zone.
             /// If no path is found, route.valid is set to false — no silent direct-point fallback.
-            static void appendTransition(RoutePlan &route,
+            static bool appendTransition(RoutePlan &route,
                                          const Map &map,
                                          const Point &from,
                                          const Point &to,
@@ -648,11 +858,30 @@ namespace sunray
                                          RouteSemantic semanticOverride)
             {
                 if (samePoint(from, to))
-                    return;
+                    return true;
                 const RouteSemantic sem = semanticOverride != RouteSemantic::UNKNOWN
                                               ? semanticOverride
                                               : (zonePoly.empty() ? RouteSemantic::TRANSIT_INTER_ZONE
                                                                   : RouteSemantic::TRANSIT_WITHIN_ZONE);
+
+                if (directTransitionAllowed(map, from, to, zonePoly))
+                {
+                    RoutePoint rp;
+                    rp.p = to;
+                    rp.reverse = false;
+                    rp.slow = false;
+                    rp.reverseAllowed = settings.reverseAllowed;
+                    rp.clearance_m = settings.clearance;
+                    rp.sourceMode = WayType::MOW;
+                    rp.semantic = sem;
+                    rp.zoneId = zoneId;
+                    rp.componentId = componentId;
+                    if (route.points.empty() || !samePoint(route.points.back().p, rp.p))
+                        route.points.push_back(rp);
+                    route.sourceMode = WayType::MOW;
+                    route.active = true;
+                    return true;
+                }
 
                 const RoutePlan transition = map.previewPath(
                     from,
@@ -677,7 +906,7 @@ namespace sunray
                     {
                         route.invalidReason = "no transition path from (" + std::to_string(from.x) + "," + std::to_string(from.y) + ") to (" + std::to_string(to.x) + "," + std::to_string(to.y) + ")" + (zoneId.empty() ? "" : " in zone '" + zoneId + "'");
                     }
-                    return;
+                    return false;
                 }
 
                 for (auto point : transition.points)
@@ -689,6 +918,9 @@ namespace sunray
                     point.componentId = componentId;
                     route.points.push_back(point);
                 }
+                route.sourceMode = WayType::MOW;
+                route.active = true;
+                return true;
             }
 
             static void appendSegmentsWithTransitions(RoutePlan &route,
@@ -720,7 +952,8 @@ namespace sunray
                         continue;
                     if (!route.points.empty())
                     {
-                        appendTransition(route, map, route.points.back().p, runRoute.points.front().p, settings, zonePoly, zoneId, componentId);
+                        if (!appendTransition(route, map, route.points.back().p, runRoute.points.front().p, settings, zonePoly, zoneId, componentId))
+                            continue;
                     }
                     route = appendRoute(route, runRoute);
                 }
@@ -938,13 +1171,17 @@ namespace sunray
                             settings.stripWidth,
                             settings.angle,
                             exclusionPadding);
-                        appendSegmentsWithTransitions(stripeRoute, map, stripes, settings, compPoly, zoneId, componentId);
+                        const Point *stripeEntry = stripeRoute.points.empty() ? nullptr : &stripeRoute.points.back().p;
+                        const std::vector<Segment> orderedStripes =
+                            orderStripeSegmentsByLane(stripes, settings.angle, stripeEntry);
+                        appendSegmentsWithTransitions(stripeRoute, map, orderedStripes, settings, compPoly, zoneId, componentId);
                     }
                     if (!stripeRoute.points.empty())
                     {
                         if (!compRoute.points.empty())
                         {
-                            appendTransition(compRoute, map, compRoute.points.back().p, stripeRoute.points.front().p, settings, compPoly, zoneId, componentId);
+                            if (!appendTransition(compRoute, map, compRoute.points.back().p, stripeRoute.points.front().p, settings, compPoly, zoneId, componentId))
+                                continue;
                         }
                         compRoute = appendRoute(compRoute, stripeRoute);
                     }
@@ -995,7 +1232,8 @@ namespace sunray
                 else if (!zoneRoute.points.empty())
                 {
                     // Inter-zone transition: no zone constraint (robot must cross between zones)
-                    appendTransition(route, map, route.points.back().p, zoneRoute.points.front().p, settings, {}, {}, {}, RouteSemantic::TRANSIT_INTER_ZONE);
+                    if (!appendTransition(route, map, route.points.back().p, zoneRoute.points.front().p, settings, {}, {}, {}, RouteSemantic::TRANSIT_INTER_ZONE))
+                        break;
                     route = appendRoute(route, zoneRoute);
                 }
             }
