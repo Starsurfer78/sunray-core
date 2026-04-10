@@ -349,11 +349,11 @@ class RobotConnectionController {
         mowDistanceM: mowDistanceM?.toDouble(),
         mowDurationSec: mowDurationSec?.toInt(),
       );
+      _maybeNotify(statePhase, uiSeverity, uiMessage);
       _reconnectAttempt = 0;
     } catch (_) {
       // Ignore malformed telemetry packets to keep the session stable.
     }
-    _maybeNotify(statePhase, uiSeverity, uiMessage);
   }
 
   static const _notifyIdMowDone = 1;

@@ -237,7 +237,6 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                 TextField(
                   controller: _nameController,
                   onChanged: (value) => _updateMission(
-                    ref,
                     selectedMission.copyWith(name: value),
                   ),
                   decoration: const InputDecoration(

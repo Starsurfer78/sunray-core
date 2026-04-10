@@ -22,8 +22,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   String? _lastUiMessage;
 
   static const Set<String> _activePhases = <String>{
-    'mowing', 'docking', 'undocking', 'navigating_to_start',
-    'obstacle_recovery', 'gps_recovery', 'waiting_for_rain',
+    'mowing',
+    'docking',
+    'undocking',
+    'navigating_to_start',
+    'obstacle_recovery',
+    'gps_recovery',
+    'waiting_for_rain',
   };
 
   @override
@@ -47,8 +52,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _lastUiMessage = msg;
         final color = switch (next.uiSeverity) {
           'error' => Colors.red.shade700,
-          'warn'  => Colors.orange.shade700,
-          _       => const Color(0xFF1E40AF),
+          'warn' => Colors.orange.shade700,
+          _ => const Color(0xFF1E40AF),
         };
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -76,8 +81,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               }
             },
             itemBuilder: (context) => const <PopupMenuEntry<_MenuAction>>[
-              PopupMenuItem(value: _MenuAction.switchRobot, child: Text('Roboter wechseln')),
-              PopupMenuItem(value: _MenuAction.disconnect,  child: Text('Trennen')),
+              PopupMenuItem(
+                  value: _MenuAction.switchRobot,
+                  child: Text('Roboter wechseln')),
+              PopupMenuItem(
+                  value: _MenuAction.disconnect, child: Text('Trennen')),
             ],
           ),
         ],
@@ -90,7 +98,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Stack(
               children: <Widget>[
                 Positioned.fill(
-                  child: RobotMapView(map: map, status: status, interactive: true),
+                  child:
+                      RobotMapView(map: map, status: status, interactive: true),
                 ),
                 Positioned(
                   top: 10,
@@ -140,20 +149,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             onMow: mission == null
                 ? null
                 : () => _runAction(() {
-                      ref.read(robotConnectionControllerProvider)
+                      ref
+                          .read(robotConnectionControllerProvider)
                           .startMowing(missionId: mission.id);
                     }),
-            onStop: () => _runAction(
-                () => ref.read(robotConnectionControllerProvider).emergencyStop()),
-            onDock: () => _runAction(
-                () => ref.read(robotConnectionControllerProvider).startDocking()),
+            onStop: () => _runAction(() =>
+                ref.read(robotConnectionControllerProvider).emergencyStop()),
+            onDock: () => _runAction(() =>
+                ref.read(robotConnectionControllerProvider).startDocking()),
           ),
           if (_joystickVisible)
             _JoystickOverlay(
-              onDrive: (vx, vy) =>
-                  ref.read(robotConnectionControllerProvider).sendDriveCommand(vy, -vx),
+              onDrive: (vx, vy) => ref
+                  .read(robotConnectionControllerProvider)
+                  .sendDriveCommand(vy, -vx),
               onClose: () {
-                ref.read(robotConnectionControllerProvider).sendDriveCommand(0, 0);
+                ref
+                    .read(robotConnectionControllerProvider)
+                    .sendDriveCommand(0, 0);
                 setState(() => _joystickVisible = false);
               },
             ),
@@ -207,7 +220,9 @@ class _StatusOverlay extends StatelessWidget {
       children: <Widget>[
         _Chip(
           icon: Icons.battery_charging_full_rounded,
-          label: status.batteryPercent != null ? '${status.batteryPercent}%' : '--',
+          label: status.batteryPercent != null
+              ? '${status.batteryPercent}%'
+              : '--',
           color: _batteryColor(status.batteryPercent),
         ),
         const SizedBox(height: 4),
@@ -237,25 +252,25 @@ class _StatusOverlay extends StatelessWidget {
     return switch (rtkState) {
       'RTK Fixed' => ('GPS \u2713', const Color(0xFF4ADE80)),
       'RTK Float' => ('GPS ~', const Color(0xFFFACC15)),
-      'Single'    => ('GPS schwach', const Color(0xFFF97316)),
-      'No Fix'    => ('Kein GPS', const Color(0xFFEF4444)),
-      null        => ('GPS --', const Color(0xFF94A3B8)),
-      _           => (rtkState!, const Color(0xFF94A3B8)),
+      'Single' => ('GPS schwach', const Color(0xFFF97316)),
+      'No Fix' => ('Kein GPS', const Color(0xFFEF4444)),
+      null => ('GPS --', const Color(0xFF94A3B8)),
+      _ => (rtkState!, const Color(0xFF94A3B8)),
     };
   }
 
   static String _phaseLabel(String phase) {
     return switch (phase) {
-      'mowing'             => 'Mäht',
-      'docking'            => 'Dockt',
-      'undocking'          => 'Undockt',
-      'navigating_to_start'=> 'Fährt los',
-      'charging'           => 'Lädt',
-      'obstacle_recovery'  => 'Hindernis',
-      'gps_recovery'       => 'GPS-Warte',
-      'waiting_for_rain'   => 'Regen-Warte',
-      'fault'              => 'Fehler',
-      _                    => 'Bereit',
+      'mowing' => 'Mäht',
+      'docking' => 'Dockt',
+      'undocking' => 'Undockt',
+      'navigating_to_start' => 'Fährt los',
+      'charging' => 'Lädt',
+      'obstacle_recovery' => 'Hindernis',
+      'gps_recovery' => 'GPS-Warte',
+      'waiting_for_rain' => 'Regen-Warte',
+      'fault' => 'Fehler',
+      _ => 'Bereit',
     };
   }
 }
@@ -283,18 +298,9 @@ class _Chip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(label,
               style: TextStyle(
-                  color: effectiveColor, fontSize: 12, fontWeight: FontWeight.w500)),
-        ],
-      ),
-    );
-  }
-}
-        children: <Widget>[
-          Icon(icon, size: 13, color: const Color(0xFFCBD5E1)),
-          const SizedBox(width: 5),
-          Text(label,
-              style: const TextStyle(
-                  color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.w500)),
+                  color: effectiveColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -311,23 +317,23 @@ class _RunningStateBar extends StatelessWidget {
   final String? missionName;
 
   static const Map<String, Color> _phaseColors = <String, Color>{
-    'mowing':             Color(0xFF2563EB),
-    'docking':            Color(0xFFD97706),
-    'undocking':          Color(0xFF7C3AED),
-    'navigating_to_start':Color(0xFF0891B2),
-    'obstacle_recovery':  Color(0xFFDC2626),
-    'gps_recovery':       Color(0xFFCA8A04),
-    'waiting_for_rain':   Color(0xFF0284C7),
+    'mowing': Color(0xFF2563EB),
+    'docking': Color(0xFFD97706),
+    'undocking': Color(0xFF7C3AED),
+    'navigating_to_start': Color(0xFF0891B2),
+    'obstacle_recovery': Color(0xFFDC2626),
+    'gps_recovery': Color(0xFFCA8A04),
+    'waiting_for_rain': Color(0xFF0284C7),
   };
 
   static const Map<String, String> _phaseLabels = <String, String>{
-    'mowing':             'Mäht',
-    'docking':            'Fährt zur Ladestation',
-    'undocking':          'Verlässt Ladestation',
-    'navigating_to_start':'Fährt zur Startposition',
-    'obstacle_recovery':  'Hindernis-Ausweichen',
-    'gps_recovery':       'Warte auf GPS',
-    'waiting_for_rain':   'Warte auf trockenes Wetter',
+    'mowing': 'Mäht',
+    'docking': 'Fährt zur Ladestation',
+    'undocking': 'Verlässt Ladestation',
+    'navigating_to_start': 'Fährt zur Startposition',
+    'obstacle_recovery': 'Hindernis-Ausweichen',
+    'gps_recovery': 'Warte auf GPS',
+    'waiting_for_rain': 'Warte auf trockenes Wetter',
   };
 
   @override
@@ -352,14 +358,18 @@ class _RunningStateBar extends StatelessWidget {
             child: Row(
               children: <Widget>[
                 Container(
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  width: 8,
+                  height: 8,
+                  decoration:
+                      BoxDecoration(color: color, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(label,
                       style: TextStyle(
-                          color: color, fontSize: 13, fontWeight: FontWeight.w600)),
+                          color: color,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
                 ),
                 if (status.batteryPercent != null)
                   Row(
@@ -374,20 +384,24 @@ class _RunningStateBar extends StatelessWidget {
                   ),
                 if (status.mowDistanceM != null) ...<Widget>[
                   const SizedBox(width: 12),
-                  const Icon(Icons.straighten_rounded, size: 14, color: Color(0xFF94A3B8)),
+                  const Icon(Icons.straighten_rounded,
+                      size: 14, color: Color(0xFF94A3B8)),
                   const SizedBox(width: 4),
                   Text(
                     '${status.mowDistanceM!.toStringAsFixed(0)} m',
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                    style:
+                        const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                   ),
                 ],
                 if (status.mowDurationSec != null) ...<Widget>[
                   const SizedBox(width: 12),
-                  const Icon(Icons.timer_outlined, size: 14, color: Color(0xFF94A3B8)),
+                  const Icon(Icons.timer_outlined,
+                      size: 14, color: Color(0xFF94A3B8)),
                   const SizedBox(width: 4),
                   Text(
                     _formatDuration(status.mowDurationSec!),
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                    style:
+                        const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                   ),
                 ],
               ],
@@ -398,11 +412,13 @@ class _RunningStateBar extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: Row(
                 children: <Widget>[
-                  const Icon(Icons.route_rounded, size: 13, color: Color(0xFF64748B)),
+                  const Icon(Icons.route_rounded,
+                      size: 13, color: Color(0xFF64748B)),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(missionName!,
-                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                        style: const TextStyle(
+                            color: Color(0xFF64748B), fontSize: 12),
                         overflow: TextOverflow.ellipsis),
                   ),
                 ],
@@ -447,15 +463,19 @@ class _ChecklistBlock extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
         children: <Widget>[
-          _CheckItem(done: true,  label: 'Verbunden'),
+          _CheckItem(done: true, label: 'Verbunden'),
           const SizedBox(width: 8),
-          _CheckItem(done: hasPerimeter, label: 'Perimeter',
+          _CheckItem(
+              done: hasPerimeter,
+              label: 'Perimeter',
               onFix: hasPerimeter ? null : onGoMap),
           const SizedBox(width: 8),
-          _CheckItem(done: hasDock, label: 'Dock',
-              onFix: hasDock ? null : onGoMap),
+          _CheckItem(
+              done: hasDock, label: 'Dock', onFix: hasDock ? null : onGoMap),
           const SizedBox(width: 8),
-          _CheckItem(done: hasMission, label: 'Mission',
+          _CheckItem(
+              done: hasMission,
+              label: 'Mission',
               onFix: hasMission ? null : onGoMissions),
         ],
       ),
@@ -486,7 +506,9 @@ class _CheckItem extends StatelessWidget {
           child: Column(
             children: <Widget>[
               Icon(
-                done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                done
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
                 size: 16,
                 color: done ? const Color(0xFF4ADE80) : const Color(0xFFFCA5A5),
               ),
@@ -495,14 +517,16 @@ class _CheckItem extends StatelessWidget {
                 label,
                 style: TextStyle(
                   fontSize: 12,
-                  color: done ? const Color(0xFF4ADE80) : const Color(0xFFFCA5A5),
+                  color:
+                      done ? const Color(0xFF4ADE80) : const Color(0xFFFCA5A5),
                   fontWeight: FontWeight.w500,
                 ),
                 textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
               ),
               if (!done)
-                const Text('→', style: TextStyle(fontSize: 12, color: Color(0xFFFCA5A5))),
+                const Text('→',
+                    style: TextStyle(fontSize: 12, color: Color(0xFFFCA5A5))),
             ],
           ),
         ),
@@ -640,7 +664,8 @@ class _JoystickOverlayState extends State<_JoystickOverlay> {
     const center = Offset(_joystickRadius, _joystickRadius);
     final delta = local - center;
     final dist = delta.distance;
-    final clamped = dist <= _joystickRadius ? delta : delta / dist * _joystickRadius;
+    final clamped =
+        dist <= _joystickRadius ? delta : delta / dist * _joystickRadius;
     setState(() => _thumbOffset = clamped);
     _emitCurrent();
   }
@@ -660,14 +685,17 @@ class _JoystickOverlayState extends State<_JoystickOverlay> {
                 children: <Widget>[
                   const Text('Steuerkreuz',
                       style: TextStyle(
-                          color: Color(0xFFCBD5E1), fontSize: 14, fontWeight: FontWeight.w600)),
+                          color: Color(0xFFCBD5E1),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600)),
                   const SizedBox(height: 20),
                   GestureDetector(
                     onPanStart: _onPanStart,
                     onPanUpdate: _onPanUpdate,
                     onPanEnd: _onPanEnd,
                     child: SizedBox(
-                      width: diameter, height: diameter,
+                      width: diameter,
+                      height: diameter,
                       child: CustomPaint(
                         painter: _JoystickPainter(
                           thumbOffset: _thumbOffset,
@@ -680,7 +708,8 @@ class _JoystickOverlayState extends State<_JoystickOverlay> {
                   const SizedBox(height: 24),
                   TextButton.icon(
                     onPressed: widget.onClose,
-                    icon: const Icon(Icons.close_rounded, color: Color(0xFF94A3B8)),
+                    icon: const Icon(Icons.close_rounded,
+                        color: Color(0xFF94A3B8)),
                     label: const Text('Schliessen',
                         style: TextStyle(color: Color(0xFF94A3B8))),
                   ),
@@ -707,23 +736,42 @@ class _JoystickPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    canvas.drawCircle(center, joystickRadius,
-        Paint()..color = const Color(0x441E40AF)..style = PaintingStyle.fill);
-    canvas.drawCircle(center, joystickRadius,
-        Paint()..color = const Color(0xFF3B82F6)..style = PaintingStyle.stroke..strokeWidth = 2);
+    canvas.drawCircle(
+        center,
+        joystickRadius,
+        Paint()
+          ..color = const Color(0x441E40AF)
+          ..style = PaintingStyle.fill);
+    canvas.drawCircle(
+        center,
+        joystickRadius,
+        Paint()
+          ..color = const Color(0xFF3B82F6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2);
     canvas.drawCircle(center, 6, Paint()..color = const Color(0x664ADE80));
-    final lp = Paint()..color = const Color(0x443B82F6)..strokeWidth = 1;
+    final lp = Paint()
+      ..color = const Color(0x443B82F6)
+      ..strokeWidth = 1;
     canvas.drawLine(Offset(center.dx - joystickRadius, center.dy),
         Offset(center.dx + joystickRadius, center.dy), lp);
     canvas.drawLine(Offset(center.dx, center.dy - joystickRadius),
         Offset(center.dx, center.dy + joystickRadius), lp);
     final tc = center + thumbOffset;
-    canvas.drawCircle(tc, thumbRadius, Paint()..color = const Color(0xFF2563EB));
-    canvas.drawCircle(tc, thumbRadius,
-        Paint()..color = const Color(0xFF93C5FD)..style = PaintingStyle.stroke..strokeWidth = 2);
-    canvas.drawCircle(tc, thumbRadius * 0.35, Paint()..color = const Color(0xAABAE6FD));
+    canvas.drawCircle(
+        tc, thumbRadius, Paint()..color = const Color(0xFF2563EB));
+    canvas.drawCircle(
+        tc,
+        thumbRadius,
+        Paint()
+          ..color = const Color(0xFF93C5FD)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2);
+    canvas.drawCircle(
+        tc, thumbRadius * 0.35, Paint()..color = const Color(0xAABAE6FD));
   }
 
   @override
-  bool shouldRepaint(covariant _JoystickPainter old) => old.thumbOffset != thumbOffset;
+  bool shouldRepaint(covariant _JoystickPainter old) =>
+      old.thumbOffset != thumbOffset;
 }
