@@ -615,8 +615,21 @@ export interface ActivePlanResponse {
   missionId: string
   waypoints: WaypointEntry[]
   zoneOrder: string[]
+  planRef?: {
+    id: string
+    revision?: number
+    generatedAtMs?: number
+  }
+  route?: {
+    active: boolean
+    valid: boolean
+    invalidReason: string
+    sourceMode: 'perimeter' | 'exclusion' | 'dock' | 'mow' | 'free'
+    points: PlannerPreviewRoutePoint[]
+  }
   waypointIndex: number
   waypointTotal: number
+  activePointIndex?: number
 }
 
 export async function getActivePlan(): Promise<ActivePlanResponse> {

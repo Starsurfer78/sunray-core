@@ -30,6 +30,48 @@ namespace sunray
 
     namespace
     {
+        std::string encodeWayType(nav::WayType type)
+        {
+            switch (type)
+            {
+            case nav::WayType::PERIMETER:
+                return "perimeter";
+            case nav::WayType::EXCLUSION:
+                return "exclusion";
+            case nav::WayType::DOCK:
+                return "dock";
+            case nav::WayType::MOW:
+                return "mow";
+            case nav::WayType::FREE:
+            default:
+                return "free";
+            }
+        }
+
+        std::string encodeRouteSemantic(nav::RouteSemantic sem)
+        {
+            switch (sem)
+            {
+            case nav::RouteSemantic::COVERAGE_EDGE:
+                return "coverage_edge";
+            case nav::RouteSemantic::COVERAGE_INFILL:
+                return "coverage_infill";
+            case nav::RouteSemantic::TRANSIT_WITHIN_ZONE:
+                return "transit_within_zone";
+            case nav::RouteSemantic::TRANSIT_BETWEEN_COMPONENTS:
+                return "transit_between_components";
+            case nav::RouteSemantic::TRANSIT_INTER_ZONE:
+                return "transit_inter_zone";
+            case nav::RouteSemantic::DOCK_APPROACH:
+                return "dock_approach";
+            case nav::RouteSemantic::RECOVERY:
+                return "recovery";
+            case nav::RouteSemantic::UNKNOWN:
+            default:
+                return "unknown";
+            }
+        }
+
         uint64_t steadyNowMs()
         {
             return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1419,9 +1461,34 @@ namespace sunray
             nlohmann::json wpArray = nlohmann::json::array();
             for (const auto &wp : nav::routePlanToWaypoints(plan.route))
                 wpArray.push_back({{"x", wp.x}, {"y", wp.y}, {"mowOn", wp.mowOn}});
+            nlohmann::json routePoints = nlohmann::json::array();
+            for (const auto &point : plan.route.points)
+            {
+                routePoints.push_back({
+                    {"p", {point.p.x, point.p.y}},
+                    {"reverse", point.reverse},
+                    {"slow", point.slow},
+                    {"reverseAllowed", point.reverseAllowed},
+                    {"clearance_m", point.clearance_m},
+                    {"sourceMode", encodeWayType(point.sourceMode)},
+                    {"semantic", encodeRouteSemantic(point.semantic)},
+                    {"zoneId", point.zoneId},
+                    {"componentId", point.componentId},
+                });
+            }
             nlohmann::json planJson = {
                 {"missionId", plan.missionId},
                 {"zoneOrder", plan.zoneOrder},
+                {"planRef",
+                 {{"id", plan.missionId.empty() ? std::string("active-mission") : plan.missionId},
+                  {"revision", static_cast<int>(plan.route.points.size())},
+                  {"generatedAtMs", wallClockNowMs()}}},
+                {"route",
+                 {{"active", plan.route.active},
+                  {"valid", plan.route.valid},
+                  {"invalidReason", plan.route.invalidReason},
+                  {"sourceMode", encodeWayType(plan.route.sourceMode)},
+                  {"points", std::move(routePoints)}}},
                 {"waypoints", std::move(wpArray)},
             };
             ws_->pushActivePlan(std::move(planJson));

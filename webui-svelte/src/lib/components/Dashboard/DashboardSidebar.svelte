@@ -89,7 +89,7 @@
 
   $: zoneLabel =
     $telemetry.mission_zone_count > 0
-      ? `Zone ${$telemetry.mission_zone_index + 1} / ${$telemetry.mission_zone_count}`
+      ? `Zone ${$telemetry.mission_zone_index} / ${$telemetry.mission_zone_count}`
       : "—";
 
   function formatCoordinate(value: number, axis: "lat" | "lon") {

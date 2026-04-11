@@ -8,6 +8,8 @@
     getActivePlan,
     getLiveOverlay,
     type ActivePlanResponse,
+    type PlannerPreviewRoutePoint,
+    type RouteSemantic,
     type WaypointEntry,
     type LiveOverlayResponse,
     type ObstacleEntry,
@@ -571,26 +573,166 @@
 
   // N4.2 / N4.3 — active mission plan layers (only when showRuntimeLayers) ----
   let activePlanWaypoints: WaypointEntry[] = [];
+  let activePlanRoutePoints: PlannerPreviewRoutePoint[] = [];
+  let activePlanWaypointIndex = -1;
   let lastFetchedMissionId = "";
+
+  type ActivePlanStatus = "done" | "active" | "remaining";
+
+  interface ActivePlanRun {
+    semantic: RouteSemantic;
+    status: ActivePlanStatus;
+    points: Point[];
+  }
+
+  const remainingSemanticColor: Partial<Record<RouteSemantic, string>> = {
+    coverage_edge: "#4ade80",
+    coverage_infill: "#22c55e",
+    transit_within_zone: "#f59e0b",
+    transit_between_components: "#a78bfa",
+    transit_inter_zone: "#38bdf8",
+    dock_approach: "#fbbf24",
+    recovery: "#94a3b8",
+    unknown: "#94a3b8",
+  };
+
+  const doneSemanticColor: Partial<Record<RouteSemantic, string>> = {
+    coverage_edge: "#166534",
+    coverage_infill: "#15803d",
+    transit_within_zone: "#78716c",
+    transit_between_components: "#6d28d9",
+    transit_inter_zone: "#0369a1",
+    dock_approach: "#a16207",
+    recovery: "#475569",
+    unknown: "#475569",
+  };
+
+  const activeSemanticColor: Partial<Record<RouteSemantic, string>> = {
+    coverage_edge: "#facc15",
+    coverage_infill: "#fde047",
+    transit_within_zone: "#fb923c",
+    transit_between_components: "#e879f9",
+    transit_inter_zone: "#22d3ee",
+    dock_approach: "#facc15",
+    recovery: "#cbd5e1",
+    unknown: "#e2e8f0",
+  };
+
+  function isCoverageSemantic(semantic: RouteSemantic) {
+    return semantic === "coverage_edge" || semantic === "coverage_infill";
+  }
+
+  function activePlanRuns(
+    points: PlannerPreviewRoutePoint[],
+    activeIndex: number,
+  ): ActivePlanRun[] {
+    if (points.length < 2) return [];
+
+    const runs: ActivePlanRun[] = [];
+    const statusForSegment = (segmentIndex: number): ActivePlanStatus => {
+      if (activeIndex <= 0) return segmentIndex === 0 ? "active" : "remaining";
+      if (segmentIndex < activeIndex - 1) return "done";
+      if (segmentIndex === activeIndex - 1) return "active";
+      return "remaining";
+    };
+
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const semantic: RouteSemantic =
+        points[index + 1].semantic ?? points[index].semantic ?? "unknown";
+      const status = statusForSegment(index);
+      const a: Point = { x: points[index].p[0], y: points[index].p[1] };
+      const b: Point = { x: points[index + 1].p[0], y: points[index + 1].p[1] };
+      const lastRun = runs[runs.length - 1];
+      if (
+        lastRun &&
+        lastRun.semantic === semantic &&
+        lastRun.status === status
+      ) {
+        lastRun.points.push(b);
+      } else {
+        runs.push({ semantic, status, points: [a, b] });
+      }
+    }
+
+    return runs;
+  }
+
+  function activeRunStroke(run: ActivePlanRun) {
+    if (run.status === "done") {
+      return doneSemanticColor[run.semantic] ?? "#475569";
+    }
+    if (run.status === "active") {
+      return activeSemanticColor[run.semantic] ?? "#e2e8f0";
+    }
+    return remainingSemanticColor[run.semantic] ?? "#94a3b8";
+  }
+
+  function activeRunStrokeWidth(run: ActivePlanRun) {
+    if (run.status === "active") return 1.8 / zoom;
+    return isCoverageSemantic(run.semantic)
+      ? run.status === "done"
+        ? 1.15 / zoom
+        : 1.3 / zoom
+      : 0.95 / zoom;
+  }
+
+  function activeRunDasharray(run: ActivePlanRun) {
+    if (run.status === "active") return undefined;
+    if (isCoverageSemantic(run.semantic)) {
+      return run.status === "done" ? undefined : `${2.5 / zoom} ${1.6 / zoom}`;
+    }
+    return `${3.2 / zoom} ${2.1 / zoom}`;
+  }
+
+  function activeRunOpacity(run: ActivePlanRun) {
+    if (run.status === "active") return 0.98;
+    if (run.status === "done") return isCoverageSemantic(run.semantic) ? 0.72 : 0.52;
+    return isCoverageSemantic(run.semantic) ? 0.88 : 0.74;
+  }
+
+  async function fetchActivePlan() {
+    if (!$telemetry.mission_id) {
+      activePlanWaypoints = [];
+      activePlanRoutePoints = [];
+      activePlanWaypointIndex = -1;
+      return;
+    }
+
+    try {
+      const response: ActivePlanResponse = await getActivePlan();
+      activePlanWaypoints = response.waypoints ?? [];
+      activePlanRoutePoints = response.route?.points ?? [];
+      activePlanWaypointIndex =
+        response.activePointIndex ?? response.waypointIndex ?? -1;
+    } catch {
+      activePlanWaypoints = [];
+      activePlanRoutePoints = [];
+      activePlanWaypointIndex = -1;
+    }
+  }
 
   $: if (showRuntimeLayers && $telemetry.mission_id !== lastFetchedMissionId) {
     lastFetchedMissionId = $telemetry.mission_id;
     if ($telemetry.mission_id) {
-      getActivePlan()
-        .then((r: ActivePlanResponse) => {
-          activePlanWaypoints = r.waypoints ?? [];
-        })
-        .catch(() => {
-          activePlanWaypoints = [];
-        });
+      void fetchActivePlan();
     } else {
       activePlanWaypoints = [];
+      activePlanRoutePoints = [];
+      activePlanWaypointIndex = -1;
     }
   }
+
+  const activePlanTimer = showRuntimeLayers
+    ? setInterval(() => {
+        void fetchActivePlan();
+      }, 2000)
+    : undefined;
 
   // N7.3: These are display-only representations derived from backend data — not
   // a second progress model. waypoint_index is owned by the backend; the slicing
   // here only splits the already-fetched route for rendering purposes.
+  $: currentActivePlanIndex =
+    $telemetry.waypoint_index >= 0 ? $telemetry.waypoint_index : activePlanWaypointIndex;
   $: activePlanDriven =
     $telemetry.waypoint_index > 0
       ? activePlanWaypoints.slice(0, $telemetry.waypoint_index)
@@ -599,6 +741,10 @@
     $telemetry.waypoint_index >= 0
       ? activePlanWaypoints.slice($telemetry.waypoint_index)
       : activePlanWaypoints;
+  $: activePlanSemanticRuns = activePlanRuns(
+    activePlanRoutePoints,
+    currentActivePlanIndex,
+  );
 
   $: targetScreen = $telemetry.has_target
     ? worldToScreen(
@@ -629,8 +775,10 @@
     ? setInterval(fetchLiveOverlay, 2000)
     : undefined;
   onDestroy(() => {
+    if (activePlanTimer !== undefined) clearInterval(activePlanTimer);
     if (liveOverlayTimer !== undefined) clearInterval(liveOverlayTimer);
   });
+  if (showRuntimeLayers) void fetchActivePlan();
   if (showRuntimeLayers) fetchLiveOverlay();
   // -------------------------------------------------------------------------
 
@@ -1161,29 +1309,45 @@
               stroke-width={0.8 / zoom}
             />
           {/if}
-          <!-- N4.2: driven path layer (solid green) -->
-          {#if activePlanDriven.length > 1}
-            <polyline
-              points={path(activePlanDriven)}
-              fill="none"
-              stroke="#22c55e"
-              stroke-width={1.4 / zoom}
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          {/if}
-          <!-- N4.2: remaining path layer (dashed, lighter green) -->
-          {#if activePlanRemaining.length > 1}
-            <polyline
-              points={path(activePlanRemaining)}
-              fill="none"
-              stroke="#4ade80"
-              stroke-opacity="0.55"
-              stroke-width={0.9 / zoom}
-              stroke-dasharray={`${3 / zoom} ${2 / zoom}`}
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
+          <!-- N4.2: active mission route with semantic + progress rendering -->
+          {#if activePlanSemanticRuns.length > 0}
+            {#each activePlanSemanticRuns as run}
+              {#if run.points.length > 1}
+                <polyline
+                  points={path(run.points)}
+                  fill="none"
+                  stroke={activeRunStroke(run)}
+                  stroke-opacity={activeRunOpacity(run)}
+                  stroke-width={activeRunStrokeWidth(run)}
+                  stroke-dasharray={activeRunDasharray(run)}
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              {/if}
+            {/each}
+          {:else}
+            {#if activePlanDriven.length > 1}
+              <polyline
+                points={path(activePlanDriven)}
+                fill="none"
+                stroke="#22c55e"
+                stroke-width={1.4 / zoom}
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            {/if}
+            {#if activePlanRemaining.length > 1}
+              <polyline
+                points={path(activePlanRemaining)}
+                fill="none"
+                stroke="#4ade80"
+                stroke-opacity="0.55"
+                stroke-width={0.9 / zoom}
+                stroke-dasharray={`${3 / zoom} ${2 / zoom}`}
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            {/if}
           {/if}
           <!-- N4.3: current navigation target crosshair (orange) -->
           {#if targetScreen}

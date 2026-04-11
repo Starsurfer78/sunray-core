@@ -1087,12 +1087,21 @@ namespace sunray
                 std::lock_guard<std::mutex> lkPlan(activePlanMutex_);
                 resp = (activePlanJson_.is_object() && !activePlanJson_.empty())
                     ? activePlanJson_
-                    : nlohmann::json({{"missionId", ""}, {"waypoints", nlohmann::json::array()}, {"zoneOrder", nlohmann::json::array()}});
+                    : nlohmann::json({{"missionId", ""},
+                                      {"waypoints", nlohmann::json::array()},
+                                      {"zoneOrder", nlohmann::json::array()},
+                                      {"route",
+                                       {{"active", false},
+                                        {"valid", true},
+                                        {"invalidReason", ""},
+                                        {"sourceMode", "free"},
+                                        {"points", nlohmann::json::array()}}}});
             }
             {
                 std::lock_guard<std::mutex> lkTel(telemetryMutex_);
                 resp["waypointIndex"] = latestTelemetry_.waypoint_index;
                 resp["waypointTotal"] = latestTelemetry_.waypoint_total;
+                resp["activePointIndex"] = latestTelemetry_.waypoint_index;
             }
             crow::response r(200, resp.dump());
             r.add_header("Content-Type", "application/json");
