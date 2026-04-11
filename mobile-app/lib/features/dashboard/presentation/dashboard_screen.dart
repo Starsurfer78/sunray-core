@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../domain/map/map_geometry.dart';
+import '../../../domain/mission/mission.dart';
 import '../../../domain/robot/robot_status.dart';
 import '../../../shared/providers/app_providers.dart';
 import '../../../shared/widgets/connection_notice.dart';
@@ -20,6 +22,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _commandBusy = false;
   bool _joystickVisible = false;
   String? _lastUiMessage;
+  String? _selectedZoneId;
+  bool _autoReconnectAttempted = false;
 
   static const Set<String> _activePhases = <String>{
     'mowing',
@@ -33,18 +37,55 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final rememberedRobotAsync = ref.watch(rememberedRobotProvider);
     final missions = ref.watch(missionsProvider);
-    final mission = missions.isEmpty ? null : missions.first;
+    final selectedMissionId = ref.watch(selectedMissionIdProvider);
+    final mission = missions.cast<Mission?>().firstWhere(
+        (entry) => entry?.id == selectedMissionId,
+        orElse: () => missions.isEmpty ? null : missions.first,
+      );
     final map = ref.watch(mapGeometryProvider);
     final status = ref.watch(connectionStateProvider);
     final activeRobot = ref.watch(activeRobotProvider);
     final isConnected = status.connectionState == ConnectionStateKind.connected;
     final phase = status.statePhase ?? 'idle';
     final isActive = _activePhases.contains(phase);
+    final isPaused = phase == 'paused';
+    final hasFault = status.connectionState == ConnectionStateKind.error ||
+      phase == 'fault' ||
+      status.mowFaultActive == true;
+    final hasZones = map.zones.isNotEmpty;
+    final hasRecurringSchedule = missions.any((entry) => entry.isRecurring);
+    final selectedZoneId = mission?.zoneIds.contains(_selectedZoneId) == true
+      ? _selectedZoneId
+      : null;
+    final highlightedZoneIds = selectedZoneId != null
+      ? <String>[selectedZoneId]
+      : (mission?.zoneIds ?? const <String>[]);
 
     final hasConnectionNotice = status.lastError != null &&
         (status.connectionState == ConnectionStateKind.error ||
             status.connectionState == ConnectionStateKind.connecting);
+
+    rememberedRobotAsync.whenData((robot) {
+      final hasActiveRobot = ref.read(activeRobotProvider) != null;
+      final isBusy =
+          status.connectionState == ConnectionStateKind.connecting ||
+              status.connectionState == ConnectionStateKind.connected;
+      if (_autoReconnectAttempted || robot == null || hasActiveRobot || isBusy) {
+        return;
+      }
+      _autoReconnectAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final controller = ref.read(robotConnectionControllerProvider);
+        await controller.connect(robot, persist: false);
+        if (!mounted) return;
+        final next = ref.read(connectionStateProvider);
+        if (next.connectionState != ConnectionStateKind.connected) {
+          controller.stopReconnect();
+        }
+      });
+    });
 
     ref.listen<RobotStatus>(connectionStateProvider, (previous, next) {
       final msg = next.uiMessage;
@@ -71,6 +112,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       appBar: AppBar(
         title: Text(activeRobot?.name ?? 'Dashboard'),
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Schnellzugriffe',
+            onPressed: () => _openQuickActions(context),
+            icon: const Icon(Icons.tune_rounded),
+          ),
           PopupMenuButton<_MenuAction>(
             onSelected: (action) {
               switch (action) {
@@ -98,8 +144,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Stack(
               children: <Widget>[
                 Positioned.fill(
-                  child:
-                      RobotMapView(map: map, status: status, interactive: true),
+                  child: RobotMapView(
+                    map: map,
+                    status: status,
+                    interactive: true,
+                    selectedZoneIds: highlightedZoneIds,
+                    onZoneTap: (zoneId) {
+                      setState(() {
+                        _selectedZoneId = _selectedZoneId == zoneId ? null : zoneId;
+                      });
+                    },
+                  ),
                 ),
                 Positioned(
                   top: 10,
@@ -132,13 +187,55 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           // Running state bar OR checklist
           if (isConnected && isActive)
             _RunningStateBar(status: status, missionName: mission?.name)
-          else if (isConnected)
-            _ChecklistBlock(
+          else
+            _ReadyPanel(
+              status: status,
+              isConnected: isConnected,
+              hasFault: hasFault,
+              isPaused: isPaused,
               hasPerimeter: map.perimeter.length >= 3,
               hasDock: map.dock.isNotEmpty,
+              hasZones: hasZones,
               hasMission: missions.isNotEmpty,
-              onGoMap: () => context.go('/map'),
-              onGoMissions: () => context.go('/missions'),
+              hasRecurringSchedule: hasRecurringSchedule,
+              hasRememberedRobot: rememberedRobotAsync.valueOrNull != null,
+              onGoMapSetup: () => context.push('/map/setup'),
+              onGoMapEdit: () => context.push('/map/edit'),
+              onGoMissions: () => context.push('/missions'),
+              onGoService: () => context.push('/service'),
+              onGoStatistics: () => context.push('/statistics'),
+              onReconnect: _handleConnectOrSwitch,
+              onResume: mission == null
+                  ? null
+                  : () => _runAction(() {
+                        ref
+                            .read(robotConnectionControllerProvider)
+                            .startMowing(missionId: mission.id);
+                      }),
+            ),
+          if (isConnected && mission != null)
+            _MissionFocusCard(
+              missions: missions,
+              mission: mission,
+              selectedMissionId: selectedMissionId,
+              map: map,
+              selectedZoneId: selectedZoneId,
+              onMissionSelected: (missionId) {
+                ref.read(selectedMissionIdProvider.notifier).state = missionId;
+                setState(() => _selectedZoneId = null);
+              },
+              onZoneSelected: (zoneId) {
+                setState(() {
+                  _selectedZoneId = _selectedZoneId == zoneId ? null : zoneId;
+                });
+              },
+              onOpenDetails: () => _openMissionDetails(
+                context,
+                mission,
+                map,
+                selectedZoneId,
+              ),
+              onOpenPlanning: () => context.push('/missions'),
             ),
           // Bottom action bar
           _BottomActionBar(
@@ -146,6 +243,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             busy: _commandBusy,
             missionName: mission?.name,
             isActive: isActive,
+            isPaused: isPaused,
             onMow: mission == null
                 ? null
                 : () => _runAction(() {
@@ -177,6 +275,202 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   void _openJoystick() => setState(() => _joystickVisible = true);
 
+  Future<void> _openQuickActions(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Schnellzugriffe',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              _QuickActionTile(
+                icon: Icons.map_outlined,
+                title: 'Kartensetup',
+                subtitle: 'Perimeter, Dock und erste Zonen anlegen',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/map/setup');
+                },
+              ),
+              _QuickActionTile(
+                icon: Icons.edit_location_alt_outlined,
+                title: 'Karte bearbeiten',
+                subtitle: 'Punkte verschieben und Objekte korrigieren',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/map/edit');
+                },
+              ),
+              _QuickActionTile(
+                icon: Icons.notifications_outlined,
+                title: 'Benachrichtigungen',
+                subtitle: 'Warnungen, Hinweise und aktuelle Meldungen ansehen',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/notifications');
+                },
+              ),
+              _QuickActionTile(
+                icon: Icons.settings_outlined,
+                title: 'Einstellungen',
+                subtitle: 'App- und Roboterdetails als sekundaeren Bereich oeffnen',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/settings');
+                },
+              ),
+              _QuickActionTile(
+                icon: Icons.route_outlined,
+                title: 'Planung',
+                subtitle: 'Missionen, Zonen und Vorschau verwalten',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/missions');
+                },
+              ),
+              _QuickActionTile(
+                icon: Icons.miscellaneous_services_outlined,
+                title: 'Service',
+                subtitle: 'Updates, Diagnose und Systemfunktionen oeffnen',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/service');
+                },
+              ),
+              _QuickActionTile(
+                icon: Icons.insights_outlined,
+                title: 'Statistik',
+                subtitle: 'Leistung und Historie prüfen',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.push('/statistics');
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMissionDetails(
+    BuildContext context,
+    Mission mission,
+    MapGeometry map,
+    String? selectedZoneId,
+  ) async {
+    final zoneNames = map.zones
+        .where((zone) => mission.zoneIds.contains(zone.id))
+        .map((zone) => zone.name)
+        .toList(growable: false);
+    final selectedZoneName = selectedZoneId == null
+        ? null
+        : map.zones
+            .where((zone) => zone.id == selectedZoneId)
+            .map((zone) => zone.name)
+            .cast<String?>()
+            .firstWhere((zone) => zone != null, orElse: () => null);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                mission.name,
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  _MissionMetaPill(
+                    icon: Icons.crop_square_rounded,
+                    label: '${mission.zoneIds.length} Zonen',
+                  ),
+                  _MissionMetaPill(
+                    icon: Icons.schedule_rounded,
+                    label: mission.effectiveScheduleLabel,
+                  ),
+                  _MissionMetaPill(
+                    icon: Icons.pattern_rounded,
+                    label: mission.pattern,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Zonen',
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              if (zoneNames.isEmpty)
+                const Text('Noch keine Zonen in dieser Mission ausgewählt.')
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: zoneNames
+                      .map(
+                        (name) => _MissionMetaPill(
+                          icon: selectedZoneName == name
+                              ? Icons.place_rounded
+                              : Icons.grass_rounded,
+                          label: name,
+                          emphasized: selectedZoneName == name,
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              const SizedBox(height: 16),
+              Text(
+                'Bedingungen',
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(mission.onlyWhenDry ? 'Nur trocken aktiviert' : 'Mäht auch bei unklarem Wetter'),
+              const SizedBox(height: 4),
+              Text(
+                mission.requiresHighBattery
+                    ? 'Start erst ab hohem Akkustand'
+                    : 'Kein hoher Akkustand erforderlich',
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        context.go('/missions');
+                      },
+                      icon: const Icon(Icons.route_outlined),
+                      label: const Text('Planung öffnen'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _runAction(VoidCallback action) async {
     if (_commandBusy) return;
     setState(() => _commandBusy = true);
@@ -195,6 +489,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     context.go('/discover');
   }
 
+  Future<void> _handleConnectOrSwitch() async {
+    if (ref.read(activeRobotProvider) == null) {
+      if (!mounted) return;
+      context.push('/discover');
+      return;
+    }
+    await _handleSwitchRobot();
+  }
+
   Future<void> _handleSwitchRobot() async {
     await ref.read(robotConnectionControllerProvider).switchRobot();
     if (!mounted) return;
@@ -203,6 +506,173 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 }
 
 enum _MenuAction { switchRobot, disconnect }
+
+class _MissionFocusCard extends StatelessWidget {
+  const _MissionFocusCard({
+    required this.missions,
+    required this.mission,
+    required this.selectedMissionId,
+    required this.map,
+    required this.selectedZoneId,
+    required this.onMissionSelected,
+    required this.onZoneSelected,
+    required this.onOpenDetails,
+    required this.onOpenPlanning,
+  });
+
+  final List<Mission> missions;
+  final Mission mission;
+  final String? selectedMissionId;
+  final MapGeometry map;
+  final String? selectedZoneId;
+  final void Function(String missionId) onMissionSelected;
+  final void Function(String zoneId) onZoneSelected;
+  final VoidCallback onOpenDetails;
+  final VoidCallback onOpenPlanning;
+
+  @override
+  Widget build(BuildContext context) {
+    final missionZones = map.zones
+        .where((zone) => mission.zoneIds.contains(zone.id))
+        .toList(growable: false);
+
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF0A1020),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Einsatz',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              TextButton(
+                onPressed: onOpenDetails,
+                child: const Text('Details'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: missions
+                  .map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(entry.name),
+                        selected: entry.id == (selectedMissionId ?? mission.id),
+                        onSelected: (_) => onMissionSelected(entry.id),
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              _MissionMetaPill(
+                icon: Icons.schedule_rounded,
+                label: mission.effectiveScheduleLabel,
+              ),
+              _MissionMetaPill(
+                icon: Icons.pattern_rounded,
+                label: mission.pattern,
+              ),
+              _MissionMetaPill(
+                icon: Icons.crop_square_rounded,
+                label: '${mission.zoneIds.length} Zonen',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Zonen',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 8),
+          if (missionZones.isEmpty)
+            Text(
+              'Noch keine Zonen gewählt. Öffne die Planung und stelle eine Mission zusammen.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF94A3B8),
+                  ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: missionZones
+                  .map(
+                    (zone) => FilterChip(
+                      label: Text(zone.name),
+                      selected: zone.id == selectedZoneId,
+                      onSelected: (_) => onZoneSelected(zone.id),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonalIcon(
+              onPressed: onOpenPlanning,
+              icon: const Icon(Icons.route_outlined),
+              label: const Text('Planung öffnen'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MissionMetaPill extends StatelessWidget {
+  const _MissionMetaPill({
+    required this.icon,
+    required this.label,
+    this.emphasized = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: emphasized ? const Color(0x1F2563EB) : const Color(0xFF0F1829),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: emphasized ? const Color(0xFF60A5FA) : const Color(0xFF1E3A5F),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 14, color: const Color(0xFF60A5FA)),
+          const SizedBox(width: 6),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Status overlay chips (map top-left)
@@ -255,7 +725,7 @@ class _StatusOverlay extends StatelessWidget {
       'Single' => ('GPS schwach', const Color(0xFFF97316)),
       'No Fix' => ('Kein GPS', const Color(0xFFEF4444)),
       null => ('GPS --', const Color(0xFF94A3B8)),
-      _ => (rtkState!, const Color(0xFF94A3B8)),
+      _ => (rtkState, const Color(0xFF94A3B8)),
     };
   }
 
@@ -438,47 +908,285 @@ class _RunningStateBar extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Checklist block (shown when idle/charging and connected)
+// Ready panel (shown when idle/charging and connected)
 // ---------------------------------------------------------------------------
 
-class _ChecklistBlock extends StatelessWidget {
-  const _ChecklistBlock({
+class _ReadyPanel extends StatelessWidget {
+  const _ReadyPanel({
+    required this.status,
+    required this.isConnected,
+    required this.hasFault,
+    required this.isPaused,
     required this.hasPerimeter,
     required this.hasDock,
+    required this.hasZones,
     required this.hasMission,
-    required this.onGoMap,
+    required this.hasRecurringSchedule,
+    required this.hasRememberedRobot,
+    required this.onGoMapSetup,
+    required this.onGoMapEdit,
     required this.onGoMissions,
+    required this.onGoService,
+    required this.onGoStatistics,
+    required this.onReconnect,
+    required this.onResume,
   });
 
+  final RobotStatus status;
+  final bool isConnected;
+  final bool hasFault;
+  final bool isPaused;
   final bool hasPerimeter;
   final bool hasDock;
+  final bool hasZones;
   final bool hasMission;
-  final VoidCallback onGoMap;
+  final bool hasRecurringSchedule;
+  final bool hasRememberedRobot;
+  final VoidCallback onGoMapSetup;
+  final VoidCallback onGoMapEdit;
   final VoidCallback onGoMissions;
+  final VoidCallback onGoService;
+  final VoidCallback onGoStatistics;
+  final VoidCallback onReconnect;
+  final VoidCallback? onResume;
 
   @override
   Widget build(BuildContext context) {
+    final hasMapReady = hasPerimeter && hasDock;
+    final stateKind = !isConnected
+        ? (hasRememberedRobot
+            ? _DashboardStateKind.offline
+            : _DashboardStateKind.noRobot)
+        : hasFault
+            ? _DashboardStateKind.fault
+            : isPaused
+                ? _DashboardStateKind.paused
+                : !hasMapReady
+                    ? _DashboardStateKind.noMap
+                    : !hasZones
+                        ? _DashboardStateKind.noZones
+                        : !hasRecurringSchedule
+                            ? _DashboardStateKind.noSchedule
+                            : _DashboardStateKind.ready;
+
+    final title = switch (stateKind) {
+      _DashboardStateKind.noRobot => 'Roboter zuerst verbinden',
+      _DashboardStateKind.offline => 'Roboter ist nicht verbunden',
+      _DashboardStateKind.fault => 'Fehler braucht Aufmerksamkeit',
+      _DashboardStateKind.paused => 'Maehvorgang ist pausiert',
+      _DashboardStateKind.noMap => 'Kartensetup abschliessen',
+      _DashboardStateKind.noZones => 'Zonen fehlen noch',
+      _DashboardStateKind.noSchedule => 'Automatik ist noch nicht geplant',
+      _DashboardStateKind.ready => 'Bereit fuer den naechsten Einsatz',
+    };
+    final subtitle = switch (stateKind) {
+      _DashboardStateKind.noRobot => 'Starte mit Discovery oder gib Alfred manuell an, damit Dashboard und Karte lebendig werden.',
+      _DashboardStateKind.offline => 'Verbinde dich erneut mit Alfred, bevor du Karte oder Mission steuerst.',
+      _DashboardStateKind.fault => status.lastError ?? 'Ein Fehler blockiert den normalen Betrieb. Pruefe Status und Service.',
+      _DashboardStateKind.paused => 'Der aktuelle Lauf steht still. Du kannst fortsetzen, stoppen oder Alfred zur Station schicken.',
+      _DashboardStateKind.noMap => 'Perimeter und Dock sind die Basis fuer jede saubere Route.',
+      _DashboardStateKind.noZones => 'Die Basiskarte ist da. Jetzt fehlen noch Mähzonen fuer Planung und Betrieb.',
+      _DashboardStateKind.noSchedule => 'Manueller Start ist moeglich. Fuer Automatik fehlt noch mindestens ein wiederkehrender Zeitplan.',
+      _DashboardStateKind.ready => 'Karte, Zonen und Planung sind vorhanden. Du kannst direkt starten oder Details oeffnen.',
+    };
+
     return Container(
       color: const Color(0xFF0A1020),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _CheckItem(done: true, label: 'Verbunden'),
-          const SizedBox(width: 8),
-          _CheckItem(
-              done: hasPerimeter,
-              label: 'Perimeter',
-              onFix: hasPerimeter ? null : onGoMap),
-          const SizedBox(width: 8),
-          _CheckItem(
-              done: hasDock, label: 'Dock', onFix: hasDock ? null : onGoMap),
-          const SizedBox(width: 8),
-          _CheckItem(
-              done: hasMission,
-              label: 'Mission',
-              onFix: hasMission ? null : onGoMissions),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF94A3B8),
+                ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              _CheckItem(done: isConnected, label: 'Verbunden', onFix: isConnected ? null : onReconnect),
+              const SizedBox(width: 8),
+              _CheckItem(
+                done: hasPerimeter,
+                label: 'Perimeter',
+                onFix: hasPerimeter ? null : onGoMapSetup,
+              ),
+              const SizedBox(width: 8),
+              _CheckItem(
+                done: hasDock,
+                label: 'Dock',
+                onFix: hasDock ? null : onGoMapSetup,
+              ),
+              const SizedBox(width: 8),
+              _CheckItem(
+                done: hasZones,
+                label: 'Zonen',
+                onFix: hasZones ? null : onGoMapEdit,
+              ),
+              const SizedBox(width: 8),
+              _CheckItem(
+                done: hasMission,
+                label: 'Mission',
+                onFix: hasMission ? null : onGoMissions,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _StatePillRow(
+            stateKind: stateKind,
+            hasRecurringSchedule: hasRecurringSchedule,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: switch (stateKind) {
+                    _DashboardStateKind.noRobot => onReconnect,
+                    _DashboardStateKind.offline => onReconnect,
+                    _DashboardStateKind.fault => onGoStatistics,
+                    _DashboardStateKind.paused => onResume ?? onGoStatistics,
+                    _DashboardStateKind.noMap => onGoMapSetup,
+                    _DashboardStateKind.noZones => onGoMapEdit,
+                    _DashboardStateKind.noSchedule => onGoMissions,
+                    _DashboardStateKind.ready => onGoMapEdit,
+                  },
+                  icon: Icon(switch (stateKind) {
+                    _DashboardStateKind.noRobot => Icons.add_link_rounded,
+                    _DashboardStateKind.offline => Icons.wifi_find_rounded,
+                    _DashboardStateKind.fault => Icons.warning_amber_rounded,
+                    _DashboardStateKind.paused => Icons.play_circle_outline_rounded,
+                    _DashboardStateKind.noMap => Icons.map_outlined,
+                    _DashboardStateKind.noZones => Icons.edit_location_alt_outlined,
+                    _DashboardStateKind.noSchedule => Icons.schedule_outlined,
+                    _DashboardStateKind.ready => Icons.map_outlined,
+                  }),
+                  label: Text(switch (stateKind) {
+                    _DashboardStateKind.noRobot => 'Roboter verbinden',
+                    _DashboardStateKind.offline => 'Neu verbinden',
+                    _DashboardStateKind.fault => 'Fehler pruefen',
+                    _DashboardStateKind.paused => onResume == null ? 'Verlauf ansehen' : 'Fortsetzen',
+                    _DashboardStateKind.noMap => 'Karte anlegen',
+                    _DashboardStateKind.noZones => 'Zonen anlegen',
+                    _DashboardStateKind.noSchedule => 'Zeitplan anlegen',
+                    _DashboardStateKind.ready => 'Karte pruefen',
+                  }),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: switch (stateKind) {
+                    _DashboardStateKind.noRobot => onReconnect,
+                    _DashboardStateKind.offline => onGoStatistics,
+                    _DashboardStateKind.fault => onGoService,
+                    _DashboardStateKind.paused => onGoMissions,
+                    _DashboardStateKind.noMap => onGoMissions,
+                    _DashboardStateKind.noZones => onGoMissions,
+                    _DashboardStateKind.noSchedule => onGoMissions,
+                    _DashboardStateKind.ready => onGoMissions,
+                  },
+                  icon: Icon(switch (stateKind) {
+                    _DashboardStateKind.noRobot => Icons.radar_rounded,
+                    _DashboardStateKind.offline => Icons.route_outlined,
+                    _DashboardStateKind.fault => Icons.miscellaneous_services_outlined,
+                    _DashboardStateKind.paused => Icons.route_outlined,
+                    _DashboardStateKind.noMap => Icons.route_outlined,
+                    _DashboardStateKind.noZones => Icons.route_outlined,
+                    _DashboardStateKind.noSchedule => Icons.route_outlined,
+                    _DashboardStateKind.ready => Icons.route_outlined,
+                  }),
+                  label: Text(switch (stateKind) {
+                    _DashboardStateKind.noRobot => 'Discovery öffnen',
+                    _DashboardStateKind.offline => 'Status',
+                    _DashboardStateKind.fault => 'Service öffnen',
+                    _DashboardStateKind.paused => 'Planung oeffnen',
+                    _DashboardStateKind.noMap => 'Planung oeffnen',
+                    _DashboardStateKind.noZones => 'Planung oeffnen',
+                    _DashboardStateKind.noSchedule => 'Planung oeffnen',
+                    _DashboardStateKind.ready => 'Planung oeffnen',
+                  }),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                tooltip: 'Statistik',
+                onPressed: onGoStatistics,
+                icon: const Icon(Icons.insights_outlined),
+              ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+enum _DashboardStateKind {
+  noRobot,
+  offline,
+  fault,
+  paused,
+  noMap,
+  noZones,
+  noSchedule,
+  ready,
+}
+
+class _StatePillRow extends StatelessWidget {
+  const _StatePillRow({
+    required this.stateKind,
+    required this.hasRecurringSchedule,
+  });
+
+  final _DashboardStateKind stateKind;
+  final bool hasRecurringSchedule;
+
+  @override
+  Widget build(BuildContext context) {
+    final pills = <String>[
+      switch (stateKind) {
+        _DashboardStateKind.noRobot => 'Nicht verbunden',
+        _DashboardStateKind.offline => 'Offline',
+        _DashboardStateKind.fault => 'Fehler',
+        _DashboardStateKind.paused => 'Pausiert',
+        _DashboardStateKind.noMap => 'Setup',
+        _DashboardStateKind.noZones => 'Zonen fehlen',
+        _DashboardStateKind.noSchedule => 'Manuell',
+        _DashboardStateKind.ready => 'Betriebsbereit',
+      },
+      hasRecurringSchedule ? 'Automatik aktiv' : 'Kein Zeitplan',
+    ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: pills
+          .map(
+            (label) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF111B2E),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFFBFDBFE),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          )
+          .toList(growable: false),
     );
   }
 }
@@ -535,6 +1243,36 @@ class _CheckItem extends StatelessWidget {
   }
 }
 
+class _QuickActionTile extends StatelessWidget {
+  const _QuickActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: const Color(0x1F2563EB),
+        foregroundColor: const Color(0xFF60A5FA),
+        child: Icon(icon),
+      ),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Bottom action bar
 // ---------------------------------------------------------------------------
@@ -545,6 +1283,7 @@ class _BottomActionBar extends StatelessWidget {
     required this.busy,
     required this.missionName,
     required this.isActive,
+    required this.isPaused,
     required this.onMow,
     required this.onStop,
     required this.onDock,
@@ -554,6 +1293,7 @@ class _BottomActionBar extends StatelessWidget {
   final bool busy;
   final String? missionName;
   final bool isActive;
+  final bool isPaused;
   final VoidCallback? onMow;
   final VoidCallback onStop;
   final VoidCallback onDock;
@@ -576,7 +1316,13 @@ class _BottomActionBar extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: isConnected && !busy ? onMow : null,
                   icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                  label: Text(missionName != null ? 'Mähen' : 'Keine Mission'),
+                  label: Text(
+                    missionName == null
+                        ? 'Keine Mission'
+                        : isPaused
+                            ? 'Fortsetzen'
+                            : 'Mähen',
+                  ),
                   style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 10)),
                 ),

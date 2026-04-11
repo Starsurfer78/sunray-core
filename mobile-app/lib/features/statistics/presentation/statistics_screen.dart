@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../domain/robot/saved_robot.dart';
 import '../../../shared/providers/app_providers.dart';
@@ -75,7 +75,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
         sessionStart = ts;
       } else if (phase != 'mowing' && sessionStart != null && ts != null) {
         result.add(_MowSession(
-          start: sessionStart!.toInt(),
+          start: sessionStart.toInt(),
           end: ts.toInt(),
         ));
         sessionStart = null;
@@ -89,7 +89,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
           : null;
       if (lastTs != null) {
         result.add(_MowSession(
-          start: sessionStart!.toInt(),
+          start: sessionStart.toInt(),
           end: lastTs.toInt(),
           ongoing: true,
         ));
@@ -120,6 +120,11 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
       appBar: AppBar(
         title: const Text('Statistik'),
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Dashboard',
+            onPressed: () => context.go('/dashboard'),
+            icon: const Icon(Icons.space_dashboard_outlined),
+          ),
           IconButton(
             icon: _loading
                 ? const SizedBox(
@@ -307,14 +312,12 @@ class _SessionTile extends StatelessWidget {
   final int index;
   final String Function(int) formatDuration;
 
-  static final DateFormat _dateFmt = DateFormat('dd.MM.yyyy HH:mm');
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final DateTime start =
         DateTime.fromMillisecondsSinceEpoch(session.start * 1000);
-    final String label = _dateFmt.format(start);
+    final String label = _formatDate(start);
     final String dur = formatDuration(session.durationSeconds);
 
     return Padding(
@@ -362,6 +365,15 @@ class _SessionTile extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatDate(DateTime value) {
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$day.$month.$year $hour:$minute';
   }
 }
 

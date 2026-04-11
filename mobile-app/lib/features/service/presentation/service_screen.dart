@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:open_filex/open_filex.dart';
 
 import '../../../domain/robot/robot_status.dart';
@@ -26,6 +27,13 @@ class ServiceScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Service'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Dashboard',
+            onPressed: () => context.go('/dashboard'),
+            icon: const Icon(Icons.space_dashboard_outlined),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -139,6 +147,7 @@ class ServiceScreen extends ConsumerWidget {
         );
       }
 
+      if (!context.mounted) return;
       await _installDownloaded(context, ref, filePath);
     } catch (error) {
       ref.read(otaInstallStateProvider.notifier).state = OtaInstallState(
@@ -603,7 +612,7 @@ class _DiagnoseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isConnected = status.connectionState == ConnectionStateKind.connected;
 
-    String _uptime(int? seconds) {
+    String uptimeLabel(int? seconds) {
       if (seconds == null) return '—';
       final h = seconds ~/ 3600;
       final m = (seconds % 3600) ~/ 60;
@@ -651,7 +660,7 @@ class _DiagnoseCard extends StatelessWidget {
                 ),
                 _StatusLine(
                   label: 'Betriebszeit',
-                  value: _uptime(status.uptimeSeconds),
+                  value: uptimeLabel(status.uptimeSeconds),
                 ),
                 _StatusLine(
                   label: 'Mähfehler',

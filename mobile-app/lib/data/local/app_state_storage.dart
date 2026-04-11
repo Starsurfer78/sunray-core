@@ -77,6 +77,9 @@ class AppStateStorage {
               'id': zone.id,
               'name': zone.name,
               'polygon': encodeMapPoints(zone.points),
+              'priority': zone.priority,
+              'mowingDirection': zone.mowingDirection,
+              'mowingProfile': zone.mowingProfile,
             },
           )
           .toList(growable: false),
@@ -97,6 +100,9 @@ class AppStateStorage {
             id: zone['id'] as String? ?? '',
             name: zone['name'] as String? ?? 'Zone',
             points: mapPointsFromDynamic(zone['polygon']),
+            priority: zone['priority'] as int? ?? 1,
+            mowingDirection: zone['mowingDirection'] as String? ?? 'Automatisch',
+            mowingProfile: zone['mowingProfile'] as String? ?? 'Standard',
           ),
         )
         .toList(growable: false);

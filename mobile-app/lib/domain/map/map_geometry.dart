@@ -99,21 +99,33 @@ class ZoneGeometry {
     required this.id,
     required this.name,
     required this.points,
+    this.priority = 1,
+    this.mowingDirection = 'Automatisch',
+    this.mowingProfile = 'Standard',
   });
 
   final String id;
   final String name;
   final List<MapPoint> points;
+  final int priority;
+  final String mowingDirection;
+  final String mowingProfile;
 
   ZoneGeometry copyWith({
     String? id,
     String? name,
     List<MapPoint>? points,
+    int? priority,
+    String? mowingDirection,
+    String? mowingProfile,
   }) {
     return ZoneGeometry(
       id: id ?? this.id,
       name: name ?? this.name,
       points: points ?? this.points,
+      priority: priority ?? this.priority,
+      mowingDirection: mowingDirection ?? this.mowingDirection,
+      mowingProfile: mowingProfile ?? this.mowingProfile,
     );
   }
 }

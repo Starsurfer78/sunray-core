@@ -99,6 +99,11 @@ class RobotRepository {
                 zone['name'] as String? ??
                 'Zone',
             points: mapPointsFromDynamic(zone['polygon']),
+            priority: (zone['settings'] as Map<String, dynamic>?)?['priority'] as int? ?? 1,
+            mowingDirection: (zone['settings'] as Map<String, dynamic>?)?['mowingDirection'] as String? ??
+                'Automatisch',
+            mowingProfile: (zone['settings'] as Map<String, dynamic>?)?['mowingProfile'] as String? ??
+                'Standard',
           ),
         )
         .where((zone) => zone.points.isNotEmpty)
@@ -115,11 +120,23 @@ class RobotRepository {
         'polygon': encodeMapPoints(zone.points),
         'settings': <String, dynamic>{
           'name': zone.name,
+          'priority': zone.priority,
+          'mowingDirection': zone.mowingDirection,
+          'mowingProfile': zone.mowingProfile,
           'stripWidth': 0.18,
-          'angle': 0.0,
+          'angle': switch (zone.mowingDirection) {
+            'Nord-Sued' => 90.0,
+            'Ost-West' => 0.0,
+            'Diagonal' => 45.0,
+            _ => 0.0,
+          },
           'edgeMowing': true,
           'edgeRounds': 1,
-          'speed': 1.0,
+          'speed': switch (zone.mowingProfile) {
+            'Schnell' => 1.2,
+            'Sorgfaeltig' => 0.8,
+            _ => 1.0,
+          },
           'pattern': 'stripe',
           'reverseAllowed': false,
           'clearance': 0.25,

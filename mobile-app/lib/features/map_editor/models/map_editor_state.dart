@@ -13,10 +13,19 @@ enum EditableMapObjectType {
   dock,
 }
 
+enum MapSetupStage {
+  perimeter,
+  noGo,
+  dock,
+  validate,
+  save,
+}
+
 class MapEditorState {
   const MapEditorState({
     this.mode = MapEditorMode.view,
     this.activeObject = EditableMapObjectType.perimeter,
+    this.setupStage = MapSetupStage.perimeter,
     this.activeZoneId,
     this.activeNoGoIndex,
     this.selectedPointIndex,
@@ -28,6 +37,7 @@ class MapEditorState {
 
   final MapEditorMode mode;
   final EditableMapObjectType activeObject;
+  final MapSetupStage setupStage;
   final String? activeZoneId;
   final int? activeNoGoIndex;
   final int? selectedPointIndex;
@@ -41,6 +51,7 @@ class MapEditorState {
   MapEditorState copyWith({
     MapEditorMode? mode,
     EditableMapObjectType? activeObject,
+    MapSetupStage? setupStage,
     String? activeZoneId,
     int? activeNoGoIndex,
     int? selectedPointIndex,
@@ -55,6 +66,7 @@ class MapEditorState {
     return MapEditorState(
       mode: mode ?? this.mode,
       activeObject: activeObject ?? this.activeObject,
+      setupStage: setupStage ?? this.setupStage,
       activeZoneId: clearActiveZone ? null : (activeZoneId ?? this.activeZoneId),
       activeNoGoIndex: clearActiveNoGo ? null : (activeNoGoIndex ?? this.activeNoGoIndex),
       selectedPointIndex: clearSelectedPoint ? null : (selectedPointIndex ?? this.selectedPointIndex),
