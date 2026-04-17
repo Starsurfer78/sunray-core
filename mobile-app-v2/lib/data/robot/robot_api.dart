@@ -24,6 +24,38 @@ class RobotApi {
     return response.data ?? <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> getStoredMaps({
+    required String host,
+    int port = AppConstants.defaultRobotPort,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '${baseUrl(host: host, port: port)}/api/maps',
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> createStoredMap({
+    required String host,
+    required Map<String, dynamic> payload,
+    int port = AppConstants.defaultRobotPort,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '${baseUrl(host: host, port: port)}/api/maps',
+      data: payload,
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<void> activateStoredMap({
+    required String host,
+    required String mapId,
+    int port = AppConstants.defaultRobotPort,
+  }) async {
+    await _dio.post<void>(
+      '${baseUrl(host: host, port: port)}/api/maps/${Uri.encodeComponent(mapId)}/activate',
+    );
+  }
+
   Future<void> saveMap({
     required String host,
     required Map<String, dynamic> payload,
