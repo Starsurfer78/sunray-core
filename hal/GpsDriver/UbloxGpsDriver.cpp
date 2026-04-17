@@ -98,6 +98,69 @@ namespace sunray
             }
         }
 
+        bool parseGgaLatLon(const std::string &gga, double &latDeg, double &lonDeg)
+        {
+            std::vector<std::string> fields;
+            std::string token;
+            for (char c : gga)
+            {
+                if (c == ',')
+                {
+                    fields.push_back(token);
+                    token.clear();
+                }
+                else
+                {
+                    token += c;
+                }
+            }
+            fields.push_back(token);
+
+            if (fields.size() <= 6)
+                return false;
+
+            const std::string &latRaw = fields[2];
+            const std::string &latHem = fields[3];
+            const std::string &lonRaw = fields[4];
+            const std::string &lonHem = fields[5];
+            const std::string &qualityRaw = fields[6];
+
+            if (latRaw.empty() || lonRaw.empty() || latHem.empty() || lonHem.empty())
+                return false;
+
+            try
+            {
+                const int quality = qualityRaw.empty() ? 0 : std::stoi(qualityRaw);
+                if (quality <= 0)
+                    return false;
+
+                const double latVal = std::stod(latRaw);
+                const double lonVal = std::stod(lonRaw);
+
+                const double latD = std::floor(latVal / 100.0);
+                const double latM = latVal - latD * 100.0;
+                const double lonD = std::floor(lonVal / 100.0);
+                const double lonM = lonVal - lonD * 100.0;
+
+                latDeg = latD + latM / 60.0;
+                lonDeg = lonD + lonM / 60.0;
+
+                if (latHem == "S")
+                    latDeg = -latDeg;
+                if (lonHem == "W")
+                    lonDeg = -lonDeg;
+
+                if (latDeg == 0.0 || lonDeg == 0.0)
+                    return false;
+
+                return true;
+            }
+            catch (...)
+            {
+                return false;
+            }
+        }
+
     } // namespace
 
     // ── Construction / destruction ───────────────────────────────────────────────
@@ -243,10 +306,18 @@ namespace sunray
                         gga.pop_back();
                     }
                     const int numSV = parseGgaSatelliteCount(gga);
+                    double lat = 0.0;
+                    double lon = 0.0;
+                    const bool hasLatLon = parseGgaLatLon(gga, lat, lon);
                     std::lock_guard<std::mutex> lock(dataMutex_);
                     data_.nmeaGGA = std::move(gga);
                     if (numSV > 0)
                         data_.numSV = numSV;
+                    if (hasLatLon)
+                    {
+                        data_.lat = lat;
+                        data_.lon = lon;
+                    }
                 }
                 nmeaAccum_.clear();
             }
