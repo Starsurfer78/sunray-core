@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { telemetry } from "../stores/telemetry";
   import { connection } from "../stores/connection";
   import { otaCheck, otaUpdate, restartService, type OtaCheckResponse } from "../api/rest";
@@ -13,6 +13,7 @@
   let sawRestartDisconnect = false;
   let restartCountdown = 120;
   let countdownTimer: ReturnType<typeof setInterval> | null = null;
+  let lastCheckedAt = 0;
 
   function clearRestartState() {
     waitingForRestart = false;
@@ -32,14 +33,21 @@
     clearRestartState();
   }
 
-  async function handleCheck() {
+  async function handleCheck(silent = false) {
     busy = true;
-    errorMsg = "";
-    checkResult = null;
+    if (!silent) {
+      errorMsg = "";
+      checkResult = null;
+    }
     try {
       checkResult = await otaCheck();
+      lastCheckedAt = Date.now();
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : "Fehler beim Prüfen";
+      const detail = err instanceof Error ? err.message : "Fehler beim Prüfen";
+      checkResult = { status: "error", detail };
+      if (!silent) {
+        errorMsg = detail;
+      }
     } finally {
       busy = false;
     }
@@ -90,6 +98,11 @@
     }
   }
 
+  onMount(() => {
+    // Keep update status visible without requiring an extra click.
+    void handleCheck(true);
+  });
+
   onDestroy(() => {
     if (countdownTimer) clearInterval(countdownTimer);
   });
@@ -101,6 +114,11 @@
   <div class="ota-version-row">
     <span class="ota-label">Aktuelle Version</span>
     <strong class="ota-value">{$telemetry.pi_v || "—"}</strong>
+    {#if lastCheckedAt > 0}
+      <span class="ota-checked">
+        geprüft: {new Date(lastCheckedAt).toLocaleTimeString("de-DE")}
+      </span>
+    {/if}
   </div>
 
   {#if waitingForRestart}
@@ -119,7 +137,7 @@
       <button class="ota-btn restart" on:click={handleRestart} disabled={busy}>
         Service neu starten
       </button>
-      <button class="ota-btn" on:click={handleCheck} disabled={busy}>
+      <button class="ota-btn" on:click={() => handleCheck(false)} disabled={busy}>
         Auf Update prüfen
       </button>
 
@@ -133,6 +151,8 @@
           </button>
         {:else if checkResult.status === "error"}
           <span class="ota-badge err">{checkResult.detail ?? "Fehler"}</span>
+        {:else}
+          <span class="ota-badge unknown">{checkResult.detail ?? "Unbekannt"}</span>
         {/if}
       {/if}
     </div>
@@ -173,6 +193,11 @@
     color: #94a3b8;
     font-size: 0.72rem;
     font-family: monospace;
+  }
+
+  .ota-checked {
+    color: #64748b;
+    font-size: 0.64rem;
   }
 
   .ota-actions {
@@ -217,6 +242,7 @@
   .ota-badge.ok   { background: #052e16; color: #4ade80; }
   .ota-badge.new  { background: #1e3a5f; color: #7dd3fc; }
   .ota-badge.err  { background: #450a0a; color: #fca5a5; }
+  .ota-badge.unknown { background: #1f2937; color: #cbd5e1; }
 
   .ota-status.restarting {
     display: grid;

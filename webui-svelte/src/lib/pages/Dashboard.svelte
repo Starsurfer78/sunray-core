@@ -15,9 +15,24 @@
   async function loadOverviewMap() {
     try {
       const map = await getMapDocument();
+      const perimeter = normalizePoints(map.perimeter);
+      let dock = normalizePoints(map.dock);
+      if (perimeter.length >= 3 && dock.length >= 2) {
+        const entry = dock[0];
+        const terminal = dock[dock.length - 1];
+        const entryOk =
+          pointInPolygon(entry, perimeter) ||
+          minDistanceToPolygon(entry, perimeter) <= 2.0;
+        const terminalOk =
+          pointInPolygon(terminal, perimeter) ||
+          minDistanceToPolygon(terminal, perimeter) <= 2.0;
+        if (!entryOk && terminalOk) {
+          dock = [...dock].reverse();
+        }
+      }
       mapStore.load({
-        perimeter: normalizePoints(map.perimeter),
-        dock: normalizePoints(map.dock),
+        perimeter,
+        dock,
         exclusions: (map.exclusions ?? []).map((exclusion) =>
           normalizePoints(exclusion as Array<[number, number]>),
         ),
@@ -28,6 +43,57 @@
     } catch {
       // map not available
     }
+  }
+
+  function pointInPolygon(point: Point, polygon: Point[]) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i].x;
+      const yi = polygon[i].y;
+      const xj = polygon[j].x;
+      const yj = polygon[j].y;
+
+      const intersects =
+        yi > point.y !== yj > point.y &&
+        point.x <
+          ((xj - xi) * (point.y - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
+
+  type Segment = { a: Point; b: Point };
+
+  function distanceToSegment(point: Point, segment: Segment) {
+    const dx = segment.b.x - segment.a.x;
+    const dy = segment.b.y - segment.a.y;
+    if (dx === 0 && dy === 0) {
+      return Math.hypot(point.x - segment.a.x, point.y - segment.a.y);
+    }
+
+    const t =
+      ((point.x - segment.a.x) * dx + (point.y - segment.a.y) * dy) /
+      (dx * dx + dy * dy);
+    const clamped = Math.max(0, Math.min(1, t));
+    const projection = {
+      x: segment.a.x + clamped * dx,
+      y: segment.a.y + clamped * dy,
+    };
+    return Math.hypot(point.x - projection.x, point.y - projection.y);
+  }
+
+  function minDistanceToPolygon(point: Point, polygon: Point[]) {
+    if (polygon.length < 2) return Number.POSITIVE_INFINITY;
+    let minDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const segment = {
+        a: polygon[index],
+        b: polygon[(index + 1) % polygon.length],
+      };
+      minDistance = Math.min(minDistance, distanceToSegment(point, segment));
+    }
+    return minDistance;
   }
 
   onMount(() => {

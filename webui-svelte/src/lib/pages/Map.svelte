@@ -108,9 +108,24 @@
   }
 
   function normalizeMapDocument(map: MapDocument): MapLoadDocument {
+    const perimeter = normalizePoints(map.perimeter);
+    let dock = normalizePoints(map.dock);
+    if (perimeter.length >= 3 && dock.length >= 2) {
+      const entry = dock[0];
+      const terminal = dock[dock.length - 1];
+      const entryOk =
+        pointInPolygon(entry, perimeter) ||
+        minDistanceToPolygon(entry, perimeter) <= MAX_DOCK_ENTRY_DISTANCE_M;
+      const terminalOk =
+        pointInPolygon(terminal, perimeter) ||
+        minDistanceToPolygon(terminal, perimeter) <= MAX_DOCK_ENTRY_DISTANCE_M;
+      if (!entryOk && terminalOk) {
+        dock = [...dock].reverse();
+      }
+    }
     return {
-      perimeter: normalizePoints(map.perimeter),
-      dock: normalizePoints(map.dock),
+      perimeter,
+      dock,
       exclusions: (map.exclusions ?? []).map((e) =>
         normalizePoints(e as Array<[number, number]>),
       ),

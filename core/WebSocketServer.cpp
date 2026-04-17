@@ -1665,6 +1665,21 @@ namespace sunray
                     constexpr double R = 6371000.0;
                     constexpr double DEG = M_PI / 180.0;
 
+                    if (!georef)
+                    {
+                        TelemetryData t;
+                        {
+                            std::lock_guard<std::mutex> lk(telemetryMutex_);
+                            t = latestTelemetry_;
+                        }
+                        if (t.gps_lat != 0.0 && t.gps_lon != 0.0)
+                        {
+                            lat0 = t.gps_lat - static_cast<double>(t.y) / (R * DEG);
+                            lon0 = t.gps_lon - static_cast<double>(t.x) / (R * std::cos(lat0 * DEG) * DEG);
+                            georef = true;
+                        }
+                    }
+
                     auto toWgs = [&](double x, double y)
                         -> std::pair<double, double>
                     {
