@@ -5,6 +5,7 @@
   import BottomPanel from "../components/Dashboard/BottomPanel.svelte";
   import PageLayout from "../components/PageLayout.svelte";
   import { getMapDocument, type MapZone } from "../api/rest";
+  import { mapGpsOrigin } from "../stores/mapGpsOrigin";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { telemetry } from "../stores/telemetry";
   import { normalizePoints, normalizeZone } from "../utils/mapHelpers";
@@ -15,8 +16,52 @@
   async function loadOverviewMap() {
     try {
       const map = await getMapDocument();
-      const perimeter = normalizePoints(map.perimeter);
-      let dock = normalizePoints(map.dock);
+      const rawPerimeter = normalizePoints(map.perimeter);
+      let projectPoints = (pts: Point[]): Point[] => pts;
+      mapGpsOrigin.set(null);
+      if (rawPerimeter.length >= 3) {
+        let sumX = 0;
+        let sumY = 0;
+        for (const p of rawPerimeter) {
+          sumX += p.x;
+          sumY += p.y;
+        }
+        const avgX = sumX / rawPerimeter.length;
+        const avgY = sumY / rawPerimeter.length;
+        const spanX =
+          Math.max(...rawPerimeter.map((p) => p.x)) -
+          Math.min(...rawPerimeter.map((p) => p.x));
+        const spanY =
+          Math.max(...rawPerimeter.map((p) => p.y)) -
+          Math.min(...rawPerimeter.map((p) => p.y));
+        if (
+          avgY >= -90 &&
+          avgY <= 90 &&
+          avgX >= -180 &&
+          avgX <= 180 &&
+          spanX > 0 &&
+          spanX < 0.5 &&
+          spanY > 0 &&
+          spanY < 0.5
+        ) {
+          const EARTH_R = 6378137.0;
+          const toRad = Math.PI / 180;
+          const refLon = avgX;
+          const refLat = avgY;
+          mapGpsOrigin.set({ lat: refLat, lon: refLon });
+          const mercY0 = Math.log(Math.tan(Math.PI / 4 + (refLat * toRad) / 2));
+          projectPoints = (pts: Point[]): Point[] =>
+            pts.map((p) => ({
+              x: (p.x - refLon) * EARTH_R * toRad,
+              y:
+                (Math.log(Math.tan(Math.PI / 4 + (p.y * toRad) / 2)) - mercY0) *
+                EARTH_R,
+            }));
+        }
+      }
+
+      const perimeter = projectPoints(rawPerimeter);
+      let dock = projectPoints(normalizePoints(map.dock));
       if (perimeter.length >= 3 && dock.length >= 2) {
         const entry = dock[0];
         const terminal = dock[dock.length - 1];
@@ -34,11 +79,12 @@
         perimeter,
         dock,
         exclusions: (map.exclusions ?? []).map((exclusion) =>
-          normalizePoints(exclusion as Array<[number, number]>),
+          projectPoints(normalizePoints(exclusion as Array<[number, number]>)),
         ),
-        zones: (map.zones ?? []).map((zone, index) =>
-          normalizeZone(zone as MapZone, index),
-        ),
+        zones: (map.zones ?? []).map((zone, index) => {
+          const z = normalizeZone(zone as MapZone, index);
+          return { ...z, polygon: projectPoints(z.polygon) };
+        }),
       });
     } catch {
       // map not available

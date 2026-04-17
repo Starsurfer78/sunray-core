@@ -540,6 +540,23 @@
     return Math.max(44, Math.min(112, text.length * 5.1 + 12));
   }
 
+  function gpsToWorld(
+    lon: number,
+    lat: number,
+    origin: { lat: number; lon: number },
+  ) {
+    const EARTH_R = 6378137.0;
+    const toRad = Math.PI / 180;
+    const refLon = origin.lon;
+    const refLat = origin.lat;
+    const refMercY = Math.log(Math.tan(Math.PI / 4 + (refLat * toRad) / 2));
+    const y = (Math.log(Math.tan(Math.PI / 4 + (lat * toRad) / 2)) - refMercY) * EARTH_R;
+    return {
+      x: (lon - refLon) * EARTH_R * toRad,
+      y,
+    };
+  }
+
   function labelAnchor(point: Point, text: string) {
     const screen = worldToScreen(point, currentScale, offsetX, offsetY);
     return {
@@ -558,12 +575,16 @@
       ...$mapStore.map.exclusions.flatMap((exclusion) => exclusion),
     ];
     if (showRobot) {
-      if (coordMode === "wgs84") {
-        if ($telemetry.gps_lat !== 0 && $telemetry.gps_lon !== 0) {
-          points.push({ x: $telemetry.gps_lon, y: $telemetry.gps_lat });
-        }
+      if ($mapGpsOrigin && $telemetry.gps_lat !== 0 && $telemetry.gps_lon !== 0) {
+        points.push(gpsToWorld($telemetry.gps_lon, $telemetry.gps_lat, $mapGpsOrigin));
       } else {
-        points.push({ x: $telemetry.x, y: $telemetry.y });
+        if (coordMode === "wgs84") {
+          if ($telemetry.gps_lat !== 0 && $telemetry.gps_lon !== 0) {
+            points.push({ x: $telemetry.gps_lon, y: $telemetry.gps_lat });
+          }
+        } else {
+          points.push({ x: $telemetry.x, y: $telemetry.y });
+        }
       }
     }
     return points;
@@ -617,9 +638,11 @@
   }
 
   $: robotScreen = worldToScreen(
-    coordMode === "wgs84"
-      ? { x: $telemetry.gps_lon, y: $telemetry.gps_lat }
-      : { x: $telemetry.x, y: $telemetry.y },
+    $mapGpsOrigin && $telemetry.gps_lat !== 0 && $telemetry.gps_lon !== 0
+      ? gpsToWorld($telemetry.gps_lon, $telemetry.gps_lat, $mapGpsOrigin)
+      : coordMode === "wgs84"
+        ? { x: $telemetry.gps_lon, y: $telemetry.gps_lat }
+        : { x: $telemetry.x, y: $telemetry.y },
     currentScale,
     offsetX,
     offsetY,
@@ -883,11 +906,13 @@
     if (!origin) return [];
     const EARTH_R = 6378137.0;
     const toRad = Math.PI / 180;
-    const cosLat = Math.cos(origin.lat * toRad);
 
     // Pick zoom so tiles are ~256 px wide at the current scale.
-    const lonPerTile256 = 256 / (cosLat * EARTH_R * toRad * scale);
-    const z = Math.max(1, Math.min(19, Math.round(Math.log2(360 / lonPerTile256))));
+    const lonPerTile256 = 256 / (EARTH_R * toRad * scale);
+    const z = Math.max(
+      1,
+      Math.min(19, Math.round(Math.log2(360 / lonPerTile256))),
+    );
     const nTiles = Math.pow(2, z);
 
     // Inverse Web Mercator: tile index → GPS
@@ -905,23 +930,31 @@
 
     const refLon = origin.lon;
     const refLat = origin.lat;
+    const refMercY = Math.log(Math.tan(Math.PI / 4 + (refLat * toRad) / 2));
 
-    // GPS → screen pixels  (equirectangular, same as normalizeMapDocument)
+    function mercatorY(lat: number) {
+      return Math.log(Math.tan(Math.PI / 4 + (lat * toRad) / 2));
+    }
+
+    function invMercatorLat(y: number) {
+      return ((2 * Math.atan(Math.exp(y))) - Math.PI / 2) / toRad;
+    }
+
     function gpsToScreen(lon: number, lat: number) {
-      const wx = (lon - refLon) * cosLat * EARTH_R * toRad;
-      const wy = (lat - refLat) * EARTH_R * toRad;
+      const wx = (lon - refLon) * EARTH_R * toRad;
+      const wy = (mercatorY(lat) - refMercY) * EARTH_R;
       return { sx: w / 2 + xOff + wx * scale, sy: h / 2 + yOff - wy * scale };
     }
 
     // Viewport corners in world metres → GPS, to determine which tiles are visible
     const wx0 = -(w / 2 + xOff) / scale;
     const wx1 =  (w / 2 - xOff) / scale;
-    const wy_north = (h / 2 + yOff) / scale;
-    const wy_south = (yOff - h / 2) / scale;
-    const lonW = wx0 / (cosLat * EARTH_R * toRad) + refLon;
-    const lonE = wx1 / (cosLat * EARTH_R * toRad) + refLon;
-    const latN = wy_north / (EARTH_R * toRad) + refLat;
-    const latS = wy_south / (EARTH_R * toRad) + refLat;
+    const wyNorth = (h / 2 + yOff) / scale;
+    const wySouth = (yOff - h / 2) / scale;
+    const lonW = wx0 / (EARTH_R * toRad) + refLon;
+    const lonE = wx1 / (EARTH_R * toRad) + refLon;
+    const latN = invMercatorLat(wyNorth / EARTH_R + refMercY);
+    const latS = invMercatorLat(wySouth / EARTH_R + refMercY);
 
     const txMin = Math.max(0, Math.floor(lonToTileX(lonW)) - 1);
     const txMax = Math.min(nTiles - 1, Math.ceil(lonToTileX(lonE)) + 1);

@@ -109,7 +109,7 @@
   }
 
   function normalizeMapDocument(map: MapDocument): MapLoadDocument {
-    const perimeter = normalizePoints(map.perimeter);
+    const perimeter = sanitizeRing(normalizePoints(map.perimeter));
 
     // Detect GPS (WGS84) coordinates saved by the mobile app and project them
     // to local metres using an equirectangular projection centred at the
@@ -147,19 +147,19 @@
       ) {
         const EARTH_R = 6378137.0;
         const toRad = Math.PI / 180;
-        const cosLat = Math.cos(avgY * toRad);
         const refLon = avgX;
         const refLat = avgY;
         mapGpsOrigin.set({ lat: refLat, lon: refLon });
+        const mercY0 = Math.log(Math.tan(Math.PI / 4 + refLat * toRad / 2));
         projectPoints = (pts: Point[]): Point[] =>
           pts.map((p) => ({
-            x: (p.x - refLon) * cosLat * EARTH_R * toRad,
-            y: (p.y - refLat) * EARTH_R * toRad,
+            x: (p.x - refLon) * EARTH_R * toRad,
+            y: (Math.log(Math.tan(Math.PI / 4 + p.y * toRad / 2)) - mercY0) * EARTH_R,
           }));
       }
     }
 
-    const projectedPerimeter = projectPoints(perimeter);
+    const projectedPerimeter = sanitizeRing(projectPoints(perimeter));
     let dock = projectPoints(normalizePoints(map.dock));
     if (projectedPerimeter.length >= 3 && dock.length >= 2) {
       const entry = dock[0];
@@ -247,9 +247,26 @@
     return minDistance;
   }
 
+  function isClose(a: Point, b: Point, eps = 1e-6) {
+    return Math.hypot(a.x - b.x, a.y - b.y) <= eps;
+  }
+
+  function sanitizeRing(points: Point[]) {
+    if (points.length === 0) return points;
+    const cleaned: Point[] = [points[0]];
+    for (let i = 1; i < points.length; i += 1) {
+      if (!isClose(points[i], cleaned[cleaned.length - 1])) cleaned.push(points[i]);
+    }
+    if (cleaned.length > 1 && isClose(cleaned[0], cleaned[cleaned.length - 1])) {
+      cleaned.pop();
+    }
+    return cleaned;
+  }
+
   function mapPayload() {
+    const perimeter = sanitizeRing($mapStore.map.perimeter);
     return {
-      perimeter: $mapStore.map.perimeter.map((p) => [p.x, p.y]),
+      perimeter: perimeter.map((p) => [p.x, p.y]),
       dock: $mapStore.map.dock.map((p) => [p.x, p.y]),
       exclusions: $mapStore.map.exclusions.map((ex) =>
         ex.map((p) => [p.x, p.y]),
@@ -749,7 +766,7 @@
       showInfo("Perimeter braucht mindestens 3 Punkte", "warning");
       return;
     }
-    if (hasSelfIntersection($mapStore.map.perimeter)) {
+    if (hasSelfIntersection(sanitizeRing($mapStore.map.perimeter))) {
       showInfo("Perimeter darf sich nicht selbst schneiden", "error");
       return;
     }
@@ -854,9 +871,10 @@
   $: hasNogo = $mapStore.map.exclusions.length > 0;
   $: perimeterTooSmall =
     $mapStore.map.perimeter.length > 0 && $mapStore.map.perimeter.length < 3;
-  $: perimeterSelfIntersecting = hasSelfIntersection($mapStore.map.perimeter);
+  $: perimeterForValidation = sanitizeRing($mapStore.map.perimeter);
+  $: perimeterSelfIntersecting = hasSelfIntersection(perimeterForValidation);
   $: perimeterValid =
-    $mapStore.map.perimeter.length >= 3 && !perimeterSelfIntersecting;
+    perimeterForValidation.length >= 3 && !perimeterSelfIntersecting;
   $: dockTooShort =
     $mapStore.map.dock.length > 0 && $mapStore.map.dock.length < 2;
   $: dockEntryPoint =
@@ -867,12 +885,12 @@
       : null;
   $: dockEntryDistance =
     perimeterValid && dockEntryPoint
-      ? minDistanceToPolygon(dockEntryPoint, $mapStore.map.perimeter)
+      ? minDistanceToPolygon(dockEntryPoint, perimeterForValidation)
       : Number.POSITIVE_INFINITY;
   $: dockEntryPlausible =
     perimeterValid &&
     dockEntryPoint &&
-    (pointInPolygon(dockEntryPoint, $mapStore.map.perimeter) ||
+    (pointInPolygon(dockEntryPoint, perimeterForValidation) ||
       dockEntryDistance <= MAX_DOCK_ENTRY_DISTANCE_M);
   $: dockPathValid = $mapStore.map.dock.length >= 2 && dockEntryPlausible;
   $: validationIssues = [
