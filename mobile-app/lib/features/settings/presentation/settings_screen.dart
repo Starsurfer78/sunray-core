@@ -37,7 +37,7 @@ class SettingsScreen extends ConsumerWidget {
                 const SizedBox(height: 6),
                 Text(
                   activeRobot == null
-                      ? 'Verbinde Alfred zuerst ueber Discovery.'
+                      ? 'Verbinde Alfred zuerst über die Robotersuche.'
                       : '${activeRobot.lastHost}:${activeRobot.port}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
@@ -54,10 +54,10 @@ class SettingsScreen extends ConsumerWidget {
                 versionAsync.when(
                   data: (version) => Text('Version $version'),
                   loading: () => const Text('Version wird geladen...'),
-                  error: (_, __) => const Text('Version nicht verfuegbar'),
+                  error: (_, __) => const Text('Version nicht verfügbar'),
                 ),
                 const SizedBox(height: 8),
-                const Text('Updates und tiefe Systemfunktionen bleiben weiterhin im Service-Bereich gebuendelt.'),
+                const Text('Updates und tiefe Systemfunktionen bleiben weiterhin im Service-Bereich gebündelt.'),
               ],
             ),
           ),

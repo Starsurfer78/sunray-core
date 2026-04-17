@@ -337,7 +337,7 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          'Waehle die Flaechen, die diese Mission abdecken soll. Die Vorschau nutzt genau diese Auswahl.',
+                          'Wähle die Flächen, die diese Mission abdecken soll. Die Vorschau nutzt genau diese Auswahl.',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: 8),
@@ -402,22 +402,20 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                           mission: selectedMission,
                           onEdit: () => _openScheduleSheet(context, selectedMission),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: FilledButton.tonalIcon(
-                                onPressed: () => _openScheduleSheet(context, selectedMission),
-                                icon: const Icon(Icons.edit_calendar_outlined),
-                                label: Text(
-                                  selectedMission.isRecurring
-                                      ? 'Zeitplan bearbeiten'
-                                      : 'Zeitplan anlegen',
+                        if (!selectedMission.isRecurring) ...<Widget>[
+                          const SizedBox(height: 12),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: FilledButton.tonalIcon(
+                                  onPressed: () => _openScheduleSheet(context, selectedMission),
+                                  icon: const Icon(Icons.edit_calendar_outlined),
+                                  label: const Text('Zeitfenster anlegen'),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -475,7 +473,7 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                           child: TextButton.icon(
                             onPressed: () => _deleteMission(context, activeRobot, selectedMission),
                             icon: const Icon(Icons.delete_outline_rounded),
-                            label: const Text('Loeschen'),
+                            label: const Text('Löschen'),
                           ),
                         ),
                       ],
@@ -673,7 +671,6 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
     BuildContext context,
     Mission mission,
   ) async {
-    var recurring = mission.isRecurring;
     var scheduleDays = List<bool>.from(
       mission.scheduleDays.length == 7
           ? mission.scheduleDays
@@ -681,9 +678,13 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
     );
     var scheduleHour = mission.scheduleHour ?? 9;
     var scheduleMinute = mission.scheduleMinute ?? 0;
+    var scheduleEndHour = mission.scheduleEndHour ?? 12;
+    var scheduleEndMinute = mission.scheduleEndMinute ?? 0;
     var pattern = mission.pattern;
     var onlyWhenDry = mission.onlyWhenDry;
     var requiresHighBattery = mission.requiresHighBattery;
+    var selectedZoneIds = List<String>.from(mission.zoneIds);
+    var selectedZoneNames = List<String>.from(mission.zoneNames);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -704,41 +705,71 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   Text(
-                    recurring ? 'Zeitplan bearbeiten' : 'Zeitplan anlegen',
+                    mission.isRecurring ? 'Zeitfenster bearbeiten' : 'Zeitplan anlegen',
                     style: Theme.of(sheetContext).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Lege Wiederholung, Muster und Bedingungen in einem eigenen Ablauf fest, statt alles dauerhaft im Hauptscreen zu zeigen.',
+                    'Wähle zuerst Zielbereiche, Tage und ein klares Zeitfenster für die automatische Ausführung.',
                     style: Theme.of(sheetContext).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 16),
-                  SegmentedButton<bool>(
-                    segments: const <ButtonSegment<bool>>[
-                      ButtonSegment<bool>(value: false, label: Text('Manuell')),
-                      ButtonSegment<bool>(value: true, label: Text('Wiederkehrend')),
-                    ],
-                    selected: <bool>{recurring},
-                    onSelectionChanged: (selection) {
-                      setSheetState(() => recurring = selection.first);
+                  Text(
+                    'Zielbereiche',
+                    style: Theme.of(sheetContext).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  if (widget.map.zones.isEmpty)
+                    Text(
+                      'Noch keine Zonen vorhanden. Lege zuerst Zonen in der Karte an.',
+                      style: Theme.of(sheetContext).textTheme.bodySmall,
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: widget.map.zones
+                          .map(
+                            (zone) => FilterChip(
+                              label: Text(zone.name),
+                              selected: selectedZoneIds.contains(zone.id),
+                              onSelected: (selected) {
+                                setSheetState(() {
+                                  if (selected) {
+                                    if (!selectedZoneIds.contains(zone.id)) {
+                                      selectedZoneIds.add(zone.id);
+                                    }
+                                  } else {
+                                    selectedZoneIds.remove(zone.id);
+                                  }
+                                  selectedZoneNames = widget.map.zones
+                                      .where((entry) => selectedZoneIds.contains(entry.id))
+                                      .map((entry) => entry.name)
+                                      .toList(growable: false);
+                                });
+                              },
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                  const SizedBox(height: 16),
+                  _SchedulePicker(
+                    days: scheduleDays,
+                    hour: scheduleHour,
+                    minute: scheduleMinute,
+                    endHour: scheduleEndHour,
+                    endMinute: scheduleEndMinute,
+                    onChanged: (days, hour, minute, endHour, endMinute) {
+                      setSheetState(() {
+                        scheduleDays = days;
+                        scheduleHour = hour;
+                        scheduleMinute = minute;
+                        scheduleEndHour = endHour;
+                        scheduleEndMinute = endMinute;
+                      });
                     },
                   ),
                   const SizedBox(height: 16),
-                  if (recurring) ...<Widget>[
-                    _SchedulePicker(
-                      days: scheduleDays,
-                      hour: scheduleHour,
-                      minute: scheduleMinute,
-                      onChanged: (days, hour, minute) {
-                        setSheetState(() {
-                          scheduleDays = days;
-                          scheduleHour = hour;
-                          scheduleMinute = minute;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                  ],
                   DropdownButtonFormField<String>(
                     initialValue: pattern,
                     decoration: const InputDecoration(labelText: 'Muster'),
@@ -768,6 +799,19 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                   const SizedBox(height: 12),
                   Row(
                     children: <Widget>[
+                      if (mission.isRecurring) ...<Widget>[
+                        Expanded(
+                          child: TextButton.icon(
+                            onPressed: () {
+                              _updateMission(mission.withoutSchedule());
+                              Navigator.of(sheetContext).pop();
+                            },
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Löschen'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => Navigator.of(sheetContext).pop(),
@@ -777,13 +821,27 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton(
-                          onPressed: () {
+                          onPressed: widget.map.zones.isEmpty ||
+                                  selectedZoneIds.isEmpty ||
+                                  !scheduleDays.contains(true) ||
+                                  !_isScheduleRangeValid(
+                                    scheduleHour,
+                                    scheduleMinute,
+                                    scheduleEndHour,
+                                    scheduleEndMinute,
+                                  )
+                              ? null
+                              : () {
                             _updateMission(
                               mission.copyWith(
-                                isRecurring: recurring,
+                                zoneIds: selectedZoneIds,
+                                zoneNames: selectedZoneNames,
+                                isRecurring: true,
                                 scheduleDays: scheduleDays,
-                                scheduleHour: recurring ? scheduleHour : null,
-                                scheduleMinute: recurring ? scheduleMinute : null,
+                                scheduleHour: scheduleHour,
+                                scheduleMinute: scheduleMinute,
+                                scheduleEndHour: scheduleEndHour,
+                                scheduleEndMinute: scheduleEndMinute,
                                 pattern: pattern,
                                 onlyWhenDry: onlyWhenDry,
                                 requiresHighBattery: requiresHighBattery,
@@ -791,7 +849,7 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
                             );
                             Navigator.of(sheetContext).pop();
                           },
-                          child: const Text('Uebernehmen'),
+                          child: const Text('Übernehmen'),
                         ),
                       ),
                     ],
@@ -803,6 +861,17 @@ class _MissionSheetState extends ConsumerState<_MissionSheet> {
         ),
       ),
     );
+  }
+
+  bool _isScheduleRangeValid(
+    int startHour,
+    int startMinute,
+    int endHour,
+    int endMinute,
+  ) {
+    final start = startHour * 60 + startMinute;
+    final end = endHour * 60 + endMinute;
+    return end > start;
   }
 }
 
@@ -891,6 +960,9 @@ class _ScheduleOverview extends StatelessWidget {
         : mission.zoneNames.length == 1
             ? mission.zoneNames.first
             : '${mission.zoneNames.length} Zonen';
+    final hasSchedule = mission.isRecurring &&
+        mission.scheduleHour != null &&
+        mission.scheduleEndHour != null;
 
     return Container(
       width: double.infinity,
@@ -904,15 +976,20 @@ class _ScheduleOverview extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            mission.isRecurring ? 'Automatischer Ablauf' : 'Manueller Ablauf',
+            'Wochenraster',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 6),
           Text(
-            mission.isRecurring
-                ? mission.effectiveScheduleLabel
-                : 'Kein wiederkehrender Zeitplan hinterlegt',
+            hasSchedule
+                ? 'Tippe auf ein Zeitfenster, um Zielbereiche oder Zeiten zu bearbeiten.'
+                : 'Noch kein Zeitfenster hinterlegt. Lege direkt einen Slot für konkrete Tage und Uhrzeiten an.',
             style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          _WeeklyScheduleGrid(
+            mission: mission,
+            onTapSlot: onEdit,
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -920,21 +997,17 @@ class _ScheduleOverview extends StatelessWidget {
             runSpacing: 8,
             children: <Widget>[
               _MissionStatChip(icon: Icons.route_outlined, label: targetLabel),
+              if (mission.effectiveTimeRangeLabel != null)
+                _MissionStatChip(
+                  icon: Icons.schedule_outlined,
+                  label: mission.effectiveTimeRangeLabel!,
+                ),
               _MissionStatChip(icon: Icons.pattern_rounded, label: mission.pattern),
               if (mission.onlyWhenDry)
                 const _MissionStatChip(icon: Icons.wb_sunny_outlined, label: 'Nur trocken'),
               if (mission.requiresHighBattery)
                 const _MissionStatChip(icon: Icons.battery_6_bar_rounded, label: 'Akku > 80%'),
             ],
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_calendar_outlined),
-              label: const Text('Bearbeiten'),
-            ),
           ),
         ],
       ),
@@ -951,13 +1024,17 @@ class _SchedulePicker extends StatelessWidget {
     required this.days,
     required this.hour,
     required this.minute,
+    required this.endHour,
+    required this.endMinute,
     required this.onChanged,
   });
 
   final List<bool> days;
   final int hour;
   final int minute;
-  final void Function(List<bool> days, int hour, int minute) onChanged;
+  final int endHour;
+  final int endMinute;
+  final void Function(List<bool> days, int hour, int minute, int endHour, int endMinute) onChanged;
 
   static const List<String> _dayLabels = <String>['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
@@ -979,7 +1056,7 @@ class _SchedulePicker extends StatelessWidget {
                   onTap: () {
                     final next = List<bool>.from(days.length == 7 ? days : List<bool>.filled(7, false));
                     next[i] = !next[i];
-                    onChanged(next, hour, minute);
+                    onChanged(next, hour, minute, endHour, endMinute);
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
@@ -1016,7 +1093,7 @@ class _SchedulePicker extends StatelessWidget {
               min: 0,
               max: 23,
               label: 'Stunde',
-              onChanged: (v) => onChanged(days, v, minute),
+              onChanged: (v) => onChanged(days, v, minute, endHour, endMinute),
             ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 8),
@@ -1028,11 +1105,237 @@ class _SchedulePicker extends StatelessWidget {
               max: 55,
               step: 5,
               label: 'Minute',
-              onChanged: (v) => onChanged(days, hour, v),
+              onChanged: (v) => onChanged(days, hour, v, endHour, endMinute),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text('Endzeit', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            _TimeSpinner(
+              value: endHour,
+              min: 0,
+              max: 23,
+              label: 'Stunde',
+              onChanged: (v) => onChanged(days, hour, minute, v, endMinute),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text(':', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            ),
+            _TimeSpinner(
+              value: endMinute,
+              min: 0,
+              max: 55,
+              step: 5,
+              label: 'Minute',
+              onChanged: (v) => onChanged(days, hour, minute, endHour, v),
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _WeeklyScheduleGrid extends StatelessWidget {
+  const _WeeklyScheduleGrid({
+    required this.mission,
+    required this.onTapSlot,
+  });
+
+  final Mission mission;
+  final VoidCallback onTapSlot;
+
+  static const List<String> _dayLabels = <String>['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  static const List<int> _hourMarkers = <int>[0, 6, 12, 18, 24];
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSchedule = mission.isRecurring &&
+        mission.scheduleHour != null &&
+        mission.scheduleEndHour != null;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF09111F),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF1E3A5F)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const SizedBox(width: 48),
+              Expanded(
+                child: Row(
+                  children: _hourMarkers
+                      .map(
+                        (hour) => Expanded(
+                          child: Align(
+                            alignment: hour == 24
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Text(
+                              '${hour.toString().padLeft(2, '0')}:00',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF94A3B8),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...List<Widget>.generate(_dayLabels.length, (index) {
+            final daySelected = mission.scheduleDays.length > index && mission.scheduleDays[index];
+            return Padding(
+              padding: EdgeInsets.only(bottom: index == _dayLabels.length - 1 ? 0 : 8),
+              child: _WeeklyScheduleRow(
+                label: _dayLabels[index],
+                showSlot: hasSchedule && daySelected,
+                startMinutes: _startMinutes,
+                endMinutes: _endMinutes,
+                zoneLabel: mission.zoneNames.isEmpty
+                    ? 'Ziel wählen'
+                    : mission.zoneNames.length == 1
+                        ? mission.zoneNames.first
+                        : '${mission.zoneNames.length} Zonen',
+                onTapSlot: onTapSlot,
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  int get _startMinutes {
+    final hour = mission.scheduleHour ?? 0;
+    final minute = mission.scheduleMinute ?? 0;
+    return hour * 60 + minute;
+  }
+
+  int get _endMinutes {
+    final hour = mission.scheduleEndHour ?? mission.scheduleHour ?? 0;
+    final minute = mission.scheduleEndMinute ?? mission.scheduleMinute ?? 0;
+    return hour * 60 + minute;
+  }
+}
+
+class _WeeklyScheduleRow extends StatelessWidget {
+  const _WeeklyScheduleRow({
+    required this.label,
+    required this.showSlot,
+    required this.startMinutes,
+    required this.endMinutes,
+    required this.zoneLabel,
+    required this.onTapSlot,
+  });
+
+  final String label;
+  final bool showSlot;
+  final int startMinutes;
+  final int endMinutes;
+  final String zoneLabel;
+  final VoidCallback onTapSlot;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 34,
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 40,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFFCBD5E1),
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final gridColor = Theme.of(context).dividerColor.withValues(alpha: 0.45);
+                final left = width * (startMinutes / 1440).clamp(0.0, 1.0);
+                final slotWidth = width * ((endMinutes - startMinutes) / 1440).clamp(0.06, 1.0);
+
+                return Stack(
+                  children: <Widget>[
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F1829),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF1E3A5F)),
+                        ),
+                      ),
+                    ),
+                    ...List<Widget>.generate(3, (index) {
+                      return Positioned(
+                        left: width * ((index + 1) / 4),
+                        top: 0,
+                        bottom: 0,
+                        child: Container(width: 1, color: gridColor),
+                      );
+                    }),
+                    if (showSlot)
+                      Positioned(
+                        left: left,
+                        top: 3,
+                        bottom: 3,
+                        width: slotWidth,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: onTapSlot,
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDBEAFE),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFF93C5FD)),
+                              ),
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  child: Text(
+                                    zoneLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Color(0xFF1E3A5F),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

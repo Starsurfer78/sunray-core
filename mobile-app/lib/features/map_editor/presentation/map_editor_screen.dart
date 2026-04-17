@@ -75,10 +75,428 @@ class MapEditorScreen extends ConsumerWidget {
     final hasZones = geometry.zones.isNotEmpty;
     final hasValidNoGo = geometry.noGoZones.every((zone) => zone.isEmpty || zone.length >= 3);
     final hasValidZones = geometry.zones.every((zone) => zone.points.isEmpty || zone.points.length >= 3);
-    final setupReady = hasPerimeter && hasDock && hasValidNoGo && hasValidZones;
+    final hasBaseMapReady = hasPerimeter && hasDock && hasValidNoGo;
+    final setupReady = hasBaseMapReady && hasValidZones;
     final setupStage = editorState.setupStage;
-    final canCreateZone = hasPerimeter && hasDock;
+    final canCreateZone = hasBaseMapReady;
     final canSaveInCurrentContext = !isSetupFlow || (setupStage == MapSetupStage.save && setupReady);
+
+    if (isEditFlow) {
+      return Scaffold(
+        body: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: RobotMapView(
+                map: geometry,
+                status: status.connectionState == ConnectionStateKind.connected
+                    ? status
+                    : null,
+                interactive: true,
+                onMapTap: (point) => _handleMapTap(ref, geometry, editorState, point),
+                activePoints: activePoints,
+                segmentPoints: editorState.mode == MapEditorMode.edit
+                    ? segmentPoints
+                    : const <EditableSegmentTarget>[],
+                onPointTap: (index) {
+                  final current = ref.read(mapEditorStateProvider);
+                  ref.read(mapEditorStateProvider.notifier).state =
+                      current.copyWith(selectedPointIndex: index);
+                },
+                onSegmentTap: (insertIndex) {
+                  final current = ref.read(mapEditorStateProvider);
+                  final target = segmentPoints.firstWhere(
+                    (segment) => segment.insertIndex == insertIndex,
+                  );
+                  final nextGeometry = controller.insertPoint(
+                    geometry,
+                    current,
+                    insertIndex,
+                    target.point,
+                  );
+                  _setGeometry(ref, nextGeometry);
+                },
+                selectedPointIndex: editorState.selectedPointIndex,
+                showPerimeter: editorState.showPerimeter,
+                showNoGo: editorState.showNoGo,
+                showZones: editorState.showZones,
+                showDock: editorState.showDock,
+                highlightActiveZoneId:
+                    editorState.activeObject == EditableMapObjectType.zone
+                        ? editorState.activeZoneId
+                        : null,
+                showCenterButton: editorState.mode == MapEditorMode.view,
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: <Color>[
+                        Color(0xC608101D),
+                        Color(0x0008101D),
+                        Color(0x0008101D),
+                        Color(0xE608101D),
+                      ],
+                      stops: <double>[0, 0.22, 0.55, 1],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        _MapOverlayIconButton(
+                          icon: Icons.arrow_back_rounded,
+                          tooltip: 'Dashboard',
+                          onPressed: () => context.go('/dashboard'),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _MapOverlayTitleCard(
+                            title: 'Karte bearbeiten',
+                            subtitle: activeObjectLabel,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _MapOverlayIconButton(
+                          icon: Icons.undo_rounded,
+                          tooltip: 'Rückgängig',
+                          onPressed: undoStack.isEmpty ? null : () => _undo(ref),
+                        ),
+                        const SizedBox(width: 8),
+                        _MapOverlayIconButton(
+                          icon: Icons.redo_rounded,
+                          tooltip: 'Wiederherstellen',
+                          onPressed: redoStack.isEmpty ? null : () => _redo(ref),
+                        ),
+                      ],
+                    ),
+                    if (status.lastError != null) ...<Widget>[
+                      const SizedBox(height: 12),
+                      ConnectionNotice(status: status),
+                    ],
+                    const Spacer(),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: <Widget>[
+                          _FloatingActionPill(
+                            icon: Icons.add_circle_outline_rounded,
+                            label: 'Mehr hinzufügen',
+                            onTap: () => _openAddMoreSheet(context, ref, geometry),
+                          ),
+                          const SizedBox(height: 10),
+                          _FloatingActionPill(
+                            icon: editorState.mode == MapEditorMode.edit
+                                ? Icons.visibility_outlined
+                                : Icons.edit_location_alt_rounded,
+                            label: editorState.mode == MapEditorMode.edit
+                              ? 'Ansehen'
+                              : 'Bearbeiten',
+                            onTap: () {
+                              if (editorState.mode == MapEditorMode.edit) {
+                                ref.read(mapEditorStateProvider.notifier).state =
+                                    editorState.copyWith(
+                                      mode: MapEditorMode.view,
+                                      clearSelectedPoint: true,
+                                    );
+                              } else {
+                                _enterEditMode(ref, geometry);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          PopupMenuButton<String>(
+                            tooltip: 'Layer',
+                            color: const Color(0xEE0F172A),
+                            onSelected: (value) {
+                              final current = ref.read(mapEditorStateProvider);
+                              switch (value) {
+                                case 'perimeter':
+                                  ref.read(mapEditorStateProvider.notifier).state =
+                                      current.copyWith(
+                                        showPerimeter: !current.showPerimeter,
+                                      );
+                                case 'nogo':
+                                  ref.read(mapEditorStateProvider.notifier).state =
+                                      current.copyWith(
+                                        showNoGo: !current.showNoGo,
+                                      );
+                                case 'zones':
+                                  ref.read(mapEditorStateProvider.notifier).state =
+                                      current.copyWith(
+                                        showZones: !current.showZones,
+                                      );
+                                case 'dock':
+                                  ref.read(mapEditorStateProvider.notifier).state =
+                                      current.copyWith(
+                                        showDock: !current.showDock,
+                                      );
+                              }
+                            },
+                            itemBuilder: (context) => <PopupMenuEntry<String>>[
+                              CheckedPopupMenuItem<String>(
+                                value: 'perimeter',
+                                checked: editorState.showPerimeter,
+                                child: const Text('Perimeter'),
+                              ),
+                              CheckedPopupMenuItem<String>(
+                                value: 'nogo',
+                                checked: editorState.showNoGo,
+                                child: const Text('No-Go'),
+                              ),
+                              CheckedPopupMenuItem<String>(
+                                value: 'zones',
+                                checked: editorState.showZones,
+                                child: const Text('Zonen'),
+                              ),
+                              CheckedPopupMenuItem<String>(
+                                value: 'dock',
+                                checked: editorState.showDock,
+                                child: const Text('Dock'),
+                              ),
+                            ],
+                            child: const _MapOverlayIconButton(
+                              icon: Icons.layers_outlined,
+                              tooltip: 'Layer',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xE60F1829),
+                        borderRadius: BorderRadius.circular(26),
+                        border: Border.all(color: const Color(0x331E3A5F)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      activeObjectLabel,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(fontWeight: FontWeight.w700),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _hintText(editorState),
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              _MapOverlayIconButton(
+                                icon: Icons.save_outlined,
+                                tooltip: 'Karte speichern',
+                                onPressed: canSaveInCurrentContext
+                                    ? () => _saveMap(
+                                          context,
+                                          ref,
+                                          geometry,
+                                          activeRobot,
+                                        )
+                                    : null,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: <Widget>[
+                                _FocusPill(
+                                  label:
+                                      'Perimeter ${hasPerimeter ? 'bereit' : 'offen'}',
+                                ),
+                                const SizedBox(width: 8),
+                                _FocusPill(
+                                  label: 'Dock ${hasDock ? 'bereit' : 'offen'}',
+                                ),
+                                const SizedBox(width: 8),
+                                _FocusPill(label: '${geometry.zones.length} Zonen'),
+                                const SizedBox(width: 8),
+                                _FocusPill(
+                                  label: '${geometry.noGoZones.length} No-Go',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          if (geometry.zones.isNotEmpty)
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: geometry.zones
+                                    .map(
+                                      (zone) => Padding(
+                                        padding:
+                                            const EdgeInsets.only(right: 8),
+                                        child: FilterChip(
+                                          label: Text(zone.name),
+                                          selected: editorState.activeObject ==
+                                                  EditableMapObjectType.zone &&
+                                              editorState.activeZoneId ==
+                                                  zone.id,
+                                          onSelected: (_) {
+                                            ref
+                                                .read(
+                                                  mapEditorStateProvider.notifier,
+                                                )
+                                                .state = editorState.copyWith(
+                                                  mode: MapEditorMode.edit,
+                                                  activeObject:
+                                                      EditableMapObjectType.zone,
+                                                  activeZoneId: zone.id,
+                                                  clearActiveNoGo: true,
+                                                  clearSelectedPoint: true,
+                                                );
+                                          },
+                                        ),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                            ),
+                          if (geometry.zones.isNotEmpty) const SizedBox(height: 14),
+                          Row(
+                            children: <Widget>[
+                              if (editorState.activeObject ==
+                                      EditableMapObjectType.zone &&
+                                  editorState.activeZoneId != null) ...<Widget>[
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _configureActiveZone(
+                                      context,
+                                      ref,
+                                      geometry,
+                                      editorState.activeZoneId!,
+                                    ),
+                                    icon: const Icon(Icons.tune_rounded),
+                                    label: const Text('Zone'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: editorState.selectedPointIndex == null
+                                      ? null
+                                      : () {
+                                          final nextGeometry =
+                                              controller.deletePoint(
+                                            geometry,
+                                            editorState,
+                                            editorState.selectedPointIndex!,
+                                          );
+                                          _setGeometry(ref, nextGeometry);
+                                          ref
+                                              .read(
+                                                mapEditorStateProvider.notifier,
+                                              )
+                                              .state = editorState.copyWith(
+                                                clearSelectedPoint: true,
+                                              );
+                                        },
+                                  child: const Text('Punkt löschen'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton.tonal(
+                                  onPressed: () {
+                                    _setGeometry(
+                                      ref,
+                                      controller.deleteActiveObject(
+                                        geometry,
+                                        editorState,
+                                      ),
+                                    );
+                                    ref.read(mapEditorStateProvider.notifier).state =
+                                        editorState.copyWith(
+                                      clearSelectedPoint: true,
+                                      clearActiveZone:
+                                          editorState.activeObject ==
+                                              EditableMapObjectType.zone,
+                                      clearActiveNoGo:
+                                          editorState.activeObject ==
+                                              EditableMapObjectType.noGo,
+                                    );
+                                  },
+                                  child: const Text('Objekt löschen'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (editorState.mode == MapEditorMode.record) ...<Widget>[
+                      const SizedBox(height: 12),
+                      _RecordPanel(
+                        status: status,
+                        activePoints: activePoints,
+                        onSavePoint: () {
+                          final lat = status.gpsLat;
+                          final lon = status.gpsLon;
+                          if (lat == null || lon == null) return;
+                          HapticFeedback.lightImpact();
+                          _handleMapTap(
+                            ref,
+                            geometry,
+                            editorState,
+                            MapPoint(x: lon, y: lat),
+                          );
+                        },
+                        onClose: activePoints.length >= 3
+                            ? () {
+                                ref.read(mapEditorStateProvider.notifier).state =
+                                    editorState.copyWith(
+                                      mode: MapEditorMode.view,
+                                      clearSelectedPoint: true,
+                                    );
+                              }
+                            : null,
+                        onCancel: () => _handleCancelRecording(
+                          context,
+                          ref,
+                          geometry,
+                          editorState,
+                          controller,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -159,32 +577,33 @@ class MapEditorScreen extends ConsumerWidget {
             ],
             icon: const Icon(Icons.layers_outlined),
           ),
-          PopupMenuButton<EditableMapObjectType>(
-            tooltip: 'Neues Objekt',
-            onSelected: (value) {
-              _createObject(ref, geometry, value);
-            },
-            itemBuilder: (context) => <PopupMenuEntry<EditableMapObjectType>>[
-              const PopupMenuItem(
-                value: EditableMapObjectType.perimeter,
-                child: Text('+ Perimeter'),
-              ),
-              const PopupMenuItem(
-                value: EditableMapObjectType.noGo,
-                child: Text('+ No-Go-Zone'),
-              ),
-              PopupMenuItem(
-                value: EditableMapObjectType.zone,
-                enabled: canCreateZone,
-                child: const Text('+ Mähzone'),
-              ),
-              const PopupMenuItem(
-                value: EditableMapObjectType.dock,
-                child: Text('+ Dock setzen'),
-              ),
-            ],
-            icon: const Icon(Icons.add_circle_outline_rounded),
-          ),
+          if (!isSetupFlow)
+            PopupMenuButton<EditableMapObjectType>(
+              tooltip: 'Neues Objekt',
+              onSelected: (value) {
+                _createObject(ref, geometry, value);
+              },
+              itemBuilder: (context) => <PopupMenuEntry<EditableMapObjectType>>[
+                const PopupMenuItem(
+                  value: EditableMapObjectType.perimeter,
+                  child: Text('+ Perimeter'),
+                ),
+                const PopupMenuItem(
+                  value: EditableMapObjectType.noGo,
+                  child: Text('+ No-Go-Zone'),
+                ),
+                const PopupMenuItem(
+                  value: EditableMapObjectType.dock,
+                  child: Text('+ Docking setzen'),
+                ),
+                PopupMenuItem(
+                  value: EditableMapObjectType.zone,
+                  enabled: canCreateZone,
+                  child: const Text('+ Mähzone'),
+                ),
+              ],
+              icon: const Icon(Icons.add_circle_outline_rounded),
+            ),
         ],
       ),
       body: Column(
@@ -279,34 +698,59 @@ class MapEditorScreen extends ConsumerWidget {
                 children: <Widget>[
                 if (isSetupFlow) ...<Widget>[
                 SectionCard(
-                  title: 'Setup-Assistent',
+                  title: 'Basiskarten-Werkzeugleiste',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
+                      Text(
+                        'Lege die Basiskarte immer in dieser Reihenfolge an: Perimeter, NoGo, Docking. Zonen sind erst danach ein optionaler Schritt.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: MapSetupStage.values
-                            .map(
-                              (stage) => _SetupStageChip(
-                                label: _setupStageLabel(stage),
-                                selected: setupStage == stage,
-                                enabled: _canOpenSetupStage(
-                                  stage,
-                                  hasPerimeter: hasPerimeter,
-                                  hasDock: hasDock,
-                                ),
-                                done: _isSetupStageDone(
-                                  stage,
-                                  hasPerimeter: hasPerimeter,
-                                  hasDock: hasDock,
-                                  hasValidNoGo: hasValidNoGo,
-                                  setupReady: setupReady,
-                                ),
-                                onTap: () => _setSetupStage(ref, editorState, stage),
-                              ),
-                            )
-                            .toList(growable: false),
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: <Widget>[
+                          _BaseToolChip(
+                            label: '1 Perimeter',
+                            subtitle: hasPerimeter ? 'bereit' : 'Pflicht',
+                            selected: setupStage == MapSetupStage.perimeter,
+                            enabled: true,
+                            done: hasPerimeter,
+                            onTap: () => _setSetupStage(ref, editorState, MapSetupStage.perimeter),
+                          ),
+                          _BaseToolChip(
+                            label: '2 NoGo',
+                            subtitle: geometry.noGoZones.isEmpty
+                                ? 'optional in Basiskarte'
+                                : hasValidNoGo
+                                    ? 'bereit'
+                                    : 'offen',
+                            selected: setupStage == MapSetupStage.noGo,
+                            enabled: hasPerimeter,
+                            done: hasValidNoGo,
+                            onTap: () => _setSetupStage(ref, editorState, MapSetupStage.noGo),
+                          ),
+                          _BaseToolChip(
+                            label: '3 Docking',
+                            subtitle: hasDock ? 'bereit' : 'Pflicht',
+                            selected: setupStage == MapSetupStage.dock,
+                            enabled: hasPerimeter,
+                            done: hasDock,
+                            onTap: () => _setSetupStage(ref, editorState, MapSetupStage.dock),
+                          ),
+                          _BaseToolChip(
+                            label: 'Zonen',
+                            subtitle: hasBaseMapReady
+                                ? 'optional danach'
+                                : 'erst nach Perimeter, NoGo und Docking',
+                            selected: false,
+                            enabled: hasBaseMapReady,
+                            done: hasZones,
+                            optional: true,
+                            onTap: () => _createObject(ref, geometry, EditableMapObjectType.zone),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -318,8 +762,8 @@ class MapEditorScreen extends ConsumerWidget {
                         done: hasPerimeter,
                         title: 'Perimeter',
                         subtitle: hasPerimeter
-                            ? 'Aussenkante ist vorhanden.'
-                            : 'Lege zuerst die Aussenkante des Gartens an.',
+                            ? 'Außenkante ist vorhanden.'
+                            : 'Lege zuerst die Außenkante des Gartens an.',
                       ),
                       const SizedBox(height: 8),
                       _FlowStatusRow(
@@ -379,11 +823,11 @@ class MapEditorScreen extends ConsumerWidget {
                           items: <_ValidationItem>[
                             _ValidationItem(
                               done: hasPerimeter,
-                              label: 'Perimeter ist geschlossen genug fuer die Karte.',
+                              label: 'Perimeter ist geschlossen genug für die Karte.',
                             ),
                             _ValidationItem(
                               done: hasValidNoGo,
-                              label: 'Alle No-Go-Bereiche sind vollstaendig oder leer.',
+                              label: 'Alle No-Go-Bereiche sind vollständig oder leer.',
                             ),
                             _ValidationItem(
                               done: hasDock,
@@ -391,7 +835,7 @@ class MapEditorScreen extends ConsumerWidget {
                             ),
                             _ValidationItem(
                               done: hasValidZones,
-                              label: 'Vorhandene Zonen sind geometrisch vollstaendig.',
+                              label: 'Vorhandene Zonen sind geometrisch vollständig.',
                             ),
                           ],
                         ),
@@ -399,16 +843,6 @@ class MapEditorScreen extends ConsumerWidget {
                       const SizedBox(height: 8),
                       Row(
                         children: <Widget>[
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: setupStage == MapSetupStage.noGo && hasPerimeter
-                                  ? () => _createObject(ref, geometry, EditableMapObjectType.noGo)
-                                  : null,
-                              icon: const Icon(Icons.block_outlined),
-                              label: const Text('No-Go hinzufügen'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: setupReady
@@ -432,7 +866,7 @@ class MapEditorScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        'Im Normalzustand bleibt die Karte ruhig. Neue Elemente kommen ueber Add more, Korrekturen ueber Edit.',
+                        'Im Normalzustand bleibt die Karte ruhig. Neue Elemente kommen über Mehr hinzufügen, Korrekturen über Bearbeiten.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 12),
@@ -442,7 +876,7 @@ class MapEditorScreen extends ConsumerWidget {
                             child: FilledButton.tonalIcon(
                               onPressed: () => _openAddMoreSheet(context, ref, geometry),
                               icon: const Icon(Icons.add_circle_outline_rounded),
-                              label: const Text('Add more'),
+                              label: const Text('Mehr hinzufügen'),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -450,7 +884,7 @@ class MapEditorScreen extends ConsumerWidget {
                             child: FilledButton.icon(
                               onPressed: () => _enterEditMode(ref, geometry),
                               icon: const Icon(Icons.edit_location_alt_rounded),
-                              label: const Text('Edit'),
+                              label: const Text('Bearbeiten'),
                             ),
                           ),
                         ],
@@ -458,7 +892,7 @@ class MapEditorScreen extends ConsumerWidget {
                       if (editorState.mode == MapEditorMode.edit) ...<Widget>[
                         const SizedBox(height: 12),
                         Text(
-                          'Bearbeiten ist aktiv. Waehl ein Objekt und verschiebe oder loesche Punkte gezielt.',
+                          'Bearbeiten ist aktiv. Wähle ein Objekt und verschiebe oder lösche Punkte gezielt.',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: 12),
@@ -555,7 +989,7 @@ class MapEditorScreen extends ConsumerWidget {
                         isSetupFlow
                           ? 'Lege zuerst Perimeter, No-Go-Bereiche und Dock an. Danach wird die Karte validiert und gespeichert.'
                             : isEditFlow
-                                ? 'Nutze Bearbeiten fuer Punktkorrekturen und pruefe einzelne Layer gezielt.'
+                                ? 'Nutze Bearbeiten für Punktkorrekturen und prüfe einzelne Layer gezielt.'
                                 : 'Wechsle je nach Aufgabe zwischen Ansicht, Aufzeichnen und Bearbeiten.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
@@ -783,6 +1217,34 @@ class MapEditorScreen extends ConsumerWidget {
     MapGeometry geometry,
     SavedRobot? activeRobot,
   ) async {
+    if (entryFlow == MapEditorEntryFlow.setup) {
+      final hasPerimeter = geometry.perimeter.length >= 3;
+      final hasDock = geometry.dock.isNotEmpty;
+      final hasValidNoGo = geometry.noGoZones.every(
+        (zone) => zone.isEmpty || zone.length >= 3,
+      );
+      final hasValidZones = geometry.zones.every(
+        (zone) => zone.points.isEmpty || zone.points.length >= 3,
+      );
+
+      if (!hasPerimeter || !hasDock || !hasValidNoGo || !hasValidZones) {
+        final missingParts = <String>[
+          if (!hasPerimeter) 'Perimeter',
+          if (!hasDock) 'Docking',
+          if (!hasValidNoGo) 'gültige No-Go-Bereiche',
+          if (!hasValidZones) 'vollständige Zonen',
+        ];
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Speichern ist erst nach gültiger Basiskarte möglich. Es fehlt noch: ${missingParts.join(', ')}.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     try {
       await ref.read(appStateStorageProvider).saveMapGeometry(geometry);
       if (activeRobot != null) {
@@ -907,30 +1369,31 @@ class MapEditorScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                'Add more',
+                'Element hinzufügen',
                 style: Theme.of(sheetContext).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),
               Text(
-                'Ergaenze gezielt neue Kartenelemente, ohne direkt in den Bearbeitungsmodus zu springen.',
+                'Ergänze neue Kartenelemente in der Produktreihenfolge der Basiskarte.',
                 style: Theme.of(sheetContext).textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
-              _AddMoreTile(
-                icon: Icons.crop_square_rounded,
-                title: 'Zone',
-                subtitle: 'Neue Mähzone zur vorhandenen Karte hinzufügen',
-                onTap: canAddZone(geometry)
-                    ? () {
-                        Navigator.of(sheetContext).pop();
-                        _createObject(ref, geometry, EditableMapObjectType.zone);
-                      }
-                    : null,
-              ),
+              if (geometry.perimeter.isEmpty)
+                _AddMoreTile(
+                  icon: Icons.landscape_outlined,
+                  title: 'Perimeter',
+                  subtitle: 'Grundfläche der Karte aufnehmen',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _createObject(ref, geometry, EditableMapObjectType.perimeter);
+                  },
+                ),
               _AddMoreTile(
                 icon: Icons.block_outlined,
                 title: 'No-Go-Bereich',
-                subtitle: 'Ausschlussfläche ergänzen',
+                subtitle: geometry.perimeter.length >= 3
+                    ? 'Ausschlussfläche ergänzen'
+                    : 'Erst nach dem Perimeter verfügbar',
                 onTap: geometry.perimeter.length >= 3
                     ? () {
                         Navigator.of(sheetContext).pop();
@@ -940,10 +1403,12 @@ class MapEditorScreen extends ConsumerWidget {
               ),
               _AddMoreTile(
                 icon: Icons.home_work_outlined,
-                title: 'Dock',
-                subtitle: geometry.dock.isEmpty
-                    ? 'Dockingpunkt aufnehmen'
-                    : 'Dock neu setzen',
+                title: 'Docking',
+                subtitle: geometry.perimeter.length >= 3
+                    ? (geometry.dock.isEmpty
+                        ? 'Dockingpunkt aufnehmen'
+                        : 'Dockingpunkt neu setzen')
+                    : 'Erst nach dem Perimeter verfügbar',
                 onTap: geometry.perimeter.length >= 3
                     ? () {
                         Navigator.of(sheetContext).pop();
@@ -951,16 +1416,19 @@ class MapEditorScreen extends ConsumerWidget {
                       }
                     : null,
               ),
-              if (geometry.perimeter.isEmpty)
-                _AddMoreTile(
-                  icon: Icons.landscape_outlined,
-                  title: 'Boundary',
-                  subtitle: 'Grundfläche der Karte aufnehmen',
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _createObject(ref, geometry, EditableMapObjectType.perimeter);
-                  },
-                ),
+              _AddMoreTile(
+                icon: Icons.crop_square_rounded,
+                title: 'Zone',
+                subtitle: canAddZone(geometry)
+                    ? 'Optionale Mähzone zur vorhandenen Basiskarte hinzufügen'
+                    : 'Erst nach gültiger Basiskarte mit Docking verfügbar',
+                onTap: canAddZone(geometry)
+                    ? () {
+                        Navigator.of(sheetContext).pop();
+                        _createObject(ref, geometry, EditableMapObjectType.zone);
+                      }
+                    : null,
+              ),
             ],
           ),
         ),
@@ -969,7 +1437,10 @@ class MapEditorScreen extends ConsumerWidget {
   }
 
   bool canAddZone(MapGeometry geometry) {
-    return geometry.perimeter.length >= 3 && geometry.dock.isNotEmpty;
+    final hasPerimeter = geometry.perimeter.length >= 3;
+    final hasDock = geometry.dock.isNotEmpty;
+    final hasValidNoGo = geometry.noGoZones.every((zone) => zone.isEmpty || zone.length >= 3);
+    return hasPerimeter && hasDock && hasValidNoGo;
   }
 
   void _setSetupStage(
@@ -979,7 +1450,16 @@ class MapEditorScreen extends ConsumerWidget {
   ) {
     ref.read(mapEditorStateProvider.notifier).state = editorState.copyWith(
       setupStage: stage,
+      mode: MapEditorMode.view,
+      activeObject: switch (stage) {
+        MapSetupStage.perimeter => EditableMapObjectType.perimeter,
+        MapSetupStage.noGo => EditableMapObjectType.noGo,
+        MapSetupStage.dock => EditableMapObjectType.dock,
+        MapSetupStage.validate || MapSetupStage.save => editorState.activeObject,
+      },
       clearSelectedPoint: true,
+      clearActiveZone: stage != MapSetupStage.save,
+      clearActiveNoGo: stage != MapSetupStage.noGo,
     );
   }
 
@@ -1043,7 +1523,7 @@ class MapEditorScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
                   initialValue: priority,
-                  decoration: const InputDecoration(labelText: 'Prioritaet'),
+                  decoration: const InputDecoration(labelText: 'Priorität'),
                   items: const <DropdownMenuItem<int>>[
                     DropdownMenuItem(value: 1, child: Text('1 - Normal')),
                     DropdownMenuItem(value: 2, child: Text('2 - Hoch')),
@@ -1057,10 +1537,10 @@ class MapEditorScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: mowingDirection,
-                  decoration: const InputDecoration(labelText: 'Maehrichtung'),
+                  decoration: const InputDecoration(labelText: 'Mährichtung'),
                   items: const <DropdownMenuItem<String>>[
                     DropdownMenuItem(value: 'Automatisch', child: Text('Automatisch')),
-                    DropdownMenuItem(value: 'Nord-Sued', child: Text('Nord-Sued')),
+                    DropdownMenuItem(value: 'Nord-Süd', child: Text('Nord-Süd')),
                     DropdownMenuItem(value: 'Ost-West', child: Text('Ost-West')),
                     DropdownMenuItem(value: 'Diagonal', child: Text('Diagonal')),
                   ],
@@ -1072,11 +1552,11 @@ class MapEditorScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: mowingProfile,
-                  decoration: const InputDecoration(labelText: 'Maehprofil'),
+                  decoration: const InputDecoration(labelText: 'Mähprofil'),
                   items: const <DropdownMenuItem<String>>[
                     DropdownMenuItem(value: 'Standard', child: Text('Standard')),
                     DropdownMenuItem(value: 'Schnell', child: Text('Schnell')),
-                    DropdownMenuItem(value: 'Sorgfaeltig', child: Text('Sorgfaeltig')),
+                    DropdownMenuItem(value: 'Sorgfältig', child: Text('Sorgfältig')),
                   ],
                   onChanged: (value) {
                     if (value == null) return;
@@ -1237,15 +1717,15 @@ class MapEditorScreen extends ConsumerWidget {
   String _setupStageDescription(MapSetupStage stage) {
     switch (stage) {
       case MapSetupStage.perimeter:
-        return 'Definiere zuerst die Aussenkante des Gartens. Ohne Perimeter geht der Rest nicht weiter.';
+        return 'Definiere zuerst die Außenkante des Gartens. Ohne Perimeter geht der Rest nicht weiter.';
       case MapSetupStage.noGo:
-        return 'Ergaenze optional Ausschlussflaechen fuer Beete, Inseln oder sensible Bereiche.';
+        return 'Ergänze optional Ausschlussflächen für Beete, Inseln oder sensible Bereiche.';
       case MapSetupStage.dock:
-        return 'Setze die Dock-Position erst nach der Grundflaeche, damit die Karte fachlich vollstaendig ist.';
+        return 'Setze die Dock-Position erst nach der Grundfläche, damit die Karte fachlich vollständig ist.';
       case MapSetupStage.validate:
-        return 'Pruefe jetzt, ob die Karte in sich stimmig ist. Erst danach sollte sie gespeichert werden.';
+        return 'Prüfe jetzt, ob die Karte in sich stimmig ist. Erst danach sollte sie gespeichert werden.';
       case MapSetupStage.save:
-        return 'Speichere die Basiskarte. Zonen und spaetere Korrekturen folgen anschliessend im Bearbeitungsflow.';
+        return 'Speichere die Basiskarte. Zonen und spätere Korrekturen folgen anschließend im Bearbeitungsflow.';
     }
   }
 }
@@ -1335,7 +1815,7 @@ class _RecordPanel extends StatelessWidget {
                   ),
                   child: Column(
                     children: <Widget>[
-                      const Text('Schliessen'),
+                      const Text('Schließen'),
                       if (activePoints.length < 3)
                         Text(
                           'min. 3 Punkte',
@@ -1452,31 +1932,90 @@ class _EditShortcutChip extends StatelessWidget {
   }
 }
 
-class _SetupStageChip extends StatelessWidget {
-  const _SetupStageChip({
+class _BaseToolChip extends StatelessWidget {
+  const _BaseToolChip({
     required this.label,
+    required this.subtitle,
     required this.selected,
     required this.enabled,
     required this.done,
     required this.onTap,
+    this.optional = false,
   });
 
   final String label;
+  final String subtitle;
   final bool selected;
   final bool enabled;
   final bool done;
   final VoidCallback onTap;
+  final bool optional;
 
   @override
   Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      avatar: Icon(
-        done ? Icons.check_rounded : Icons.arrow_right_alt_rounded,
-        size: 16,
+    final borderColor = selected
+        ? const Color(0xFF2563EB)
+        : done
+            ? const Color(0xFF16A34A)
+            : const Color(0xFFCBD5E1);
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 148,
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  size: 16,
+                  color: done ? const Color(0xFF16A34A) : const Color(0xFF64748B),
+                ),
+                const SizedBox(width: 6),
+                if (optional)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'optional',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF334155),
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: enabled ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: enabled ? const Color(0xFF475569) : const Color(0xFF94A3B8),
+                  ),
+            ),
+          ],
+        ),
       ),
-      onSelected: enabled ? (_) => onTap() : null,
     );
   }
 }
@@ -1507,14 +2046,14 @@ class _SetupStageCard extends StatelessWidget {
       MapSetupStage.perimeter => 'Perimeter aufzeichnen',
       MapSetupStage.noGo => 'No-Go aufnehmen',
       MapSetupStage.dock => 'Dock setzen',
-      MapSetupStage.validate => 'Validierung abschliessen',
+      MapSetupStage.validate => 'Validierung abschließen',
       MapSetupStage.save => 'Karte speichern',
     };
     final secondaryLabel = switch (stage) {
       MapSetupStage.perimeter => null,
       MapSetupStage.noGo => 'Ohne No-Go weiter',
-      MapSetupStage.dock => 'Dock spaeter setzen',
-      MapSetupStage.validate => 'Zurueck zu No-Go',
+      MapSetupStage.dock => 'Dock später setzen',
+      MapSetupStage.validate => 'Zurück zu No-Go',
       MapSetupStage.save => 'Zur Bearbeitung',
     };
     final primaryEnabled = switch (stage) {
@@ -1537,26 +2076,26 @@ class _SetupStageCard extends StatelessWidget {
         children: <Widget>[
           Text(
             switch (stage) {
-              MapSetupStage.perimeter => 'Grundflaeche aufnehmen',
-              MapSetupStage.noGo => 'Ausschlussbereiche ergaenzen',
+              MapSetupStage.perimeter => 'Grundfläche aufnehmen',
+              MapSetupStage.noGo => 'Ausschlussbereiche ergänzen',
               MapSetupStage.dock => 'Dockingpunkt festlegen',
-              MapSetupStage.validate => 'Karte fachlich pruefen',
-              MapSetupStage.save => 'Basiskarte abschliessen',
+              MapSetupStage.validate => 'Karte fachlich prüfen',
+              MapSetupStage.save => 'Basiskarte abschließen',
             },
             style: theme.textTheme.titleSmall,
           ),
           const SizedBox(height: 6),
           Text(
             switch (stage) {
-              MapSetupStage.perimeter => 'Setze mindestens drei Punkte fuer die Aussenkante.',
+              MapSetupStage.perimeter => 'Setze mindestens drei Punkte für die Außenkante.',
               MapSetupStage.noGo => hasValidNoGo
-                  ? 'Vorhandene No-Go-Bereiche sind gueltig. Du kannst weitergehen oder weitere Flaechen aufnehmen.'
-                  : 'Beende angefangene No-Go-Bereiche mit mindestens drei Punkten.' ,
+                  ? 'Vorhandene No-Go-Bereiche sind gültig. Du kannst weitergehen oder weitere Flächen aufnehmen.'
+                  : 'Beende angefangene No-Go-Bereiche mit mindestens drei Punkten.',
               MapSetupStage.dock => hasDock
                   ? 'Dock ist bereits gesetzt. Du kannst direkt validieren.'
                   : 'Lege einen Dock-Punkt auf der Karte fest.',
-              MapSetupStage.validate => 'Alle Pflichtpunkte muessen vorhanden sein, bevor die Karte gespeichert wird.',
-              MapSetupStage.save => 'Nach dem Speichern wechselst du in die Kartenbearbeitung fuer Zonen und spaetere Anpassungen.',
+              MapSetupStage.validate => 'Alle Pflichtpunkte müssen vorhanden sein, bevor die Karte gespeichert wird.',
+              MapSetupStage.save => 'Nach dem Speichern wechselst du in die Kartenbearbeitung für Zonen und spätere Anpassungen.',
             },
             style: theme.textTheme.bodySmall,
           ),
@@ -1660,6 +2199,116 @@ class _AddMoreTile extends StatelessWidget {
       subtitle: Text(subtitle),
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: onTap,
+    );
+  }
+}
+
+class _MapOverlayTitleCard extends StatelessWidget {
+  const _MapOverlayTitleCard({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xC20F172A),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFFBFDBFE),
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapOverlayIconButton extends StatelessWidget {
+  const _MapOverlayIconButton({
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: const Color(0xC20F172A),
+        shape: const CircleBorder(),
+        child: IconButton(
+          onPressed: onPressed,
+          icon: Icon(icon, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+class _FloatingActionPill extends StatelessWidget {
+  const _FloatingActionPill({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xD90F172A),
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(icon, size: 18, color: const Color(0xFF93C5FD)),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

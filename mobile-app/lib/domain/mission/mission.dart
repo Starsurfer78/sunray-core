@@ -7,6 +7,8 @@ class Mission {
     this.scheduleDays = const <bool>[false, false, false, false, false, false, false],
     this.scheduleHour,
     this.scheduleMinute,
+    this.scheduleEndHour,
+    this.scheduleEndMinute,
     this.scheduleLabel,
     this.isRecurring = false,
     this.onlyWhenDry = true,
@@ -22,6 +24,8 @@ class Mission {
   final List<bool> scheduleDays;
   final int? scheduleHour;
   final int? scheduleMinute;
+  final int? scheduleEndHour;
+  final int? scheduleEndMinute;
   /// Legacy / fallback label kept for backward compat.
   final String? scheduleLabel;
   final bool isRecurring;
@@ -40,9 +44,25 @@ class Mission {
         .where((e) => e.value)
         .map((e) => dayNames[e.key])
         .join(' ');
-    final h = scheduleHour!.toString().padLeft(2, '0');
-    final m = (scheduleMinute ?? 0).toString().padLeft(2, '0');
-    return days.isEmpty ? '$h:$m' : '$days $h:$m';
+    final start = _formatTime(scheduleHour!, scheduleMinute ?? 0);
+    final end = scheduleEndHour == null
+        ? null
+        : _formatTime(scheduleEndHour!, scheduleEndMinute ?? 0);
+    final timeRange = end == null ? start : '$start-$end';
+    return days.isEmpty ? timeRange : '$days $timeRange';
+  }
+
+  String? get effectiveTimeRangeLabel {
+    if (!isRecurring || scheduleHour == null) return null;
+    final start = _formatTime(scheduleHour!, scheduleMinute ?? 0);
+    if (scheduleEndHour == null) return start;
+    return '$start-${_formatTime(scheduleEndHour!, scheduleEndMinute ?? 0)}';
+  }
+
+  static String _formatTime(int hour, int minute) {
+    final h = hour.toString().padLeft(2, '0');
+    final m = minute.toString().padLeft(2, '0');
+    return '$h:$m';
   }
 
   Map<String, dynamic> toJson() {
@@ -54,6 +74,8 @@ class Mission {
       'scheduleDays': scheduleDays,
       'scheduleHour': scheduleHour,
       'scheduleMinute': scheduleMinute,
+      'scheduleEndHour': scheduleEndHour,
+      'scheduleEndMinute': scheduleEndMinute,
       'scheduleLabel': effectiveScheduleLabel,
       'isRecurring': isRecurring,
       'onlyWhenDry': onlyWhenDry,
@@ -74,6 +96,8 @@ class Mission {
     List<bool>? scheduleDays,
     int? scheduleHour,
     int? scheduleMinute,
+    int? scheduleEndHour,
+    int? scheduleEndMinute,
     String? scheduleLabel,
     bool? isRecurring,
     bool? onlyWhenDry,
@@ -88,11 +112,32 @@ class Mission {
       scheduleDays: scheduleDays ?? this.scheduleDays,
       scheduleHour: scheduleHour ?? this.scheduleHour,
       scheduleMinute: scheduleMinute ?? this.scheduleMinute,
+      scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
+      scheduleEndMinute: scheduleEndMinute ?? this.scheduleEndMinute,
       scheduleLabel: scheduleLabel ?? this.scheduleLabel,
       isRecurring: isRecurring ?? this.isRecurring,
       onlyWhenDry: onlyWhenDry ?? this.onlyWhenDry,
       requiresHighBattery: requiresHighBattery ?? this.requiresHighBattery,
       pattern: pattern ?? this.pattern,
+    );
+  }
+
+  Mission withoutSchedule() {
+    return Mission(
+      id: id,
+      name: name,
+      zoneIds: zoneIds,
+      zoneNames: zoneNames,
+      scheduleDays: const <bool>[false, false, false, false, false, false, false],
+      scheduleHour: null,
+      scheduleMinute: null,
+      scheduleEndHour: null,
+      scheduleEndMinute: null,
+      scheduleLabel: 'Manuell',
+      isRecurring: false,
+      onlyWhenDry: onlyWhenDry,
+      requiresHighBattery: requiresHighBattery,
+      pattern: pattern,
     );
   }
 }

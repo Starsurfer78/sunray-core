@@ -58,7 +58,7 @@ class NotificationsScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text('Statuswechsel, Warnungen und Bedienhinweise laufen bewusst in einen sekundaeren Bereich.'),
+                Text('Statuswechsel, Warnungen und Bedienhinweise laufen bewusst in einen sekundären Bereich.'),
                 SizedBox(height: 8),
                 Text('Damit bleibt das Dashboard kartenzentriert und ruhig.'),
               ],

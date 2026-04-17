@@ -135,6 +135,8 @@ class AppStateStorage {
       scheduleDays: scheduleDays,
       scheduleHour: raw['scheduleHour'] as int?,
       scheduleMinute: raw['scheduleMinute'] as int?,
+      scheduleEndHour: raw['scheduleEndHour'] as int?,
+      scheduleEndMinute: raw['scheduleEndMinute'] as int?,
       scheduleLabel: raw['scheduleLabel'] as String?,
       isRecurring: raw['isRecurring'] as bool? ?? false,
       onlyWhenDry: raw['onlyWhenDry'] as bool? ?? true,

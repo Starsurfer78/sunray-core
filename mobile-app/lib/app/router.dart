@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/discovery/presentation/discovery_screen.dart';
+import '../features/discovery/presentation/startup_gate_screen.dart';
 import '../features/map_editor/presentation/map_editor_screen.dart';
 import '../features/missions/presentation/missions_screen.dart';
 import '../features/notifications/presentation/notifications_screen.dart';
@@ -11,8 +12,12 @@ import '../features/statistics/presentation/statistics_screen.dart';
 import '../shared/widgets/app_shell.dart';
 
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/dashboard',
+  initialLocation: '/',
   routes: <RouteBase>[
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const StartupGateScreen(),
+    ),
     GoRoute(
       path: '/discover',
       builder: (context, state) => const DiscoveryScreen(),

@@ -686,7 +686,8 @@
 
   function activeRunOpacity(run: ActivePlanRun) {
     if (run.status === "active") return 0.98;
-    if (run.status === "done") return isCoverageSemantic(run.semantic) ? 0.72 : 0.52;
+    if (run.status === "done")
+      return isCoverageSemantic(run.semantic) ? 0.72 : 0.52;
     return isCoverageSemantic(run.semantic) ? 0.88 : 0.74;
   }
 
@@ -732,7 +733,9 @@
   // a second progress model. waypoint_index is owned by the backend; the slicing
   // here only splits the already-fetched route for rendering purposes.
   $: currentActivePlanIndex =
-    $telemetry.waypoint_index >= 0 ? $telemetry.waypoint_index : activePlanWaypointIndex;
+    $telemetry.waypoint_index >= 0
+      ? $telemetry.waypoint_index
+      : activePlanWaypointIndex;
   $: activePlanDriven =
     $telemetry.waypoint_index > 0
       ? activePlanWaypoints.slice(0, $telemetry.waypoint_index)

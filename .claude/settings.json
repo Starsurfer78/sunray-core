@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake --build build --target sunray-core)",
+      "Bash(cmake --build build --target tests)",
+      "Bash(ctest --output-on-failure)",
+      "Bash(ctest --output-on-failure -R \"86|87|96|252|299|300\")",
+      "Bash(ctest --test-dir build --output-on-failure -R \"86|87|96|252|299|300\")",
+      "Bash(cmake --build /mnt/LappiDaten/Projekte/sunray-core/build --target tests)",
+      "Bash(ctest --test-dir /mnt/LappiDaten/Projekte/sunray-core/build -R \"299|300\" --output-on-failure)",
+      "Bash(ls /mnt/LappiDaten/Projekte/sunray-core/build/tests*)"
+    ]
+  }
+}

@@ -1,0 +1,300 @@
+<svg width="1800" height="1180" viewBox="0 0 1800 1180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="canvasBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F6F8F1"/>
+      <stop offset="100%" stop-color="#E8EEE1"/>
+    </linearGradient>
+    <linearGradient id="mapGrass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#DCE9D7"/>
+      <stop offset="100%" stop-color="#BED2BC"/>
+    </linearGradient>
+    <linearGradient id="mapRoad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#EBEEE7"/>
+      <stop offset="100%" stop-color="#DCE2D7"/>
+    </linearGradient>
+    <filter id="shadowSoft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#7B8B74" flood-opacity="0.16"/>
+    </filter>
+    <filter id="shadowPhone" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#809177" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <rect width="1800" height="1180" fill="url(#canvasBg)"/>
+
+  <circle cx="210" cy="160" r="120" fill="#EAF0E3"/>
+  <circle cx="1570" cy="1020" r="170" fill="#E3EBDD"/>
+  <circle cx="1380" cy="180" r="86" fill="#EDF3E8"/>
+
+  <text x="120" y="98" fill="#1F2A22" font-size="40" font-family="Manrope, Arial, sans-serif" font-weight="800">
+    Sunray Mobile Redesign Canvas
+  </text>
+  <text x="120" y="136" fill="#667267" font-size="20" font-family="Manrope, Arial, sans-serif">
+    Zielbild: kartenzentriert, hell, ruhig, produktartig - deutlich naeher an der Navimow-Richtung
+  </text>
+
+  <g filter="url(#shadowSoft)">
+    <rect x="120" y="172" width="1560" height="114" rx="28" fill="#FFFFFF" fill-opacity="0.78"/>
+    <text x="156" y="220" fill="#2F7D4A" font-size="16" font-family="Manrope, Arial, sans-serif" font-weight="700">
+      Leitplanken
+    </text>
+    <text x="156" y="252" fill="#1F2A22" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="700">
+      Helles Produktsystem statt Dark Ops UI
+    </text>
+    <text x="560" y="252" fill="#1F2A22" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="700">
+      Grosse Karte, kleine ruhige Overlays
+    </text>
+    <text x="1014" y="252" fill="#1F2A22" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="700">
+      Eine klare Primaeraktion je Screen
+    </text>
+    <text x="1460" y="252" fill="#1F2A22" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="700">
+      Nur deutsche Nutzertexte
+    </text>
+  </g>
+
+  <g filter="url(#shadowPhone)">
+    <rect x="132" y="334" width="438" height="770" rx="48" fill="#101611"/>
+    <rect x="150" y="352" width="402" height="734" rx="36" fill="#F4F7F0"/>
+    <rect x="284" y="366" width="132" height="18" rx="9" fill="#DDE5D7"/>
+  </g>
+
+  <g filter="url(#shadowPhone)">
+    <rect x="682" y="334" width="438" height="770" rx="48" fill="#101611"/>
+    <rect x="700" y="352" width="402" height="734" rx="36" fill="#F4F7F0"/>
+    <rect x="834" y="366" width="132" height="18" rx="9" fill="#DDE5D7"/>
+  </g>
+
+  <g filter="url(#shadowPhone)">
+    <rect x="1232" y="334" width="438" height="770" rx="48" fill="#101611"/>
+    <rect x="1250" y="352" width="402" height="734" rx="36" fill="#F4F7F0"/>
+    <rect x="1384" y="366" width="132" height="18" rx="9" fill="#DDE5D7"/>
+  </g>
+
+  <text x="351" y="1138" text-anchor="middle" fill="#1F2A22" font-size="28" font-family="Manrope, Arial, sans-serif" font-weight="800">
+    Dashboard
+  </text>
+  <text x="351" y="1166" text-anchor="middle" fill="#667267" font-size="18" font-family="Manrope, Arial, sans-serif">
+    Live-Karte, kompakte Statuskarte, ruhiger Aktionsbereich
+  </text>
+
+  <text x="901" y="1138" text-anchor="middle" fill="#1F2A22" font-size="28" font-family="Manrope, Arial, sans-serif" font-weight="800">
+    Missionen
+  </text>
+  <text x="901" y="1166" text-anchor="middle" fill="#667267" font-size="18" font-family="Manrope, Arial, sans-serif">
+    Karte bleibt sichtbar, Bottom-Sheet fuehrt Mission und Start
+  </text>
+
+  <text x="1451" y="1138" text-anchor="middle" fill="#1F2A22" font-size="28" font-family="Manrope, Arial, sans-serif" font-weight="800">
+    Karte bearbeiten
+  </text>
+  <text x="1451" y="1166" text-anchor="middle" fill="#667267" font-size="18" font-family="Manrope, Arial, sans-serif">
+    Gefuehrter Editor statt Werkzeugleiste
+  </text>
+
+  <!-- Dashboard map -->
+  <g>
+    <rect x="150" y="352" width="402" height="734" rx="36" fill="url(#mapRoad)"/>
+    <rect x="168" y="430" width="366" height="460" rx="26" fill="url(#mapGrass)"/>
+    <path d="M176 522C232 486 278 456 348 450C398 446 444 470 534 436" stroke="#E9EDE4" stroke-width="44" stroke-linecap="round"/>
+    <path d="M182 760C248 730 298 710 352 704C414 696 472 708 520 688" stroke="#E7EBE2" stroke-width="36" stroke-linecap="round"/>
+    <path d="M214 506L314 454L440 468L486 560L410 654L280 640L214 506Z" fill="#77AA6D" fill-opacity="0.22" stroke="#3E8B57" stroke-width="3"/>
+    <path d="M312 616L388 590L432 650L380 728L294 704Z" fill="#77AA6D" fill-opacity="0.22" stroke="#3E8B57" stroke-width="3"/>
+    <path d="M246 546L304 514L354 538L334 588L272 596Z" fill="#C6463B" fill-opacity="0.14" stroke="#C6463B" stroke-width="2" stroke-dasharray="8 8"/>
+    <path d="M228 478C268 512 310 542 344 572C374 598 402 622 438 648" stroke="#D6D94E" stroke-width="7" stroke-linecap="round" stroke-dasharray="2 14"/>
+    <circle cx="228" cy="478" r="9" fill="#2F7D4A"/>
+    <circle cx="438" cy="648" r="12" fill="#D6D94E" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="428" cy="772" r="13" fill="#FFFFFF" stroke="#C7921F" stroke-width="4"/>
+    <path d="M428 748L442 778H414L428 748Z" fill="#C7921F"/>
+  </g>
+
+  <!-- Dashboard overlays -->
+  <g filter="url(#shadowSoft)">
+    <rect x="174" y="404" width="36" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.94"/>
+    <path d="M187 421C187 418.8 188.8 417 191 417C193.2 417 195 418.8 195 421C195 423.2 193.2 425 191 425C188.8 425 187 423.2 187 421Z" fill="#667267"/>
+    <path d="M191 413L193 415.2L196 414.8L196.4 417.8L199 419L197.8 421.8L199 424.6L196.4 425.8L196 428.8L193 428.4L191 430.6L189 428.4L186 428.8L185.6 425.8L183 424.6L184.2 421.8L183 419L185.6 417.8L186 414.8L189 415.2L191 413Z" stroke="#667267" stroke-width="1.2" stroke-linejoin="round"/>
+
+    <text x="226" y="428" fill="#1F2A22" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="800">Alfred</text>
+    <path d="M282 421L288 427L294 421" stroke="#667267" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="430" y="404" width="36" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.94"/>
+    <path d="M441 418H455V428H441V418Z" stroke="#667267" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M444 418C444 414.8 446.6 412 450 412C453.4 412 456 414.8 456 418" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="456" cy="414" r="5" fill="#D6D94E" stroke="#FFFFFF" stroke-width="2"/>
+
+    <rect x="474" y="404" width="36" height="36" rx="18" fill="#FFF3F1"/>
+    <circle cx="492" cy="422" r="10" fill="#C6463B"/>
+    <rect x="490.5" y="416" width="3" height="9" rx="1.5" fill="#FFFFFF"/>
+    <circle cx="492" cy="428" r="1.8" fill="#FFFFFF"/>
+
+    <rect x="174" y="450" width="86" height="28" rx="14" fill="#FFFFFF" fill-opacity="0.9"/>
+    <path d="M190 467H194" stroke="#2F7D4A" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M196 464H200" stroke="#2F7D4A" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M202 461H206" stroke="#2F7D4A" stroke-width="2.2" stroke-linecap="round"/>
+    <text x="234" y="469" text-anchor="middle" fill="#667267" font-size="12" font-family="Manrope, Arial, sans-serif" font-weight="700">Stark</text>
+
+    <rect x="268" y="450" width="92" height="28" rx="14" fill="#FFFFFF" fill-opacity="0.9"/>
+    <rect x="284" y="458" width="18" height="10" rx="3" fill="none" stroke="#2F7D4A" stroke-width="1.8"/>
+    <rect x="302" y="461" width="2" height="4" rx="1" fill="#2F7D4A"/>
+    <rect x="286.5" y="460.5" width="12" height="5" rx="2" fill="#2F7D4A"/>
+    <text x="330" y="469" text-anchor="middle" fill="#667267" font-size="12" font-family="Manrope, Arial, sans-serif" font-weight="700">82%</text>
+
+    <rect x="368" y="450" width="98" height="28" rx="14" fill="#FFFFFF" fill-opacity="0.9"/>
+    <circle cx="386" cy="464" r="4.2" fill="#2F7D4A"/>
+    <circle cx="396" cy="464" r="4.2" fill="#9BC569"/>
+    <text x="428" y="469" text-anchor="middle" fill="#667267" font-size="12" font-family="Manrope, Arial, sans-serif" font-weight="700">RTK Fix</text>
+
+    <rect x="488" y="540" width="40" height="78" rx="20" fill="#FFFFFF" fill-opacity="0.94"/>
+    <rect x="499" y="554" width="18" height="18" rx="5" fill="#F3F6EF" stroke="#DCE4D8"/>
+    <path d="M503 560H513" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M503 566H513" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="508" y="592" text-anchor="middle" fill="#1F2A22" font-size="11" font-family="Manrope, Arial, sans-serif" font-weight="800">426</text>
+    <text x="508" y="605" text-anchor="middle" fill="#667267" font-size="9" font-family="Manrope, Arial, sans-serif" font-weight="700">qm2</text>
+
+    <rect x="488" y="628" width="40" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.94"/>
+    <circle cx="508" cy="648" r="10" fill="#F3F6EF"/>
+    <circle cx="508" cy="648" r="3.2" fill="#667267"/>
+    <path d="M508 638V642" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M508 654V658" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M498 648H502" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M514 648H518" stroke="#667267" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#shadowSoft)">
+    <text x="186" y="770" fill="#F7FAF4" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Aufgabe des Roboters</text>
+    <text x="186" y="796" fill="#FFFFFF" font-size="24" font-family="Manrope, Arial, sans-serif" font-weight="800">Naechster Einsatz: Vordergarten</text>
+
+    <rect x="174" y="814" width="354" height="232" rx="24" fill="#FFFFFF"/>
+    <text x="202" y="852" fill="#667267" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">Diese Woche gemaeht</text>
+    <text x="202" y="888" fill="#1F2A22" font-size="30" font-family="Manrope, Arial, sans-serif" font-weight="800">186 m2</text>
+    <text x="202" y="914" fill="#667267" font-size="15" font-family="Manrope, Arial, sans-serif">Start heute um 16:30 Uhr</text>
+
+    <rect x="202" y="932" width="298" height="42" rx="14" fill="#F5F7F2"/>
+    <text x="351" y="959" text-anchor="middle" fill="#667267" font-size="14" font-family="Manrope, Arial, sans-serif">Ohne Startzeit hier direkt zum Scheduler wechseln</text>
+
+    <rect x="202" y="992" width="156" height="48" rx="14" fill="#2F7D4A"/>
+    <text x="280" y="1023" text-anchor="middle" fill="#FFFFFF" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="800">Start</text>
+
+    <rect x="370" y="992" width="130" height="48" rx="14" fill="#F3F6EF" stroke="#DCE4D8"/>
+    <text x="435" y="1023" text-anchor="middle" fill="#1F2A22" font-size="17" font-family="Manrope, Arial, sans-serif" font-weight="700">Dock / Home</text>
+  </g>
+
+  <!-- Missions map -->
+  <g>
+    <rect x="700" y="352" width="402" height="734" rx="36" fill="url(#mapRoad)"/>
+    <rect x="718" y="404" width="366" height="500" rx="26" fill="url(#mapGrass)"/>
+    <path d="M740 500C796 474 846 460 920 458C988 458 1028 474 1072 456" stroke="#EBEEE7" stroke-width="44" stroke-linecap="round"/>
+    <path d="M728 784C812 748 874 742 946 742C1006 742 1048 752 1076 736" stroke="#E8ECE4" stroke-width="34" stroke-linecap="round"/>
+    <path d="M758 486L884 446L1006 492L1038 610L986 700L850 720L766 650Z" fill="#77AA6D" fill-opacity="0.18" stroke="#3E8B57" stroke-width="3"/>
+    <path d="M842 544L924 522L972 584L946 660L854 670L808 614Z" fill="#7FBF4D" fill-opacity="0.22" stroke="#3E8B57" stroke-width="2.5"/>
+    <path d="M800 558C838 576 884 598 928 620" stroke="#D6D94E" stroke-width="7" stroke-linecap="round" stroke-dasharray="2 14"/>
+    <circle cx="928" cy="620" r="12" fill="#D6D94E" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1000" cy="770" r="13" fill="#FFFFFF" stroke="#C7921F" stroke-width="4"/>
+    <path d="M1000 746L1014 776H986L1000 746Z" fill="#C7921F"/>
+  </g>
+
+  <!-- Missions overlays -->
+  <g filter="url(#shadowSoft)">
+    <rect x="724" y="400" width="220" height="64" rx="22" fill="#FFFFFF" fill-opacity="0.9"/>
+    <text x="748" y="426" fill="#667267" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Missionen</text>
+    <text x="748" y="450" fill="#1F2A22" font-size="22" font-family="Manrope, Arial, sans-serif" font-weight="800">Wo soll Alfred maehen?</text>
+
+    <rect x="960" y="410" width="96" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="1008" y="434" text-anchor="middle" fill="#667267" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Vorschau</text>
+  </g>
+
+  <g filter="url(#shadowSoft)">
+    <rect x="724" y="786" width="354" height="266" rx="32" fill="#FFFFFF"/>
+    <rect x="860" y="800" width="82" height="6" rx="3" fill="#D8E0D3"/>
+    <text x="752" y="846" fill="#1F2A22" font-size="28" font-family="Manrope, Arial, sans-serif" font-weight="800">Mission am Nachmittag</text>
+    <text x="752" y="876" fill="#667267" font-size="16" font-family="Manrope, Arial, sans-serif">2 ausgewaehlte Zonen - Backend-Vorschau aktiv</text>
+
+    <rect x="752" y="900" width="84" height="32" rx="16" fill="#F1F6EE"/>
+    <text x="794" y="921" text-anchor="middle" fill="#2F7D4A" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">Mission</text>
+    <rect x="844" y="900" width="88" height="32" rx="16" fill="#F7F8F5"/>
+    <text x="888" y="921" text-anchor="middle" fill="#667267" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">Zeitplan</text>
+    <rect x="940" y="900" width="62" height="32" rx="16" fill="#F7F8F5"/>
+    <text x="971" y="921" text-anchor="middle" fill="#667267" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">Start</text>
+
+    <text x="752" y="968" fill="#667267" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Zonen</text>
+    <rect x="752" y="982" width="116" height="36" rx="18" fill="#F1F6EE"/>
+    <text x="810" y="1005" text-anchor="middle" fill="#2F7D4A" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Vordergarten</text>
+    <rect x="878" y="982" width="98" height="36" rx="18" fill="#F1F6EE"/>
+    <text x="927" y="1005" text-anchor="middle" fill="#2F7D4A" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Zone West</text>
+
+    <rect x="752" y="1028" width="164" height="52" rx="26" fill="#2F7D4A"/>
+    <text x="834" y="1061" text-anchor="middle" fill="#FFFFFF" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="800">Mission starten</text>
+    <rect x="928" y="1028" width="126" height="52" rx="26" fill="#F4F7F0" stroke="#DCE4D8"/>
+    <text x="991" y="1061" text-anchor="middle" fill="#1F2A22" font-size="16" font-family="Manrope, Arial, sans-serif" font-weight="700">Bearbeiten</text>
+  </g>
+
+  <!-- Editor map -->
+  <g>
+    <rect x="1250" y="352" width="402" height="734" rx="36" fill="url(#mapRoad)"/>
+    <rect x="1268" y="412" width="366" height="468" rx="26" fill="url(#mapGrass)"/>
+    <path d="M1290 530C1346 496 1386 474 1450 472C1512 470 1560 496 1618 470" stroke="#E8ECE4" stroke-width="42" stroke-linecap="round"/>
+    <path d="M1310 782C1360 754 1418 738 1488 736C1536 734 1582 742 1614 724" stroke="#E7EBE2" stroke-width="32" stroke-linecap="round"/>
+    <path d="M1318 510L1458 458L1578 522L1594 646L1526 738L1390 730L1310 644Z" fill="#77AA6D" fill-opacity="0.18" stroke="#3E8B57" stroke-width="3"/>
+    <circle cx="1458" cy="458" r="9" fill="#2F7D4A" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1578" cy="522" r="9" fill="#2F7D4A" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1526" cy="738" r="9" fill="#2F7D4A" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1390" cy="730" r="9" fill="#2F7D4A" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1310" cy="644" r="9" fill="#D6D94E" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1318" cy="510" r="9" fill="#2F7D4A" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="1518" cy="490" r="6" fill="#DCE4D8"/>
+    <circle cx="1558" cy="584" r="6" fill="#DCE4D8"/>
+    <circle cx="1458" cy="734" r="6" fill="#DCE4D8"/>
+  </g>
+
+  <!-- Editor overlays -->
+  <g filter="url(#shadowSoft)">
+    <rect x="1274" y="400" width="254" height="72" rx="24" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="1298" y="428" fill="#667267" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Karte bearbeiten</text>
+    <text x="1298" y="454" fill="#1F2A22" font-size="22" font-family="Manrope, Arial, sans-serif" font-weight="800">Zone West</text>
+
+    <rect x="1546" y="410" width="40" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.94"/>
+    <path d="M1566 424L1572 430L1566 436" stroke="#667267" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M1560 430H1572" stroke="#667267" stroke-width="2.5" stroke-linecap="round"/>
+    <rect x="1596" y="410" width="40" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.94"/>
+    <circle cx="1616" cy="424" r="2.5" fill="#667267"/>
+    <circle cx="1616" cy="430" r="2.5" fill="#667267"/>
+    <circle cx="1616" cy="436" r="2.5" fill="#667267"/>
+
+    <rect x="1536" y="508" width="98" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="1585" y="532" text-anchor="middle" fill="#1F2A22" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Objekt</text>
+    <rect x="1548" y="556" width="86" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="1591" y="580" text-anchor="middle" fill="#1F2A22" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Ansicht</text>
+    <rect x="1562" y="604" width="72" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="1598" y="628" text-anchor="middle" fill="#1F2A22" font-size="14" font-family="Manrope, Arial, sans-serif" font-weight="700">Layer</text>
+  </g>
+
+  <g filter="url(#shadowSoft)">
+    <rect x="1274" y="814" width="354" height="238" rx="32" fill="#FFFFFF"/>
+    <rect x="1410" y="828" width="82" height="6" rx="3" fill="#D8E0D3"/>
+    <text x="1302" y="874" fill="#1F2A22" font-size="28" font-family="Manrope, Arial, sans-serif" font-weight="800">Zone West bearbeiten</text>
+    <text x="1302" y="904" fill="#667267" font-size="16" font-family="Manrope, Arial, sans-serif">Punkt antippen zum Verschieben. Segment antippen fuer einen neuen Punkt.</text>
+
+    <rect x="1302" y="928" width="96" height="34" rx="17" fill="#F1F6EE"/>
+    <text x="1350" y="950" text-anchor="middle" fill="#2F7D4A" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">Zone aktiv</text>
+    <rect x="1408" y="928" width="72" height="34" rx="17" fill="#F7F8F5"/>
+    <text x="1444" y="950" text-anchor="middle" fill="#667267" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">6 Punkte</text>
+    <rect x="1490" y="928" width="98" height="34" rx="17" fill="#F7F8F5"/>
+    <text x="1539" y="950" text-anchor="middle" fill="#667267" font-size="13" font-family="Manrope, Arial, sans-serif" font-weight="700">GPS stabil</text>
+
+    <rect x="1302" y="980" width="152" height="52" rx="26" fill="#2F7D4A"/>
+    <text x="1378" y="1013" text-anchor="middle" fill="#FFFFFF" font-size="18" font-family="Manrope, Arial, sans-serif" font-weight="800">Speichern</text>
+    <rect x="1468" y="980" width="94" height="52" rx="26" fill="#F4F7F0" stroke="#DCE4D8"/>
+    <text x="1515" y="1013" text-anchor="middle" fill="#1F2A22" font-size="16" font-family="Manrope, Arial, sans-serif" font-weight="700">Undo</text>
+    <rect x="1572" y="980" width="32" height="52" rx="16" fill="#FFF4F2"/>
+    <text x="1588" y="1013" text-anchor="middle" fill="#C6463B" font-size="20" font-family="Manrope, Arial, sans-serif" font-weight="800">-</text>
+  </g>
+
+  <!-- Notes -->
+  <g filter="url(#shadowSoft)">
+    <rect x="94" y="968" width="24" height="24" rx="8" fill="#2F7D4A"/>
+    <text x="130" y="986" fill="#667267" font-size="15" font-family="Manrope, Arial, sans-serif">Primaeraktion in Gruen, keine blaue Standard-Flutter-CTA</text>
+    <rect x="636" y="968" width="24" height="24" rx="8" fill="#D6D94E"/>
+    <text x="672" y="986" fill="#667267" font-size="15" font-family="Manrope, Arial, sans-serif">Route als gelb-lime Akzent statt Neon oder Debug-Linie</text>
+    <rect x="1198" y="968" width="24" height="24" rx="8" fill="#FFFFFF" stroke="#DCE4D8"/>
+    <text x="1234" y="986" fill="#667267" font-size="15" font-family="Manrope, Arial, sans-serif">Overlays hell, weich, kompakt und der Karte klar untergeordnet</text>
+  </g>
+</svg>
