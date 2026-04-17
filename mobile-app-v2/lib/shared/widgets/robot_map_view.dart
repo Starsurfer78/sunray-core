@@ -31,6 +31,7 @@ class RobotMapView extends StatefulWidget {
     this.highlightActiveZoneId,
     this.previewRoutePoints = const <MapPoint>[],
     this.showCenterButton = false,
+    this.followRobot = false,
     this.onZoneTap,
     super.key,
   });
@@ -55,6 +56,7 @@ class RobotMapView extends StatefulWidget {
   final String? highlightActiveZoneId;
   final List<MapPoint> previewRoutePoints;
   final bool showCenterButton;
+  final bool followRobot;
   final void Function(String zoneId)? onZoneTap;
 
   @override
@@ -85,6 +87,19 @@ class _RobotMapViewState extends State<RobotMapView> {
   void didUpdateWidget(RobotMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
     _tryAutoCenter();
+    if (!_mapReady || !widget.followRobot) {
+      return;
+    }
+    final oldLat = oldWidget.status?.gpsLat;
+    final oldLon = oldWidget.status?.gpsLon;
+    final lat = widget.status?.gpsLat;
+    final lon = widget.status?.gpsLon;
+    if (!_isValidGps(lat, lon)) {
+      return;
+    }
+    if (lat != oldLat || lon != oldLon) {
+      _mapController.move(LatLng(lat!, lon!), _mapController.camera.zoom);
+    }
   }
 
   void _onMapReady() {

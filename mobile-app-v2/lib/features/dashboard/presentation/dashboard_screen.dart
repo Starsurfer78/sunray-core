@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_controller.dart';
-import '../../../shared/widgets/fake_map_canvas.dart';
+import '../../../shared/widgets/robot_map_view.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,8 +22,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.watch(context);
-    final zoneOverlays = _buildZoneOverlays(controller);
-    final selectedZoneName = _selectedZoneName(zoneOverlays);
+    final selectedZoneName = _selectedZoneName(controller);
     final view = _DashboardViewData.fromController(
       controller,
       selectedZoneName: selectedZoneName,
@@ -37,25 +36,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: <Widget>[
               Positioned.fill(
                 child: view.hasMap
-                    ? FakeMapCanvas(
-                        borderRadius: 0,
-                        showZoneLabel: view.hasZones,
-                        showNoGoLabel: controller.noGoCount > 0,
-                        showDockLabel: true,
-                        zones: zoneOverlays,
-                        selectedZoneId: _selectedZoneId,
-                        onZoneTap: (zone) {
+                    ? RobotMapView(
+                        map: controller.mapGeometry,
+                        status: controller.connectionStatus,
+                        interactive: false,
+                        selectedZoneIds: _selectedZoneId == null
+                            ? const <String>[]
+                            : <String>[_selectedZoneId!],
+                        highlightActiveZoneId: null,
+                        showCenterButton: false,
+                        onZoneTap: (zoneId) {
                           setState(() {
-                            _selectedZoneId = _selectedZoneId == zone.id
+                            _selectedZoneId = _selectedZoneId == zoneId
                                 ? null
-                                : zone.id;
+                                : zoneId;
                           });
-                        },
-                        onBackgroundTap: () {
-                          if (_selectedZoneId == null) {
-                            return;
-                          }
-                          setState(() => _selectedZoneId = null);
                         },
                       )
                     : const ColoredBox(color: Color(0xFFE8E8EC)),
@@ -113,7 +108,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   batteryPercent: controller.batteryPercent,
                   onPrimaryPressed: () {
                     if (!controller.hasMap) {
-                      controller.createMap();
+                      controller.beginMapCreation();
                       context.push('/map');
                       return;
                     }
@@ -149,53 +144,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  List<FakeMapZoneOverlay> _buildZoneOverlays(AppController controller) {
-    if (!controller.hasZones) {
-      return const <FakeMapZoneOverlay>[];
-    }
-
-    const overlays = <FakeMapZoneOverlay>[
-      FakeMapZoneOverlay(
-        id: 'zone-a',
-        label: 'Hinterer Garten (76%)',
-        coverageLabel: '253/512 m²',
-        lastRunLabel: '2024.9.27 14:30',
-        left: 18,
-        top: 18,
-        popupLeft: 18,
-        popupTop: 58,
-      ),
-      FakeMapZoneOverlay(
-        id: 'zone-b',
-        label: 'Seitengarten (48%)',
-        coverageLabel: '184/386 m²',
-        lastRunLabel: '2024.9.26 18:05',
-        left: 188,
-        top: 116,
-        popupLeft: 116,
-        popupTop: 156,
-      ),
-    ];
-
-    return overlays
-        .take(controller.zoneCount.clamp(0, overlays.length))
-        .toList();
-  }
-
-  String? _selectedZoneName(List<FakeMapZoneOverlay> overlays) {
-    FakeMapZoneOverlay? selectedZone;
-    for (final zone in overlays) {
-      if (zone.id == _selectedZoneId) {
-        selectedZone = zone;
-        break;
-      }
-    }
-    if (selectedZone == null) {
+  String? _selectedZoneName(AppController controller) {
+    final zoneId = _selectedZoneId;
+    if (zoneId == null) {
       return null;
     }
-    final label = selectedZone.label;
-    final cutIndex = label.indexOf(' (');
-    return cutIndex > 0 ? label.substring(0, cutIndex) : label;
+    for (final zone in controller.mapGeometry.zones) {
+      if (zone.id == zoneId) {
+        return zone.name;
+      }
+    }
+    return null;
   }
 
   Future<void> _openZoneMowSheet(
