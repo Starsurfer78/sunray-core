@@ -282,7 +282,6 @@ int main(int argc, char *argv[])
 
     // ── 4. Robot ───────────────────────────────────────────────────────────────
     sunray::Robot robot(std::move(hw), config, logger);
-    std::thread signalThread = startSignalWaitThread(robot, logger);
 
     // ── 5. Initialise ──────────────────────────────────────────────────────────
     if (!robot.init())
@@ -290,6 +289,8 @@ int main(int argc, char *argv[])
         logger->error("main", "Robot init failed — exiting");
         return EXIT_FAILURE;
     }
+
+    std::thread signalThread = startSignalWaitThread(robot, logger);
 
     // Optional GPS driver (disabled in simulator)
     if (!simMode)

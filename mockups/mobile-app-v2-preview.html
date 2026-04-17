@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sunray Mobile V2 Preview</title>
+  <style>
+    :root {
+      --bg: #eef2ea;
+      --bg-2: #f5f7f2;
+      --surface: rgba(255, 255, 255, 0.92);
+      --surface-solid: #ffffff;
+      --line: #dce4d8;
+      --text: #1f2a22;
+      --muted: #667267;
+      --green: #2f7d4a;
+      --lime: #7fbf4d;
+      --red: #c6463b;
+      --shadow: 0 24px 60px rgba(31, 42, 34, 0.14);
+      --radius-xl: 32px;
+      --radius-lg: 22px;
+      --radius-md: 18px;
+      --radius-pill: 999px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, Manrope, system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, #f8fbf4 0, transparent 30%),
+        linear-gradient(180deg, #f7faf4 0%, #ebf0e7 100%);
+    }
+
+    .page {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 40px 28px 64px;
+    }
+
+    .hero {
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      padding: 8px 14px;
+      border-radius: var(--radius-pill);
+      background: #dcefd9;
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 14px 0 8px;
+      font-size: 44px;
+      line-height: 1.05;
+      font-weight: 800;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.5;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(280px, 1fr));
+      gap: 26px;
+      align-items: start;
+    }
+
+    .shot {
+      display: grid;
+      gap: 14px;
+    }
+
+    .shot h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .shot p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .phone {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 390 / 844;
+      padding: 16px;
+      border-radius: 42px;
+      background: #111713;
+      box-shadow: var(--shadow);
+    }
+
+    .screen {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border-radius: 30px;
+      background: var(--bg-2);
+      border: 1px solid rgba(255,255,255,0.5);
+    }
+
+    .notch {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 118px;
+      height: 22px;
+      border-radius: 14px;
+      background: #202720;
+      z-index: 10;
+    }
+
+    .screen-inner {
+      position: absolute;
+      inset: 0;
+      padding: 22px 16px 18px;
+    }
+
+    .row { display: flex; gap: 10px; }
+    .row.center { align-items: center; }
+    .col { display: grid; gap: 10px; }
+    .grow { flex: 1; }
+
+    .overlay-card,
+    .panel,
+    .service-tile {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      backdrop-filter: blur(10px);
+    }
+
+    .overlay-card { padding: 12px 14px; }
+    .panel { padding: 18px; }
+
+    .circle-btn {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.15;
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .stat-pill,
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .stat-row .stat-pill { flex: 1; }
+
+    .map {
+      position: relative;
+      border-radius: 24px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.45), transparent 25%),
+        linear-gradient(135deg, #d8e8d5 0%, #c4dbbd 42%, #e8f1e0 100%);
+    }
+
+    .map.dashboard-map { flex: 1; min-height: 0; }
+    .map.edit-map { flex: 1; min-height: 0; }
+
+    .map svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .map-badge {
+      position: absolute;
+      z-index: 2;
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 6px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 800;
+      box-shadow: 0 8px 20px rgba(31,42,34,.08);
+    }
+
+    .map-badge.zone {
+      left: 18px;
+      top: 18px;
+      background: rgba(255,255,255,.92);
+      color: var(--text);
+    }
+
+    .map-badge.nogo {
+      left: 104px;
+      top: 56px;
+      background: #fdf1ef;
+      color: var(--red);
+    }
+
+    .map-badge.dock {
+      right: 28px;
+      bottom: 72px;
+      background: #f7f3e6;
+      color: #9a6b10;
+    }
+
+    .mission-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #dcefd9;
+      color: var(--green);
+      font-weight: 800;
+    }
+
+    .cta-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .btn.primary {
+      background: var(--green);
+      border-color: var(--green);
+      color: white;
+      flex: 3;
+    }
+
+    .btn.ghost { flex: 2; background: rgba(255,255,255,0.65); }
+    .btn.soft-red { background: #fff4f2; color: var(--red); border-color: #f0c6c0; }
+
+    .stack-bottom {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 18px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .dashboard-top {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 16px;
+      display: grid;
+      gap: 8px;
+      z-index: 3;
+    }
+
+    .dashboard .screen-inner,
+    .map-edit .screen-inner {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .float-tools {
+      position: absolute;
+      right: 16px;
+      top: 154px;
+      display: grid;
+      gap: 10px;
+      z-index: 3;
+    }
+
+    .tool-pill {
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .back-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .mission-page,
+    .service-page {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .big-panel {
+      flex: 1;
+      min-height: 320px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      background: var(--surface-solid);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      color: var(--muted);
+      padding: 28px;
+    }
+
+    .service-tile {
+      padding: 18px;
+    }
+
+    .micro-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: var(--radius-pill);
+      background: rgba(255,255,255,0.92);
+      border: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .bottom-panel-tight {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 18px;
+      padding: 16px 18px;
+      background: rgba(255,255,255,0.94);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      backdrop-filter: blur(10px);
+      z-index: 3;
+    }
+
+    .hero-panel .title {
+      font-size: 24px;
+    }
+
+    .cta-row.tight { margin-top: 10px; }
+
+    @media (max-width: 1500px) {
+      .grid { grid-template-columns: repeat(2, minmax(300px, 1fr)); }
+    }
+
+    @media (max-width: 860px) {
+      .page { padding: 28px 16px 48px; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 34px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">Live Preview</div>
+      <h1>Sunray Mobile V2</h1>
+      <p>
+        Diese Seite vergleicht jetzt echte Dashboard-Zustaende statt bloßer Stilrichtungen.
+        Entscheidend sind Kartenstatus, Zonenstatus und ob Alfred in der Station steht oder gerade maeht.
+      </p>
+    </section>
+
+    <section class="grid">
+      <article class="shot">
+        <div class="phone dashboard">
+          <div class="screen">
+            <div class="notch"></div>
+            <div class="screen-inner">
+              <div class="map dashboard-map">
+                <svg viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M64 210 L300 180 L334 302 L285 640 L108 690 L44 452 Z" fill="none" stroke="#3E8B57" stroke-width="4"/>
+                  <path d="M98 286 L180 270 L196 426 L118 452 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <path d="M216 286 L286 276 L304 470 L224 482 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <circle cx="168" cy="528" r="28" fill="rgba(198,70,59,.16)" stroke="#C6463B" stroke-width="2"/>
+                  <path d="M78 334 Q176 298 264 328 Q294 338 286 546" fill="none" stroke="#D6D94E" stroke-width="4" stroke-linecap="round"/>
+                  <circle cx="268" cy="540" r="18" fill="rgba(127,191,77,.4)"/>
+                  <circle cx="268" cy="540" r="9" fill="white"/>
+                </svg>
+                <div class="dashboard-top">
+                  <div class="row center">
+                    <div class="overlay-card grow">
+                      <div class="title">Alfred</div>
+                      <div class="small">Noch keine Karte vorhanden</div>
+                    </div>
+                    <div class="circle-btn">◌</div>
+                    <div class="circle-btn">⚙</div>
+                  </div>
+
+                  <div class="row stat-row">
+                    <div class="stat-pill">82%</div>
+                    <div class="stat-pill">Verbunden</div>
+                    <div class="stat-pill">Station</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="stack-bottom">
+                <div class="panel hero-panel">
+                  <div class="small" style="margin-bottom:6px;color:#2f7d4a;font-weight:800;">Zustand 1 · Keine Karte</div>
+                  <div class="title" style="font-size:20px;">Karte anlegen</div>
+                  <div class="small" style="margin-top:4px;">Ohne Karte zeigt Home keinen Mäh-Call-to-Action, sondern nur den nächsten sinnvollen Setup-Schritt.</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+                    <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">Verbunden</div>
+                    <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">82 % Akku</div>
+                  </div>
+                  <div class="cta-row">
+                    <div class="btn primary">Karte anlegen</div>
+                    <div class="btn ghost">Verbindung</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2>Keine Karte</h2>
+        <p>Home als Empty Dashboard mit klarer Primäraktion statt toter Map-Fläche.</p>
+      </article>
+
+      <article class="shot">
+        <div class="phone dashboard">
+          <div class="screen">
+            <div class="notch"></div>
+            <div class="screen-inner">
+              <div class="map dashboard-map">
+                <svg viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M64 210 L300 180 L334 302 L285 640 L108 690 L44 452 Z" fill="none" stroke="#3E8B57" stroke-width="4"/>
+                  <path d="M98 286 L180 270 L196 426 L118 452 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <path d="M216 286 L286 276 L304 470 L224 482 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <circle cx="168" cy="528" r="28" fill="rgba(198,70,59,.16)" stroke="#C6463B" stroke-width="2"/>
+                  <path d="M78 334 Q176 298 264 328 Q294 338 286 546" fill="none" stroke="#D6D94E" stroke-width="4" stroke-linecap="round"/>
+                  <circle cx="268" cy="540" r="18" fill="rgba(127,191,77,.4)"/>
+                  <circle cx="268" cy="540" r="9" fill="white"/>
+                </svg>
+                <div class="dashboard-top">
+                  <div class="row center">
+                    <div class="micro-badge">Alfred bereit</div>
+                    <div class="grow"></div>
+                    <div class="circle-btn">◌</div>
+                    <div class="circle-btn">⚙</div>
+                  </div>
+                  <div class="row stat-row">
+                    <div class="stat-pill">82%</div>
+                    <div class="stat-pill">RTK Fix</div>
+                    <div class="stat-pill">In Station</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bottom-panel-tight hero-panel">
+                <div class="small" style="margin-bottom:6px;color:#2f7d4a;font-weight:800;">Zustand 2 · Karte ohne Zonen</div>
+                <div class="title" style="font-size:19px;">Jetzt maehen</div>
+                <div class="small" style="margin-top:4px;">Die Basiskarte ist da, aber es gibt noch keine Zonen. Home bietet direkt den einfachen Gesamtflächen-Start an.</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+                  <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">Gesamtflaeche</div>
+                  <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">Heute ruhig, trocken</div>
+                </div>
+                <div class="cta-row tight">
+                  <div class="btn primary">Jetzt maehen</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2>Karte ohne Zonen</h2>
+        <p>Wenn Alfred in der Station steht, reicht eine einzige starke Hauptaktion.</p>
+      </article>
+
+      <article class="shot">
+        <div class="phone dashboard">
+          <div class="screen">
+            <div class="notch"></div>
+            <div class="screen-inner">
+              <div class="map dashboard-map">
+                <svg viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M64 210 L300 180 L334 302 L285 640 L108 690 L44 452 Z" fill="none" stroke="#3E8B57" stroke-width="4"/>
+                  <path d="M98 286 L180 270 L196 426 L118 452 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <path d="M216 286 L286 276 L304 470 L224 482 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <circle cx="168" cy="528" r="28" fill="rgba(198,70,59,.16)" stroke="#C6463B" stroke-width="2"/>
+                  <path d="M78 334 Q176 298 264 328 Q294 338 286 546" fill="none" stroke="#D6D94E" stroke-width="4" stroke-linecap="round"/>
+                  <circle cx="268" cy="540" r="18" fill="rgba(127,191,77,.4)"/>
+                  <circle cx="268" cy="540" r="9" fill="white"/>
+                </svg>
+                <div class="dashboard-top">
+                  <div class="row center">
+                    <div class="micro-badge">Alfred bereit</div>
+                    <div class="grow"></div>
+                    <div class="circle-btn">◌</div>
+                    <div class="circle-btn">⚙</div>
+                  </div>
+                  <div class="row stat-row">
+                    <div class="stat-pill">82%</div>
+                    <div class="stat-pill">RTK Fix</div>
+                    <div class="stat-pill">In Station</div>
+                  </div>
+                </div>
+
+                <div class="stack-bottom" style="bottom:102px;">
+                  <div class="overlay-card mission-card">
+                    <div class="avatar">↗</div>
+                    <div class="grow">
+                      <div style="font-weight:800;">Vordergarten</div>
+                      <div class="small">Zone A • Heute 17:00</div>
+                    </div>
+                    <div style="font-size:22px;color:#667267;">⌃</div>
+                  </div>
+                </div>
+
+                <div class="bottom-panel-tight hero-panel">
+                  <div class="small" style="margin-bottom:6px;color:#2f7d4a;font-weight:800;">Zustand 3 · Karte mit Zonen</div>
+                  <div class="title" style="font-size:19px;">Jetzt maehen</div>
+                  <div class="small" style="margin-top:4px;">Mit Zonen wird auf Home zusätzlich die nächste Mission sichtbar, ohne dass Home selbst zum Planner wird.</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+                    <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">3 Zonen</div>
+                    <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">Naechster Lauf 17:00</div>
+                  </div>
+                  <div class="cta-row">
+                    <div class="btn primary">Jetzt maehen</div>
+                    <div class="btn ghost">Station</div>
+                    <div class="btn ghost">Mission</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2>Karte mit Zonen</h2>
+        <p>Der Missionskontext darf sichtbar sein, aber nur als Teaser und nicht als eigener Arbeitsmodus.</p>
+      </article>
+
+      <article class="shot">
+        <div class="phone dashboard">
+          <div class="screen">
+            <div class="notch"></div>
+            <div class="screen-inner">
+              <div class="map dashboard-map">
+                <svg viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M64 210 L300 180 L334 302 L285 640 L108 690 L44 452 Z" fill="none" stroke="#3E8B57" stroke-width="4"/>
+                  <path d="M98 286 L180 270 L196 426 L118 452 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <path d="M216 286 L286 276 L304 470 L224 482 Z" fill="rgba(84,160,101,.18)" stroke="#3E8B57" stroke-width="3"/>
+                  <circle cx="168" cy="528" r="28" fill="rgba(198,70,59,.16)" stroke="#C6463B" stroke-width="2"/>
+                  <path d="M78 334 Q176 298 264 328 Q294 338 286 546" fill="none" stroke="#D6D94E" stroke-width="4" stroke-linecap="round"/>
+                  <circle cx="268" cy="540" r="18" fill="rgba(127,191,77,.4)"/>
+                  <circle cx="268" cy="540" r="9" fill="white"/>
+                </svg>
+                <div class="dashboard-top">
+                  <div class="row center">
+                    <div class="micro-badge">Alfred maeht</div>
+                    <div class="grow"></div>
+                    <div class="circle-btn">◌</div>
+                    <div class="circle-btn">⚙</div>
+                  </div>
+                  <div class="row stat-row">
+                    <div class="stat-pill">64%</div>
+                    <div class="stat-pill">RTK Fix</div>
+                    <div class="stat-pill">Auf Karte</div>
+                  </div>
+                </div>
+
+                <div class="stack-bottom" style="bottom:102px;">
+                  <div class="overlay-card mission-card">
+                    <div class="avatar">Ⅱ</div>
+                    <div class="grow">
+                      <div style="font-weight:800;">Vordergarten</div>
+                      <div class="small">Zone A • 64 % abgeschlossen</div>
+                    </div>
+                    <div style="font-size:22px;color:#667267;">⌃</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bottom-panel-tight hero-panel">
+                <div class="small" style="margin-bottom:6px;color:#2f7d4a;font-weight:800;">Zustand 4 · Alfred maeht</div>
+                <div class="title" style="font-size:19px;">Maehvorgang aktiv</div>
+                <div class="small" style="margin-top:4px;">Sobald Alfred unterwegs ist, wechseln Home und Buttons in den Betriebsmodus.</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+                  <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">Zone A aktiv</div>
+                  <div class="chip" style="background:#dcefd9;color:#2f7d4a;border:none;">Fortschritt 64 %</div>
+                </div>
+                <div class="cta-row">
+                  <div class="btn primary">Pause</div>
+                  <div class="btn ghost">Station</div>
+                  <div class="btn ghost">Details</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2>Roboter maeht</h2>
+        <p>Im laufenden Betrieb ändern sich Aktionslogik und Sprache des Home-Screens sichtbar.</p>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

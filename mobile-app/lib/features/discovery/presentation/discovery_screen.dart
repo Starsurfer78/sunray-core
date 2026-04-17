@@ -17,8 +17,6 @@ class DiscoveryScreen extends ConsumerStatefulWidget {
 }
 
 class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
-  bool _autoReconnectAttempted = false;
-
   @override
   Widget build(BuildContext context) {
     final robotsAsync = ref.watch(discoveredRobotsStreamProvider);
@@ -26,32 +24,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     final connectionState = ref.watch(connectionStateProvider);
     final activeRobot = ref.watch(activeRobotProvider);
     final theme = Theme.of(context);
-
-    rememberedRobotAsync.whenData((robot) {
-      final hasActiveRobot = ref.read(activeRobotProvider) != null;
-      final isBusy =
-          connectionState.connectionState == ConnectionStateKind.connecting ||
-              connectionState.connectionState == ConnectionStateKind.connected;
-      if (_autoReconnectAttempted ||
-          robot == null ||
-          hasActiveRobot ||
-          isBusy) {
-        return;
-      }
-      _autoReconnectAttempted = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final router = GoRouter.of(context);
-        final controller = ref.read(robotConnectionControllerProvider);
-        final status = await controller.connect(robot, persist: false);
-        if (!mounted) return;
-        if (status.connectionState == ConnectionStateKind.connected) {
-          router.go('/dashboard');
-        } else {
-          // Stop the background retry loop so the user can connect manually.
-          controller.stopReconnect();
-        }
-      });
-    });
 
     return Scaffold(
       appBar: AppBar(
@@ -130,7 +102,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                 onConnect: (robot) => _connectDiscoveredRobot(context, robot),
               ),
               error: (error, _) => Text(
-                'Discovery fehlgeschlagen: $error',
+                'Robotersuche fehlgeschlagen: $error',
                 style: theme.textTheme.bodySmall,
               ),
               loading: () => Column(
@@ -265,12 +237,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   }
 
   Future<void> _disconnectCurrentRobot() async {
-    setState(() => _autoReconnectAttempted = true);
     await ref.read(robotConnectionControllerProvider).disconnect();
   }
 
   Future<void> _switchRobot() async {
-    setState(() => _autoReconnectAttempted = true);
     await ref.read(robotConnectionControllerProvider).switchRobot();
   }
 
@@ -439,7 +409,7 @@ class _DiscoveryResults extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
-          'Gefundene Roboter im lokalen Netz.',
+            'Gefundene Roboter im lokalen Netzwerk.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 16),
@@ -450,7 +420,7 @@ class _DiscoveryResults extends StatelessWidget {
               name: robot.name,
               subtitle:
                   '${robot.host}:${robot.port} · ${robot.statusHint ?? 'gefunden'}',
-              ctaLabel: 'Hinzufügen',
+                ctaLabel: 'Verbinden',
               isBusy: connectionState.connectionState ==
                       ConnectionStateKind.connecting &&
                   connectionState.robotName == robot.name,

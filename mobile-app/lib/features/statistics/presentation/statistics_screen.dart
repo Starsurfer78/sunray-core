@@ -230,7 +230,7 @@ class _SummaryRow extends StatelessWidget {
         Expanded(
           child: _MetricCard(
             icon: Icons.play_circle_rounded,
-            label: 'Sessions',
+            label: 'Sitzungen',
             value: '$sessions',
             color: const Color(0xFF3B82F6),
           ),

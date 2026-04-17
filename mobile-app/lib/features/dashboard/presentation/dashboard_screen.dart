@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../domain/map/map_geometry.dart';
 import '../../../domain/mission/mission.dart';
+import '../../../domain/robot/saved_robot.dart';
 import '../../../domain/robot/robot_status.dart';
 import '../../../shared/providers/app_providers.dart';
 import '../../../shared/widgets/connection_notice.dart';
@@ -20,7 +22,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _commandBusy = false;
-  bool _joystickVisible = false;
+  bool _manualModeActive = false;
   String? _lastUiMessage;
   String? _selectedZoneId;
   bool _autoReconnectAttempted = false;
@@ -35,9 +37,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     'waiting_for_rain',
   };
 
+  static const List<DeviceOrientation> _defaultOrientations = <DeviceOrientation>[
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ];
+
+  static const List<DeviceOrientation> _manualModeOrientations = <DeviceOrientation>[
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ];
+
+  @override
+  void dispose() {
+    if (_manualModeActive) {
+      ref.read(robotConnectionControllerProvider).sendDriveCommand(0, 0);
+      unawaited(SystemChrome.setPreferredOrientations(_defaultOrientations));
+    }
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final rememberedRobotAsync = ref.watch(rememberedRobotProvider);
+    final savedRobotsAsync = ref.watch(savedRobotsProvider);
+    final weeklyMowingSummaryAsync = ref.watch(_dashboardWeeklyMowingSummaryProvider);
     final missions = ref.watch(missionsProvider);
     final selectedMissionId = ref.watch(selectedMissionIdProvider);
     final mission = missions.cast<Mission?>().firstWhere(
@@ -47,6 +72,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final map = ref.watch(mapGeometryProvider);
     final status = ref.watch(connectionStateProvider);
     final activeRobot = ref.watch(activeRobotProvider);
+    final savedRobots = savedRobotsAsync.valueOrNull ?? const <SavedRobot>[];
     final isConnected = status.connectionState == ConnectionStateKind.connected;
     final phase = status.statePhase ?? 'idle';
     final isActive = _activePhases.contains(phase);
@@ -108,172 +134,338 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }
     });
 
+    final hasMapReady = map.perimeter.length >= 3 && map.dock.isNotEmpty;
+    final mapAreaSquareMeters = _calculatePolygonAreaSquareMeters(map.perimeter);
+    final stateKind = _resolveDashboardStateKind(
+      isConnected: isConnected,
+      hasRememberedRobot: rememberedRobotAsync.valueOrNull != null,
+      hasFault: hasFault,
+      isPaused: isPaused,
+      hasMapReady: hasMapReady,
+      hasZones: hasZones,
+      hasRecurringSchedule: hasRecurringSchedule,
+    );
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(activeRobot?.name ?? 'Dashboard'),
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Schnellzugriffe',
-            onPressed: () => _openQuickActions(context),
-            icon: const Icon(Icons.tune_rounded),
-          ),
-          PopupMenuButton<_MenuAction>(
-            onSelected: (action) {
-              switch (action) {
-                case _MenuAction.switchRobot:
-                  _handleSwitchRobot();
-                case _MenuAction.disconnect:
-                  _handleDisconnect();
-              }
-            },
-            itemBuilder: (context) => const <PopupMenuEntry<_MenuAction>>[
-              PopupMenuItem(
-                  value: _MenuAction.switchRobot,
-                  child: Text('Roboter wechseln')),
-              PopupMenuItem(
-                  value: _MenuAction.disconnect, child: Text('Trennen')),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
+      body: Stack(
         children: <Widget>[
-          // Map
-          Expanded(
-            flex: 3,
-            child: Stack(
-              children: <Widget>[
-                Positioned.fill(
-                  child: RobotMapView(
-                    map: map,
-                    status: status,
-                    interactive: true,
-                    selectedZoneIds: highlightedZoneIds,
-                    onZoneTap: (zoneId) {
-                      setState(() {
-                        _selectedZoneId = _selectedZoneId == zoneId ? null : zoneId;
-                      });
-                    },
-                  ),
-                ),
-                Positioned(
-                  top: 10,
-                  left: 10,
-                  child: _StatusOverlay(status: status),
-                ),
-                Positioned(
-                  bottom: 14,
-                  right: 14,
-                  child: FloatingActionButton(
-                    heroTag: 'joystick_fab',
-                    tooltip: 'Virtuelles Steuerkreuz',
-                    mini: true,
-                    onPressed: isConnected ? _openJoystick : null,
-                    backgroundColor: isConnected
-                        ? const Color(0xFF1E40AF)
-                        : const Color(0xFF334155),
-                    child: const Icon(Icons.gamepad_rounded, size: 20),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Connection notice
-          if (hasConnectionNotice)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-              child: ConnectionNotice(status: status),
-            ),
-          // Running state bar OR checklist
-          if (isConnected && isActive)
-            _RunningStateBar(status: status, missionName: mission?.name)
-          else
-            _ReadyPanel(
-              status: status,
-              isConnected: isConnected,
-              hasFault: hasFault,
-              isPaused: isPaused,
-              hasPerimeter: map.perimeter.length >= 3,
-              hasDock: map.dock.isNotEmpty,
-              hasZones: hasZones,
-              hasMission: missions.isNotEmpty,
-              hasRecurringSchedule: hasRecurringSchedule,
-              hasRememberedRobot: rememberedRobotAsync.valueOrNull != null,
-              onGoMapSetup: () => context.push('/map/setup'),
-              onGoMapEdit: () => context.push('/map/edit'),
-              onGoMissions: () => context.push('/missions'),
-              onGoService: () => context.push('/service'),
-              onGoStatistics: () => context.push('/statistics'),
-              onReconnect: _handleConnectOrSwitch,
-              onResume: mission == null
-                  ? null
-                  : () => _runAction(() {
-                        ref
-                            .read(robotConnectionControllerProvider)
-                            .startMowing(missionId: mission.id);
-                      }),
-            ),
-          if (isConnected && mission != null)
-            _MissionFocusCard(
-              missions: missions,
-              mission: mission,
-              selectedMissionId: selectedMissionId,
+          Positioned.fill(
+            child: RobotMapView(
               map: map,
-              selectedZoneId: selectedZoneId,
-              onMissionSelected: (missionId) {
-                ref.read(selectedMissionIdProvider.notifier).state = missionId;
-                setState(() => _selectedZoneId = null);
-              },
-              onZoneSelected: (zoneId) {
+              status: status,
+              interactive: true,
+              selectedZoneIds: highlightedZoneIds,
+              onZoneTap: (zoneId) {
                 setState(() {
                   _selectedZoneId = _selectedZoneId == zoneId ? null : zoneId;
                 });
               },
-              onOpenDetails: () => _openMissionDetails(
-                context,
-                mission,
-                map,
-                selectedZoneId,
-              ),
-              onOpenPlanning: () => context.push('/missions'),
             ),
-          // Bottom action bar
-          _BottomActionBar(
-            isConnected: isConnected,
-            busy: _commandBusy,
-            missionName: mission?.name,
-            isActive: isActive,
-            isPaused: isPaused,
-            onMow: mission == null
-                ? null
-                : () => _runAction(() {
-                      ref
-                          .read(robotConnectionControllerProvider)
-                          .startMowing(missionId: mission.id);
-                    }),
-            onStop: () => _runAction(() =>
-                ref.read(robotConnectionControllerProvider).emergencyStop()),
-            onDock: () => _runAction(() =>
-                ref.read(robotConnectionControllerProvider).startDocking()),
           ),
-          if (_joystickVisible)
-            _JoystickOverlay(
-              onDrive: (vx, vy) => ref
-                  .read(robotConnectionControllerProvider)
-                  .sendDriveCommand(vy, -vx),
-              onClose: () {
-                ref
-                    .read(robotConnectionControllerProvider)
-                    .sendDriveCommand(0, 0);
-                setState(() => _joystickVisible = false);
-              },
+          if (_manualModeActive)
+            Positioned.fill(
+              child: _ManualDriveMode(
+                status: status,
+                onClose: _closeManualMode,
+                onEmergencyStop: isConnected && !_commandBusy
+                    ? () => _runAction(() =>
+                        ref.read(robotConnectionControllerProvider).emergencyStop())
+                    : null,
+                onDriveChanged: (linear, angular) {
+                  ref
+                      .read(robotConnectionControllerProvider)
+                      .sendDriveCommand(linear, angular);
+                },
+              ),
+            )
+          else ...<Widget>[
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: <Color>[
+                        Color(0xCC09111F),
+                        Color(0x0009111F),
+                        Color(0x0009111F),
+                        Color(0xE609111F),
+                      ],
+                      stops: <double>[0, 0.24, 0.58, 1],
+                    ),
+                  ),
+                ),
+              ),
             ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _DashboardHeader(
+                      status: status,
+                      currentRobot: activeRobot ?? rememberedRobotAsync.valueOrNull,
+                      savedRobots: savedRobots,
+                      mapAreaSquareMeters: mapAreaSquareMeters,
+                      onOpenSettings: () => context.push('/settings'),
+                      onOpenNotifications: () => context.push('/notifications'),
+                      onOpenJoystick: isConnected ? _openManualMode : null,
+                      onEmergencyStop: isConnected && !_commandBusy
+                          ? () => _runAction(() =>
+                              ref.read(robotConnectionControllerProvider).emergencyStop())
+                          : null,
+                      onRobotSelected: _handleRobotSelected,
+                    ),
+                    if (hasConnectionNotice) ...<Widget>[
+                      const SizedBox(height: 10),
+                      ConnectionNotice(status: status),
+                    ],
+                    const Spacer(),
+                    if (isConnected) ...<Widget>[
+                      _DashboardTaskLine(
+                        stateKind: stateKind,
+                        status: status,
+                        mission: mission,
+                        onTap: mission == null
+                            ? () => context.push('/missions')
+                            : () => _openMissionOverviewSheet(
+                                  context,
+                                  missions: missions,
+                                  selectedMissionId: selectedMissionId,
+                                  mission: mission,
+                                  map: map,
+                                  selectedZoneId: selectedZoneId,
+                                ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    _DashboardControlCard(
+                      stateKind: stateKind,
+                      status: status,
+                      mission: mission,
+                      weeklySummary: weeklyMowingSummaryAsync,
+                      isConnected: isConnected,
+                      isActive: isActive,
+                      isPaused: isPaused,
+                      isBusy: _commandBusy,
+                      onPrimaryAction: _buildPrimaryAction(
+                        stateKind: stateKind,
+                        mission: mission,
+                      ),
+                      onDock: () => _runAction(() =>
+                          ref.read(robotConnectionControllerProvider).startDocking()),
+                      onStop: () => _runAction(() =>
+                          ref.read(robotConnectionControllerProvider).emergencyStop()),
+                      onStartWholeMap: () => _runAction(
+                        () => ref.read(robotConnectionControllerProvider).startMowing(),
+                      ),
+                      onStatusTap: () => _openDashboardStatusSheet(
+                        context,
+                        status: status,
+                        isConnected: isConnected,
+                        isActive: isActive,
+                        hasFault: hasFault,
+                        isPaused: isPaused,
+                        hasPerimeter: map.perimeter.length >= 3,
+                        hasDock: map.dock.isNotEmpty,
+                        hasZones: hasZones,
+                        hasMission: missions.isNotEmpty,
+                        hasRecurringSchedule: hasRecurringSchedule,
+                        hasRememberedRobot: rememberedRobotAsync.valueOrNull != null,
+                        mission: mission,
+                      ),
+                      onMissionTap: mission == null
+                          ? () => context.push('/missions')
+                          : () => _openMissionDetails(
+                                context,
+                                mission,
+                                map,
+                                selectedZoneId,
+                              ),
+                      onPlanningTap: () => context.push('/missions'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  void _openJoystick() => setState(() => _joystickVisible = true);
+  Future<void> _openManualMode() async {
+    await SystemChrome.setPreferredOrientations(_manualModeOrientations);
+    if (!mounted) return;
+    setState(() => _manualModeActive = true);
+  }
+
+  Future<void> _closeManualMode() async {
+    ref.read(robotConnectionControllerProvider).sendDriveCommand(0, 0);
+    if (mounted) {
+      setState(() => _manualModeActive = false);
+    }
+    await SystemChrome.setPreferredOrientations(_defaultOrientations);
+  }
+
+  VoidCallback? _buildPrimaryAction({
+    required _DashboardStateKind stateKind,
+    required Mission? mission,
+  }) {
+    return switch (stateKind) {
+      _DashboardStateKind.noRobot => _handleConnectOrSwitch,
+      _DashboardStateKind.offline => _handleConnectOrSwitch,
+      _DashboardStateKind.fault => () => context.push('/service'),
+      _DashboardStateKind.paused => mission == null
+          ? () => context.push('/missions')
+          : () => _runAction(() {
+                ref
+                    .read(robotConnectionControllerProvider)
+                    .startMowing(missionId: mission.id);
+              }),
+      _DashboardStateKind.noMap => () => context.push('/map/setup'),
+      _DashboardStateKind.noZones => () => context.push('/map/edit'),
+        _DashboardStateKind.noSchedule => mission == null
+          ? () => context.push('/missions')
+          : () => _runAction(() {
+            ref
+              .read(robotConnectionControllerProvider)
+              .startMowing(missionId: mission.id);
+            }),
+      _DashboardStateKind.ready => mission == null
+          ? () => context.push('/missions')
+          : () => _runAction(() {
+                ref
+                    .read(robotConnectionControllerProvider)
+                    .startMowing(missionId: mission.id);
+              }),
+    };
+  }
+
+  Future<void> _openDashboardStatusSheet(
+    BuildContext context, {
+    required RobotStatus status,
+    required bool isConnected,
+    required bool isActive,
+    required bool hasFault,
+    required bool isPaused,
+    required bool hasPerimeter,
+    required bool hasDock,
+    required bool hasZones,
+    required bool hasMission,
+    required bool hasRecurringSchedule,
+    required bool hasRememberedRobot,
+    required Mission? mission,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (isActive)
+                _RunningStateBar(status: status, missionName: mission?.name)
+              else
+                _ReadyPanel(
+                  status: status,
+                  isConnected: isConnected,
+                  hasFault: hasFault,
+                  isPaused: isPaused,
+                  hasPerimeter: hasPerimeter,
+                  hasDock: hasDock,
+                  hasZones: hasZones,
+                  hasMission: hasMission,
+                  hasRecurringSchedule: hasRecurringSchedule,
+                  hasRememberedRobot: hasRememberedRobot,
+                  onGoMapSetup: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push('/map/setup');
+                  },
+                  onGoMapEdit: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push('/map/edit');
+                  },
+                  onGoMissions: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push('/missions');
+                  },
+                  onGoService: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push('/service');
+                  },
+                  onGoStatistics: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push('/statistics');
+                  },
+                  onReconnect: () {
+                    Navigator.of(sheetContext).pop();
+                    _handleConnectOrSwitch();
+                  },
+                  onResume: mission == null
+                      ? null
+                      : () {
+                            Navigator.of(sheetContext).pop();
+                            _runAction(() {
+                              ref
+                                  .read(robotConnectionControllerProvider)
+                                  .startMowing(missionId: mission.id);
+                            });
+                          },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMissionOverviewSheet(
+    BuildContext context, {
+    required List<Mission> missions,
+    required String? selectedMissionId,
+    required Mission mission,
+    required MapGeometry map,
+    required String? selectedZoneId,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: _MissionFocusCard(
+            missions: missions,
+            mission: mission,
+            selectedMissionId: selectedMissionId,
+            map: map,
+            selectedZoneId: selectedZoneId,
+            onMissionSelected: (missionId) {
+              ref.read(selectedMissionIdProvider.notifier).state = missionId;
+              setState(() => _selectedZoneId = null);
+              Navigator.of(sheetContext).pop();
+            },
+            onZoneSelected: (zoneId) {
+              setState(() {
+                _selectedZoneId = _selectedZoneId == zoneId ? null : zoneId;
+              });
+            },
+            onOpenDetails: () {
+              Navigator.of(sheetContext).pop();
+              _openMissionDetails(context, mission, map, selectedZoneId);
+            },
+            onOpenPlanning: () {
+              Navigator.of(sheetContext).pop();
+              context.push('/missions');
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _openQuickActions(BuildContext context) async {
     await showModalBottomSheet<void>(
@@ -321,7 +513,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               _QuickActionTile(
                 icon: Icons.settings_outlined,
                 title: 'Einstellungen',
-                subtitle: 'App- und Roboterdetails als sekundaeren Bereich oeffnen',
+                subtitle: 'App- und Roboterdetails als sekundären Bereich öffnen',
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   context.push('/settings');
@@ -339,7 +531,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               _QuickActionTile(
                 icon: Icons.miscellaneous_services_outlined,
                 title: 'Service',
-                subtitle: 'Updates, Diagnose und Systemfunktionen oeffnen',
+                subtitle: 'Updates, Diagnose und Systemfunktionen öffnen',
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   context.push('/service');
@@ -503,9 +695,1195 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (!mounted) return;
     context.go('/discover');
   }
+
+  Future<void> _handleRobotSelected(SavedRobot robot) async {
+    final currentRobot = ref.read(activeRobotProvider) ?? ref.read(rememberedRobotProvider).valueOrNull;
+    if (currentRobot?.id == robot.id) {
+      return;
+    }
+
+    final refreshedRobot = SavedRobot(
+      id: robot.id,
+      name: robot.name,
+      lastHost: robot.lastHost,
+      port: robot.port,
+      lastSeen: DateTime.now(),
+    );
+
+    await ref.read(robotConnectionControllerProvider).connect(refreshedRobot);
+  }
 }
 
 enum _MenuAction { switchRobot, disconnect }
+
+double _calculatePolygonAreaSquareMeters(List<MapPoint> points) {
+  if (points.length < 3) {
+    return 0;
+  }
+
+  var doubledArea = 0.0;
+  for (var index = 0; index < points.length; index++) {
+    final current = points[index];
+    final next = points[(index + 1) % points.length];
+    doubledArea += (current.x * next.y) - (next.x * current.y);
+  }
+  return doubledArea.abs() / 2;
+}
+
+String _formatAreaSquareMeters(double area) {
+  if (area <= 0) {
+    return '-- m²';
+  }
+  return '${area.round()} m²';
+}
+
+String _rtkHeaderLabel(String? rtkState) {
+  return switch (rtkState) {
+    'RTK Fixed' => 'Fix',
+    'RTK Float' => 'Float',
+    null || '' => 'Suche',
+    _ => rtkState,
+  };
+}
+
+_DashboardStateKind _resolveDashboardStateKind({
+  required bool isConnected,
+  required bool hasRememberedRobot,
+  required bool hasFault,
+  required bool isPaused,
+  required bool hasMapReady,
+  required bool hasZones,
+  required bool hasRecurringSchedule,
+}) {
+  if (!isConnected) {
+    return hasRememberedRobot
+        ? _DashboardStateKind.offline
+        : _DashboardStateKind.noRobot;
+  }
+  if (hasFault) return _DashboardStateKind.fault;
+  if (isPaused) return _DashboardStateKind.paused;
+  if (!hasMapReady) return _DashboardStateKind.noMap;
+  if (!hasZones) return _DashboardStateKind.noZones;
+  if (!hasRecurringSchedule) return _DashboardStateKind.noSchedule;
+  return _DashboardStateKind.ready;
+}
+
+class _DashboardHeader extends StatelessWidget {
+  const _DashboardHeader({
+    required this.status,
+    required this.currentRobot,
+    required this.savedRobots,
+    required this.mapAreaSquareMeters,
+    required this.onOpenSettings,
+    required this.onOpenNotifications,
+    required this.onEmergencyStop,
+    required this.onOpenJoystick,
+    required this.onRobotSelected,
+  });
+
+  final RobotStatus status;
+  final SavedRobot? currentRobot;
+  final List<SavedRobot> savedRobots;
+  final double mapAreaSquareMeters;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenNotifications;
+  final VoidCallback? onEmergencyStop;
+  final VoidCallback? onOpenJoystick;
+  final ValueChanged<SavedRobot> onRobotSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final battery = status.batteryPercent != null ? '${status.batteryPercent}%' : '--';
+    final connectionLabel = switch (status.connectionState) {
+      ConnectionStateKind.connected => 'Verbunden',
+      ConnectionStateKind.connecting => 'Verbinde',
+      ConnectionStateKind.error => 'Fehler',
+      _ => 'Offline',
+    };
+    final connectionColor = switch (status.connectionState) {
+      ConnectionStateKind.connected => const Color(0xFF4ADE80),
+      ConnectionStateKind.connecting => const Color(0xFFFACC15),
+      ConnectionStateKind.error => const Color(0xFFF87171),
+      _ => const Color(0xFF94A3B8),
+    };
+    final rtkLabel = _rtkHeaderLabel(status.rtkState);
+    final (gpsPillLabel, gpsColor) = _StatusOverlay._gpsInfo(status.rtkState);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  _RoundOverlayButton(
+                    tooltip: 'Einstellungen',
+                    icon: Icons.settings_outlined,
+                    onPressed: onOpenSettings,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _RobotSelectorChip(
+                      currentRobot: currentRobot,
+                      savedRobots: savedRobots,
+                      onRobotSelected: onRobotSelected,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _RoundOverlayButton(
+                    tooltip: 'Benachrichtigungen',
+                    icon: Icons.notifications_none_rounded,
+                    onPressed: onOpenNotifications,
+                  ),
+                  const SizedBox(width: 8),
+                  _RoundOverlayButton(
+                    tooltip: 'Not-Aus',
+                    icon: Icons.stop_circle_outlined,
+                    onPressed: onEmergencyStop,
+                    backgroundColor: const Color(0xD9DC2626),
+                    iconColor: Colors.white,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: <Widget>[
+                    _HeaderStatusPill(
+                      label: 'Verbindung',
+                      value: connectionLabel,
+                      color: connectionColor,
+                    ),
+                    const SizedBox(width: 8),
+                    _HeaderStatusPill(
+                      label: 'Akku',
+                      value: battery,
+                      color: _StatusOverlay._batteryColor(status.batteryPercent),
+                    ),
+                    const SizedBox(width: 8),
+                    _HeaderStatusPill(
+                      label: 'RTK',
+                      value: rtkLabel,
+                      color: gpsColor,
+                      icon: Icons.gps_fixed_rounded,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        _HeaderSideRail(
+          mapAreaSquareMeters: mapAreaSquareMeters,
+          onOpenJoystick: onOpenJoystick,
+        ),
+      ],
+    );
+  }
+}
+
+class _RobotSelectorChip extends StatelessWidget {
+  const _RobotSelectorChip({
+    required this.currentRobot,
+    required this.savedRobots,
+    required this.onRobotSelected,
+  });
+
+  final SavedRobot? currentRobot;
+  final List<SavedRobot> savedRobots;
+  final ValueChanged<SavedRobot> onRobotSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = currentRobot?.name ?? 'Roboter auswählen';
+    final hasChoices = savedRobots.length > 1;
+
+    final child = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: const Color(0xC20F172A),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+            ),
+          ),
+          if (hasChoices) ...<Widget>[
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Color(0xFFCBD5E1),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    if (!hasChoices) {
+      return child;
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Roboter auswählen',
+      color: const Color(0xEE0F172A),
+      onSelected: (robotId) {
+        for (final robot in savedRobots) {
+          if (robot.id == robotId) {
+            onRobotSelected(robot);
+            break;
+          }
+        }
+      },
+      itemBuilder: (context) => savedRobots
+          .map(
+            (robot) => PopupMenuItem<String>(
+              value: robot.id,
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: Text(robot.name)),
+                  if (robot.id == currentRobot?.id)
+                    const Icon(Icons.check_rounded, size: 16),
+                ],
+              ),
+            ),
+          )
+          .toList(growable: false),
+      child: child,
+    );
+  }
+}
+
+class _HeaderStatusPill extends StatelessWidget {
+  const _HeaderStatusPill({
+    required this.label,
+    required this.value,
+    required this.color,
+    this.icon,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xB80F172A),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (icon != null) ...<Widget>[
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            '$label ',
+            style: const TextStyle(
+              color: Color(0xFFCBD5E1),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderSideRail extends StatelessWidget {
+  const _HeaderSideRail({
+    required this.mapAreaSquareMeters,
+    required this.onOpenJoystick,
+  });
+
+  final double mapAreaSquareMeters;
+  final VoidCallback? onOpenJoystick;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xC20F172A),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0x33FFFFFF)),
+          ),
+          child: Column(
+            children: <Widget>[
+              const Icon(Icons.crop_square_rounded, color: Colors.white, size: 18),
+              const SizedBox(height: 4),
+              Text(
+                _formatAreaSquareMeters(mapAreaSquareMeters),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _RoundOverlayButton(
+          tooltip: 'Joystick',
+          icon: Icons.gamepad_rounded,
+          onPressed: onOpenJoystick,
+        ),
+      ],
+    );
+  }
+}
+
+class _RoundOverlayButton extends StatelessWidget {
+  const _RoundOverlayButton({
+    required this.tooltip,
+    required this.icon,
+    this.onPressed,
+    this.backgroundColor = const Color(0xC20F172A),
+    this.iconColor = Colors.white,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final Color backgroundColor;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: backgroundColor,
+        shape: const CircleBorder(),
+        child: IconButton(
+          onPressed: onPressed,
+          icon: Icon(icon, color: iconColor),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactMissionStrip extends StatelessWidget {
+  const _CompactMissionStrip({
+    required this.mission,
+    required this.map,
+    required this.selectedZoneId,
+    required this.onTap,
+  });
+
+  final Mission mission;
+  final MapGeometry map;
+  final String? selectedZoneId;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final zoneNames = map.zones
+        .where((zone) => mission.zoneIds.contains(zone.id))
+        .map((zone) => zone.id == selectedZoneId ? '${zone.name} aktiv' : zone.name)
+        .toList(growable: false);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: const Color(0xD90F172A),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0x331E40AF)),
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0x1F60A5FA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.route_rounded, color: Color(0xFF93C5FD), size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      mission.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      zoneNames.isEmpty
+                          ? mission.effectiveScheduleLabel
+                          : zoneNames.take(2).join(' • '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFFCBD5E1),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.keyboard_arrow_up_rounded,
+                color: Color(0xFF94A3B8),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final _dashboardWeeklyMowingSummaryProvider =
+    FutureProvider<_WeeklyMowingSummary>((ref) async {
+  final robot = ref.watch(activeRobotProvider);
+  if (robot == null) {
+    return const _WeeklyMowingSummary(totalSeconds: 0, sessionCount: 0);
+  }
+
+  try {
+    final raw = await ref.watch(robotApiProvider).getHistoryEvents(
+          host: robot.lastHost,
+          port: robot.port,
+          limit: 200,
+        );
+    final events = raw.whereType<Map<String, dynamic>>().toList(growable: false);
+    final sessions = _parseMowSessions(events);
+    final now = DateTime.now();
+    final startOfWeek = DateTime(now.year, now.month, now.day)
+        .subtract(Duration(days: now.weekday - 1));
+    final startOfWeekMs = startOfWeek.millisecondsSinceEpoch;
+
+    var totalSeconds = 0;
+    var sessionCount = 0;
+    for (final session in sessions) {
+      if (session.endMs <= startOfWeekMs) {
+        continue;
+      }
+      final boundedStartMs = session.startMs < startOfWeekMs
+          ? startOfWeekMs
+          : session.startMs;
+      final durationMs = session.endMs - boundedStartMs;
+      if (durationMs <= 0) {
+        continue;
+      }
+      totalSeconds += durationMs ~/ 1000;
+      sessionCount += 1;
+    }
+
+    return _WeeklyMowingSummary(
+      totalSeconds: totalSeconds,
+      sessionCount: sessionCount,
+    );
+  } catch (_) {
+    return const _WeeklyMowingSummary(totalSeconds: 0, sessionCount: 0);
+  }
+});
+
+List<_MowSessionWindow> _parseMowSessions(List<Map<String, dynamic>> events) {
+  final sorted = List<Map<String, dynamic>>.from(events)
+    ..sort((a, b) {
+      final ta = a['timestamp'] as num? ?? a['time'] as num? ?? 0;
+      final tb = b['timestamp'] as num? ?? b['time'] as num? ?? 0;
+      return ta.compareTo(tb);
+    });
+
+  final result = <_MowSessionWindow>[];
+  int? sessionStart;
+
+  for (final event in sorted) {
+    final phase = event['phase'] as String?;
+    final timestamp = (event['timestamp'] as num? ?? event['time'] as num?)?.toInt();
+    if (timestamp == null) {
+      continue;
+    }
+
+    if (phase == 'mowing' && sessionStart == null) {
+      sessionStart = timestamp;
+      continue;
+    }
+
+    if (phase != 'mowing' && sessionStart != null) {
+      result.add(_MowSessionWindow(startMs: sessionStart, endMs: timestamp));
+      sessionStart = null;
+    }
+  }
+
+  if (sessionStart != null && sorted.isNotEmpty) {
+    final lastTimestamp =
+        (sorted.last['timestamp'] as num? ?? sorted.last['time'] as num?)?.toInt();
+    if (lastTimestamp != null && lastTimestamp > sessionStart) {
+      result.add(_MowSessionWindow(startMs: sessionStart, endMs: lastTimestamp));
+    }
+  }
+
+  return result;
+}
+
+class _WeeklyMowingSummary {
+  const _WeeklyMowingSummary({
+    required this.totalSeconds,
+    required this.sessionCount,
+  });
+
+  final int totalSeconds;
+  final int sessionCount;
+}
+
+class _MowSessionWindow {
+  const _MowSessionWindow({
+    required this.startMs,
+    required this.endMs,
+  });
+
+  final int startMs;
+  final int endMs;
+}
+
+class _DashboardTaskLine extends StatelessWidget {
+  const _DashboardTaskLine({
+    required this.stateKind,
+    required this.status,
+    required this.mission,
+    required this.onTap,
+  });
+
+  final _DashboardStateKind stateKind;
+  final RobotStatus status;
+  final Mission? mission;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (stateKind) {
+      _DashboardStateKind.noMap => 'Nächster Schritt: Karte anlegen',
+      _DashboardStateKind.noZones => 'Nächster Schritt: Zonen anlegen',
+      _DashboardStateKind.noSchedule => 'Nächste Aufgabe: Zeitplan festlegen',
+      _DashboardStateKind.paused => 'Aktuelle Aufgabe: Lauf pausiert',
+      _DashboardStateKind.ready => mission == null
+          ? 'Aktuelle Aufgabe: Mission wählen'
+          : 'Aktuelle Aufgabe: ${mission!.name}',
+      _DashboardStateKind.fault => 'Aktuelle Aufgabe: Fehler prüfen',
+      _DashboardStateKind.offline => 'Aktuelle Aufgabe: Verbindung wiederherstellen',
+      _DashboardStateKind.noRobot => 'Aktuelle Aufgabe: Roboter verbinden',
+    };
+    final detail = status.statePhase == null || status.statePhase == 'idle'
+        ? null
+        : _StatusOverlay._phaseLabel(status.statePhase!);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.route_rounded,
+                size: 16,
+                color: Color(0xFFE2E8F0),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  detail == null ? label : '$label • $detail',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardControlCard extends StatelessWidget {
+  const _DashboardControlCard({
+    required this.stateKind,
+    required this.status,
+    required this.mission,
+    required this.weeklySummary,
+    required this.isConnected,
+    required this.isActive,
+    required this.isPaused,
+    required this.isBusy,
+    required this.onPrimaryAction,
+    required this.onDock,
+    required this.onStop,
+    required this.onStartWholeMap,
+    required this.onStatusTap,
+    required this.onMissionTap,
+    required this.onPlanningTap,
+  });
+
+  final _DashboardStateKind stateKind;
+  final RobotStatus status;
+  final Mission? mission;
+  final AsyncValue<_WeeklyMowingSummary> weeklySummary;
+  final bool isConnected;
+  final bool isActive;
+  final bool isPaused;
+  final bool isBusy;
+  final VoidCallback? onPrimaryAction;
+  final VoidCallback onDock;
+  final VoidCallback onStop;
+  final VoidCallback onStartWholeMap;
+  final VoidCallback onStatusTap;
+  final VoidCallback onMissionTap;
+  final VoidCallback onPlanningTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final progressTitle = _buildProgressTitle();
+    final progressValue = _buildProgressValue();
+    final primaryLabel = _buildPrimaryLabel();
+    final primaryEnabled = _isPrimaryEnabled();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x260F172A),
+            blurRadius: 20,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (stateKind == _DashboardStateKind.noMap)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF86EFAC)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'Es ist noch keine Karte angelegt.',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: const Color(0xFF0F172A),
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Bitte zuerst Perimeter, No-Go-Bereiche und Docking festlegen.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF334155),
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: const <Widget>[
+                      _StepBadge(label: 'Perimeter'),
+                      _StepBadge(label: 'No-Go'),
+                      _StepBadge(label: 'Docking'),
+                    ],
+                  ),
+                ],
+              ),
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(
+                      child: _PanelMetricCard(
+                        title: 'Diese Woche gemäht',
+                        value: weeklySummary.when(
+                          data: (summary) => summary.totalSeconds == 0
+                              ? '0 h'
+                              : _RunningStateBar._formatDuration(summary.totalSeconds),
+                          loading: () => 'Lädt …',
+                          error: (_, __) => '0 h',
+                        ),
+                        subtitle: weeklySummary.when(
+                          data: (summary) => summary.sessionCount == 1
+                              ? '1 Einsatz'
+                              : '${summary.sessionCount} Einsätze',
+                          loading: () => 'Verlauf wird geladen',
+                          error: (_, __) => 'Verlauf nicht verfügbar',
+                        ),
+                        onTap: onStatusTap,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _PanelMetricCard(
+                        title: progressTitle,
+                        value: progressValue,
+                        subtitle: _buildProgressSubtitle(),
+                        onTap: mission == null ? onPlanningTap : onMissionTap,
+                        trailing: _buildProgressTrailing(context),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (_shouldShowSchedulerLink())
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: onPlanningTap,
+                      icon: const Icon(Icons.schedule_rounded, size: 18),
+                      label: const Text('Zeitplan anlegen'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF16A34A),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                  )
+                else if (_shouldShowWholeMapAction())
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: onStartWholeMap,
+                      icon: const Icon(Icons.landscape_outlined, size: 18),
+                      label: const Text('Gesamte Karte mähen'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0F172A),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          const SizedBox(height: 12),
+          if (stateKind == _DashboardStateKind.noMap)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: isConnected && !isBusy ? onPrimaryAction : null,
+                icon: const Icon(Icons.map_outlined),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF22C55E),
+                  foregroundColor: const Color(0xFF04110A),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                label: Text(
+                  primaryLabel,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+            )
+          else
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: FilledButton(
+                    onPressed: primaryEnabled ? onPrimaryAction : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _isStopAction()
+                          ? const Color(0xFFDC2626)
+                          : const Color(0xFF16A34A),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: Text(
+                      primaryLabel,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: isConnected && !isBusy ? onDock : null,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0F172A),
+                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: const Text('Dock / Heim'),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _buildProgressTitle() {
+        if (isActive || isPaused) {
+          return 'Aktueller Lauf';
+        }
+        if (mission?.scheduleHour != null) {
+          return 'Nächster Start';
+        }
+        if (mission?.isRecurring == true) {
+          return 'Zeitplan';
+        }
+        return 'Startzeit';
+  }
+
+  String _buildProgressValue() {
+        if (isActive || isPaused) {
+          if (status.mowDurationSec != null) {
+            return _RunningStateBar._formatDuration(status.mowDurationSec!);
+          }
+          return _StatusOverlay._phaseLabel(status.statePhase ?? 'idle');
+        }
+        if (mission?.scheduleHour != null) {
+          final hour = mission!.scheduleHour!.toString().padLeft(2, '0');
+          final minute = (mission!.scheduleMinute ?? 0).toString().padLeft(2, '0');
+          return '$hour:$minute';
+        }
+        if (mission?.isRecurring == true) {
+          return mission!.effectiveScheduleLabel;
+        }
+        return 'Kein Zeitplan';
+  }
+
+  String _buildProgressSubtitle() {
+        if (isActive || isPaused) {
+          if (status.mowDistanceM != null) {
+            return '${status.mowDistanceM!.toStringAsFixed(0)} m gemäht';
+          }
+          return mission?.name ?? 'Mähvorgang läuft';
+        }
+        if (mission?.scheduleHour != null) {
+          return mission?.effectiveScheduleLabel ?? 'Wiederkehrender Start';
+        }
+        if (mission == null) {
+          return 'Bitte zuerst eine Mission wählen';
+        }
+        return 'Direktlink zum Zeitplan';
+  }
+
+  Widget? _buildProgressTrailing(BuildContext context) {
+        if (!_shouldShowSchedulerLink()) {
+          return null;
+        }
+        return Text(
+          'Zeitplan',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF16A34A),
+                fontWeight: FontWeight.w700,
+              ),
+        );
+  }
+
+  bool _shouldShowSchedulerLink() {
+    return !isActive && !isPaused && (mission == null || mission?.scheduleHour == null);
+  }
+
+  bool _shouldShowWholeMapAction() {
+    return !isActive &&
+        !isPaused &&
+        isConnected &&
+        !isBusy &&
+        stateKind != _DashboardStateKind.noRobot &&
+        stateKind != _DashboardStateKind.offline &&
+        stateKind != _DashboardStateKind.fault &&
+        stateKind != _DashboardStateKind.noMap;
+  }
+
+  bool _isStopAction() {
+    return isActive && stateKind != _DashboardStateKind.paused;
+  }
+
+  String _buildPrimaryLabel() {
+    if (_isStopAction()) {
+      return 'Stop';
+    }
+    return switch (stateKind) {
+      _DashboardStateKind.noRobot => 'Verbinden',
+      _DashboardStateKind.offline => 'Neu verbinden',
+      _DashboardStateKind.fault => 'Service',
+      _DashboardStateKind.paused => mission == null ? 'Mission öffnen' : 'Fortsetzen',
+      _DashboardStateKind.noMap => 'Karte anlegen',
+      _DashboardStateKind.noZones => 'Zonen anlegen',
+      _DashboardStateKind.noSchedule => mission == null ? 'Mission anlegen' : 'Start',
+      _DashboardStateKind.ready => mission == null ? 'Mission öffnen' : 'Start',
+    };
+  }
+
+  bool _isPrimaryEnabled() {
+    if (_isStopAction()) {
+      return isConnected && !isBusy;
+    }
+    return isConnected && !isBusy ||
+        stateKind == _DashboardStateKind.noRobot ||
+        stateKind == _DashboardStateKind.offline ||
+        stateKind == _DashboardStateKind.fault ||
+        stateKind == _DashboardStateKind.noMap;
+  }
+}
+
+
+    class _PanelMetricCard extends StatelessWidget {
+      const _PanelMetricCard({
+        required this.title,
+        required this.value,
+        required this.subtitle,
+        required this.onTap,
+        this.trailing,
+      });
+
+      final String title;
+      final String value;
+      final String subtitle;
+      final VoidCallback onTap;
+      final Widget? trailing;
+
+      @override
+      Widget build(BuildContext context) {
+        return Material(
+          color: const Color(0xFFF8FAFC),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: const Color(0xFF64748B),
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: const Color(0xFF0F172A),
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF475569),
+                              ),
+                        ),
+                      ),
+                      if (trailing != null) ...<Widget>[
+                        const SizedBox(width: 8),
+                        trailing!,
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+    }
+class _StepBadge extends StatelessWidget {
+  const _StepBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x1F0F172A),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x33475569)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: const Color(0xFFE2E8F0),
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+    );
+  }
+}
+
+class _MiniInfoCard extends StatelessWidget {
+  const _MiniInfoCard({
+    required this.title,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF111A2C),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                title,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: const Color(0xFF93C5FD),
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoBadge extends StatelessWidget {
+  const _InfoBadge({
+    required this.label,
+    required this.icon,
+  });
+
+  final String label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111A2C),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 16, color: const Color(0xFF4ADE80)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _MissionFocusCard extends StatelessWidget {
   const _MissionFocusCard({
@@ -973,21 +2351,51 @@ class _ReadyPanel extends StatelessWidget {
       _DashboardStateKind.noRobot => 'Roboter zuerst verbinden',
       _DashboardStateKind.offline => 'Roboter ist nicht verbunden',
       _DashboardStateKind.fault => 'Fehler braucht Aufmerksamkeit',
-      _DashboardStateKind.paused => 'Maehvorgang ist pausiert',
-      _DashboardStateKind.noMap => 'Kartensetup abschliessen',
+      _DashboardStateKind.paused => 'Mähvorgang ist pausiert',
+      _DashboardStateKind.noMap => 'Es ist noch keine Karte angelegt.',
       _DashboardStateKind.noZones => 'Zonen fehlen noch',
       _DashboardStateKind.noSchedule => 'Automatik ist noch nicht geplant',
-      _DashboardStateKind.ready => 'Bereit fuer den naechsten Einsatz',
+      _DashboardStateKind.ready => 'Bereit für den nächsten Einsatz',
     };
     final subtitle = switch (stateKind) {
-      _DashboardStateKind.noRobot => 'Starte mit Discovery oder gib Alfred manuell an, damit Dashboard und Karte lebendig werden.',
+      _DashboardStateKind.noRobot => 'Starte mit Robotersuche oder gib Alfred manuell an, damit Dashboard und Karte lebendig werden.',
       _DashboardStateKind.offline => 'Verbinde dich erneut mit Alfred, bevor du Karte oder Mission steuerst.',
-      _DashboardStateKind.fault => status.lastError ?? 'Ein Fehler blockiert den normalen Betrieb. Pruefe Status und Service.',
+      _DashboardStateKind.fault => status.lastError ?? 'Ein Fehler blockiert den normalen Betrieb. Prüfe Status und Service.',
       _DashboardStateKind.paused => 'Der aktuelle Lauf steht still. Du kannst fortsetzen, stoppen oder Alfred zur Station schicken.',
-      _DashboardStateKind.noMap => 'Perimeter und Dock sind die Basis fuer jede saubere Route.',
-      _DashboardStateKind.noZones => 'Die Basiskarte ist da. Jetzt fehlen noch Mähzonen fuer Planung und Betrieb.',
-      _DashboardStateKind.noSchedule => 'Manueller Start ist moeglich. Fuer Automatik fehlt noch mindestens ein wiederkehrender Zeitplan.',
-      _DashboardStateKind.ready => 'Karte, Zonen und Planung sind vorhanden. Du kannst direkt starten oder Details oeffnen.',
+      _DashboardStateKind.noMap => 'Bitte zuerst Perimeter, No-Go-Bereiche und Docking festlegen.',
+      _DashboardStateKind.noZones => 'Die Basiskarte ist da. Jetzt fehlen noch Mähzonen für Planung und Betrieb.',
+      _DashboardStateKind.noSchedule => 'Manueller Start ist möglich. Für Automatik fehlt noch mindestens ein wiederkehrender Zeitplan.',
+      _DashboardStateKind.ready => 'Karte, Zonen und Planung sind vorhanden. Du kannst direkt starten oder Details öffnen.',
+    };
+    final primaryAction = switch (stateKind) {
+      _DashboardStateKind.noRobot => onReconnect,
+      _DashboardStateKind.offline => onReconnect,
+      _DashboardStateKind.fault => onGoService,
+      _DashboardStateKind.paused => onResume ?? onGoMissions,
+      _DashboardStateKind.noMap => onGoMapSetup,
+      _DashboardStateKind.noZones => onGoMapEdit,
+      _DashboardStateKind.noSchedule => onGoMissions,
+      _DashboardStateKind.ready => onGoMissions,
+    };
+    final primaryIcon = switch (stateKind) {
+      _DashboardStateKind.noRobot => Icons.add_link_rounded,
+      _DashboardStateKind.offline => Icons.wifi_find_rounded,
+      _DashboardStateKind.fault => Icons.miscellaneous_services_outlined,
+      _DashboardStateKind.paused => Icons.play_circle_outline_rounded,
+      _DashboardStateKind.noMap => Icons.map_outlined,
+      _DashboardStateKind.noZones => Icons.edit_location_alt_outlined,
+      _DashboardStateKind.noSchedule => Icons.schedule_outlined,
+      _DashboardStateKind.ready => Icons.route_outlined,
+    };
+    final primaryLabel = switch (stateKind) {
+      _DashboardStateKind.noRobot => 'Roboter verbinden',
+      _DashboardStateKind.offline => 'Neu verbinden',
+      _DashboardStateKind.fault => 'Service öffnen',
+      _DashboardStateKind.paused => onResume == null ? 'Mission öffnen' : 'Fortsetzen',
+      _DashboardStateKind.noMap => 'Karte anlegen',
+      _DashboardStateKind.noZones => 'Zonen anlegen',
+      _DashboardStateKind.noSchedule => 'Zeitplan anlegen',
+      _DashboardStateKind.ready => 'Mission öffnen',
     };
 
     return Container(
@@ -1022,7 +2430,7 @@ class _ReadyPanel extends StatelessWidget {
               const SizedBox(width: 8),
               _CheckItem(
                 done: hasDock,
-                label: 'Dock',
+                label: 'Docking',
                 onFix: hasDock ? null : onGoMapSetup,
               ),
               const SizedBox(width: 8),
@@ -1049,71 +2457,9 @@ class _ReadyPanel extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: FilledButton.tonalIcon(
-                  onPressed: switch (stateKind) {
-                    _DashboardStateKind.noRobot => onReconnect,
-                    _DashboardStateKind.offline => onReconnect,
-                    _DashboardStateKind.fault => onGoStatistics,
-                    _DashboardStateKind.paused => onResume ?? onGoStatistics,
-                    _DashboardStateKind.noMap => onGoMapSetup,
-                    _DashboardStateKind.noZones => onGoMapEdit,
-                    _DashboardStateKind.noSchedule => onGoMissions,
-                    _DashboardStateKind.ready => onGoMapEdit,
-                  },
-                  icon: Icon(switch (stateKind) {
-                    _DashboardStateKind.noRobot => Icons.add_link_rounded,
-                    _DashboardStateKind.offline => Icons.wifi_find_rounded,
-                    _DashboardStateKind.fault => Icons.warning_amber_rounded,
-                    _DashboardStateKind.paused => Icons.play_circle_outline_rounded,
-                    _DashboardStateKind.noMap => Icons.map_outlined,
-                    _DashboardStateKind.noZones => Icons.edit_location_alt_outlined,
-                    _DashboardStateKind.noSchedule => Icons.schedule_outlined,
-                    _DashboardStateKind.ready => Icons.map_outlined,
-                  }),
-                  label: Text(switch (stateKind) {
-                    _DashboardStateKind.noRobot => 'Roboter verbinden',
-                    _DashboardStateKind.offline => 'Neu verbinden',
-                    _DashboardStateKind.fault => 'Fehler pruefen',
-                    _DashboardStateKind.paused => onResume == null ? 'Verlauf ansehen' : 'Fortsetzen',
-                    _DashboardStateKind.noMap => 'Karte anlegen',
-                    _DashboardStateKind.noZones => 'Zonen anlegen',
-                    _DashboardStateKind.noSchedule => 'Zeitplan anlegen',
-                    _DashboardStateKind.ready => 'Karte pruefen',
-                  }),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: switch (stateKind) {
-                    _DashboardStateKind.noRobot => onReconnect,
-                    _DashboardStateKind.offline => onGoStatistics,
-                    _DashboardStateKind.fault => onGoService,
-                    _DashboardStateKind.paused => onGoMissions,
-                    _DashboardStateKind.noMap => onGoMissions,
-                    _DashboardStateKind.noZones => onGoMissions,
-                    _DashboardStateKind.noSchedule => onGoMissions,
-                    _DashboardStateKind.ready => onGoMissions,
-                  },
-                  icon: Icon(switch (stateKind) {
-                    _DashboardStateKind.noRobot => Icons.radar_rounded,
-                    _DashboardStateKind.offline => Icons.route_outlined,
-                    _DashboardStateKind.fault => Icons.miscellaneous_services_outlined,
-                    _DashboardStateKind.paused => Icons.route_outlined,
-                    _DashboardStateKind.noMap => Icons.route_outlined,
-                    _DashboardStateKind.noZones => Icons.route_outlined,
-                    _DashboardStateKind.noSchedule => Icons.route_outlined,
-                    _DashboardStateKind.ready => Icons.route_outlined,
-                  }),
-                  label: Text(switch (stateKind) {
-                    _DashboardStateKind.noRobot => 'Discovery öffnen',
-                    _DashboardStateKind.offline => 'Status',
-                    _DashboardStateKind.fault => 'Service öffnen',
-                    _DashboardStateKind.paused => 'Planung oeffnen',
-                    _DashboardStateKind.noMap => 'Planung oeffnen',
-                    _DashboardStateKind.noZones => 'Planung oeffnen',
-                    _DashboardStateKind.noSchedule => 'Planung oeffnen',
-                    _DashboardStateKind.ready => 'Planung oeffnen',
-                  }),
+                  onPressed: primaryAction,
+                  icon: Icon(primaryIcon),
+                  label: Text(primaryLabel),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1274,210 +2620,305 @@ class _QuickActionTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Bottom action bar
-// ---------------------------------------------------------------------------
-
-class _BottomActionBar extends StatelessWidget {
-  const _BottomActionBar({
-    required this.isConnected,
-    required this.busy,
-    required this.missionName,
-    required this.isActive,
-    required this.isPaused,
-    required this.onMow,
-    required this.onStop,
-    required this.onDock,
-  });
-
-  final bool isConnected;
-  final bool busy;
-  final String? missionName;
-  final bool isActive;
-  final bool isPaused;
-  final VoidCallback? onMow;
-  final VoidCallback onStop;
-  final VoidCallback onDock;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return SafeArea(
-      top: false,
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.cardColor,
-          border: Border(top: BorderSide(color: theme.dividerColor)),
-        ),
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        child: Row(
-          children: <Widget>[
-            if (!isActive)
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: isConnected && !busy ? onMow : null,
-                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                  label: Text(
-                    missionName == null
-                        ? 'Keine Mission'
-                        : isPaused
-                            ? 'Fortsetzen'
-                            : 'Mähen',
-                  ),
-                  style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10)),
-                ),
-              ),
-            if (!isActive) const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: isConnected && !busy ? onStop : null,
-                icon: const Icon(Icons.stop_rounded, size: 18),
-                label: const Text('Stop'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFB91C1C),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFF7F1D1D),
-                  disabledForegroundColor: const Color(0xFF9CA3AF),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: isConnected && !busy ? onDock : null,
-                icon: const Icon(Icons.home_rounded, size: 18),
-                label: const Text('Dock'),
-                style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Virtual joystick overlay
 // ---------------------------------------------------------------------------
 
-class _JoystickOverlay extends StatefulWidget {
-  const _JoystickOverlay({required this.onDrive, required this.onClose});
-  final void Function(double vx, double vy) onDrive;
+class _ManualDriveMode extends StatefulWidget {
+  const _ManualDriveMode({
+    required this.status,
+    required this.onDriveChanged,
+    required this.onClose,
+    required this.onEmergencyStop,
+  });
+
+  final RobotStatus status;
+  final void Function(double linear, double angular) onDriveChanged;
   final VoidCallback onClose;
+  final VoidCallback? onEmergencyStop;
 
   @override
-  State<_JoystickOverlay> createState() => _JoystickOverlayState();
+  State<_ManualDriveMode> createState() => _ManualDriveModeState();
 }
 
-class _JoystickOverlayState extends State<_JoystickOverlay> {
-  static const double _joystickRadius = 80.0;
-  static const double _thumbRadius = 24.0;
+class _ManualDriveModeState extends State<_ManualDriveMode> {
   static const Duration _sendInterval = Duration(milliseconds: 80);
 
-  Offset _thumbOffset = Offset.zero;
+  double _linear = 0;
+  double _angular = 0;
   Timer? _sendTimer;
 
   @override
   void dispose() {
     _sendTimer?.cancel();
+    widget.onDriveChanged(0, 0);
     super.dispose();
   }
 
-  void _onPanStart(DragStartDetails d) {
-    _updateThumb(d.localPosition);
-    _sendTimer ??= Timer.periodic(_sendInterval, (_) => _emitCurrent());
+  void _updateLinear(double value) {
+    setState(() => _linear = value);
+    _syncDriveLoop();
+    widget.onDriveChanged(_linear, _angular);
   }
 
-  void _onPanUpdate(DragUpdateDetails d) => _updateThumb(d.localPosition);
+  void _updateAngular(double value) {
+    setState(() => _angular = value);
+    _syncDriveLoop();
+    widget.onDriveChanged(_linear, _angular);
+  }
 
-  void _onPanEnd(DragEndDetails d) {
+  void _syncDriveLoop() {
+    final active = _linear.abs() > 0.001 || _angular.abs() > 0.001;
+    if (active) {
+      _sendTimer ??= Timer.periodic(_sendInterval, (_) {
+        widget.onDriveChanged(_linear, _angular);
+      });
+      return;
+    }
     _sendTimer?.cancel();
     _sendTimer = null;
-    setState(() => _thumbOffset = Offset.zero);
-    widget.onDrive(0, 0);
-  }
-
-  void _emitCurrent() {
-    final vx = (_thumbOffset.dx / _joystickRadius).clamp(-1.0, 1.0);
-    final vy = (-_thumbOffset.dy / _joystickRadius).clamp(-1.0, 1.0);
-    widget.onDrive(vx, vy);
-  }
-
-  void _updateThumb(Offset local) {
-    const center = Offset(_joystickRadius, _joystickRadius);
-    final delta = local - center;
-    final dist = delta.distance;
-    final clamped =
-        dist <= _joystickRadius ? delta : delta / dist * _joystickRadius;
-    setState(() => _thumbOffset = clamped);
-    _emitCurrent();
   }
 
   @override
   Widget build(BuildContext context) {
-    const diameter = _joystickRadius * 2;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+
     return Container(
-      color: const Color(0xCC000000),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            Color(0x8809111F),
+            Color(0x2209111F),
+            Color(0x6609111F),
+          ],
+        ),
+      ),
       child: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32),
-              child: Column(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+          child: Column(
+            children: <Widget>[
+              Row(
                 children: <Widget>[
-                  const Text('Steuerkreuz',
-                      style: TextStyle(
-                          color: Color(0xFFCBD5E1),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 20),
-                  GestureDetector(
-                    onPanStart: _onPanStart,
-                    onPanUpdate: _onPanUpdate,
-                    onPanEnd: _onPanEnd,
-                    child: SizedBox(
-                      width: diameter,
-                      height: diameter,
-                      child: CustomPaint(
-                        painter: _JoystickPainter(
-                          thumbOffset: _thumbOffset,
-                          joystickRadius: _joystickRadius,
-                          thumbRadius: _thumbRadius,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xC20F172A),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: const Color(0x33FFFFFF)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.gamepad_rounded,
+                            size: 16, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Manueller Modus',
+                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  TextButton.icon(
+                  const Spacer(),
+                  if (widget.onEmergencyStop != null)
+                    FilledButton.icon(
+                      onPressed: widget.onEmergencyStop,
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFDC2626),
+                        foregroundColor: Colors.white,
+                      ),
+                      label: const Text('Not-Aus'),
+                    ),
+                  const SizedBox(width: 12),
+                  IconButton.filledTonal(
+                    tooltip: 'Manuellen Modus verlassen',
                     onPressed: widget.onClose,
-                    icon: const Icon(Icons.close_rounded,
-                        color: Color(0xFF94A3B8)),
-                    label: const Text('Schliessen',
-                        style: TextStyle(color: Color(0xFF94A3B8))),
+                    icon: const Icon(Icons.close_rounded),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              if (!isLandscape)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xC20F172A),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0x33FFFFFF)),
+                  ),
+                  child: Text(
+                    'Bitte Gerät ins Querformat drehen.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              const Spacer(),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Expanded(
+                    child: _AxisJoystick(
+                      title: 'Lenkung',
+                      subtitle: 'Links / Rechts',
+                      axis: _JoystickAxis.horizontal,
+                      accentColor: const Color(0xFF38BDF8),
+                      onChanged: (value) => _updateAngular(-value),
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: _AxisJoystick(
+                      title: 'Fahrt',
+                      subtitle: 'Vor / Zurück',
+                      axis: _JoystickAxis.vertical,
+                      accentColor: const Color(0xFF22C55E),
+                      onChanged: _updateLinear,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Links lenken, rechts fahren.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFFE2E8F0),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+enum _JoystickAxis { horizontal, vertical }
+
+class _AxisJoystick extends StatefulWidget {
+  const _AxisJoystick({
+    required this.title,
+    required this.subtitle,
+    required this.axis,
+    required this.accentColor,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final _JoystickAxis axis;
+  final Color accentColor;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_AxisJoystick> createState() => _AxisJoystickState();
+}
+
+class _AxisJoystickState extends State<_AxisJoystick> {
+  static const double _joystickRadius = 72.0;
+  static const double _thumbRadius = 22.0;
+
+  Offset _thumbOffset = Offset.zero;
+
+  void _onPanStart(DragStartDetails details) => _updateThumb(details.localPosition);
+
+  void _onPanUpdate(DragUpdateDetails details) => _updateThumb(details.localPosition);
+
+  void _onPanEnd(DragEndDetails details) {
+    setState(() => _thumbOffset = Offset.zero);
+    widget.onChanged(0);
+  }
+
+  void _updateThumb(Offset localPosition) {
+    const center = Offset(_joystickRadius, _joystickRadius);
+    final delta = localPosition - center;
+    final constrained = switch (widget.axis) {
+      _JoystickAxis.horizontal => Offset(
+          delta.dx.clamp(-_joystickRadius, _joystickRadius),
+          0,
+        ),
+      _JoystickAxis.vertical => Offset(
+          0,
+          delta.dy.clamp(-_joystickRadius, _joystickRadius),
+        ),
+    };
+    setState(() => _thumbOffset = constrained);
+    final normalized = switch (widget.axis) {
+      _JoystickAxis.horizontal =>
+        (constrained.dx / _joystickRadius).clamp(-1.0, 1.0),
+      _JoystickAxis.vertical =>
+        (-constrained.dy / _joystickRadius).clamp(-1.0, 1.0),
+    };
+    widget.onChanged(normalized);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const diameter = _joystickRadius * 2;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          widget.title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          widget.subtitle,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFFCBD5E1),
+              ),
+        ),
+        const SizedBox(height: 16),
+        GestureDetector(
+          onPanStart: _onPanStart,
+          onPanUpdate: _onPanUpdate,
+          onPanEnd: _onPanEnd,
+          child: SizedBox(
+            width: diameter,
+            height: diameter,
+            child: CustomPaint(
+              painter: _JoystickPainter(
+                thumbOffset: _thumbOffset,
+                joystickRadius: _joystickRadius,
+                thumbRadius: _thumbRadius,
+                accentColor: widget.accentColor,
+                axis: widget.axis,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _JoystickPainter extends CustomPainter {
-  const _JoystickPainter(
-      {required this.thumbOffset,
-      required this.joystickRadius,
-      required this.thumbRadius});
+  const _JoystickPainter({
+    required this.thumbOffset,
+    required this.joystickRadius,
+    required this.thumbRadius,
+    required this.accentColor,
+    required this.axis,
+  });
 
   final Offset thumbOffset;
   final double joystickRadius;
   final double thumbRadius;
+  final Color accentColor;
+  final _JoystickAxis axis;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1486,35 +2927,37 @@ class _JoystickPainter extends CustomPainter {
         center,
         joystickRadius,
         Paint()
-          ..color = const Color(0x441E40AF)
+          ..color = accentColor.withValues(alpha: 0.16)
           ..style = PaintingStyle.fill);
     canvas.drawCircle(
         center,
         joystickRadius,
         Paint()
-          ..color = const Color(0xFF3B82F6)
+          ..color = accentColor
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2);
-    canvas.drawCircle(center, 6, Paint()..color = const Color(0x664ADE80));
+    canvas.drawCircle(center, 6, Paint()..color = accentColor.withValues(alpha: 0.4));
     final lp = Paint()
-      ..color = const Color(0x443B82F6)
+      ..color = accentColor.withValues(alpha: 0.3)
       ..strokeWidth = 1;
-    canvas.drawLine(Offset(center.dx - joystickRadius, center.dy),
-        Offset(center.dx + joystickRadius, center.dy), lp);
-    canvas.drawLine(Offset(center.dx, center.dy - joystickRadius),
-        Offset(center.dx, center.dy + joystickRadius), lp);
+    if (axis == _JoystickAxis.horizontal) {
+      canvas.drawLine(Offset(center.dx - joystickRadius, center.dy),
+          Offset(center.dx + joystickRadius, center.dy), lp);
+    } else {
+      canvas.drawLine(Offset(center.dx, center.dy - joystickRadius),
+          Offset(center.dx, center.dy + joystickRadius), lp);
+    }
     final tc = center + thumbOffset;
-    canvas.drawCircle(
-        tc, thumbRadius, Paint()..color = const Color(0xFF2563EB));
+    canvas.drawCircle(tc, thumbRadius, Paint()..color = accentColor);
     canvas.drawCircle(
         tc,
         thumbRadius,
         Paint()
-          ..color = const Color(0xFF93C5FD)
+          ..color = Colors.white.withValues(alpha: 0.7)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2);
     canvas.drawCircle(
-        tc, thumbRadius * 0.35, Paint()..color = const Color(0xAABAE6FD));
+        tc, thumbRadius * 0.35, Paint()..color = Colors.white.withValues(alpha: 0.7));
   }
 
   @override

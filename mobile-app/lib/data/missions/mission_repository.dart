@@ -73,6 +73,13 @@ class MissionRepository {
       name: raw['name'] as String? ?? 'Mission',
       zoneIds: zoneIds,
       zoneNames: zoneNames,
+      scheduleDays: (raw['scheduleDays'] as List<dynamic>? ?? const <dynamic>[]).length == 7
+          ? (raw['scheduleDays'] as List<dynamic>).map((entry) => entry == true).toList(growable: false)
+          : const <bool>[false, false, false, false, false, false, false],
+      scheduleHour: raw['scheduleHour'] as int?,
+      scheduleMinute: raw['scheduleMinute'] as int?,
+      scheduleEndHour: raw['scheduleEndHour'] as int?,
+      scheduleEndMinute: raw['scheduleEndMinute'] as int?,
       scheduleLabel: scheduleLabel,
       isRecurring: raw['isRecurring'] as bool? ?? false,
       onlyWhenDry: raw['onlyWhenDry'] as bool? ?? true,
