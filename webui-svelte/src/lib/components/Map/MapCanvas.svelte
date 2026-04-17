@@ -4,6 +4,7 @@
   import { telemetry } from "../../stores/telemetry";
   import type { AddPointResult, Point } from "../../stores/map";
   import { mapStore } from "../../stores/map";
+  import { mapGpsOrigin } from "../../stores/mapGpsOrigin";
   import {
     getActivePlan,
     getLiveOverlay,
@@ -865,6 +866,103 @@
     hasAutoFit = true;
   }
 
+  // OSM tile background — shown instead of the grid when a GPS-origin map is active.
+  // Tile positions are computed in the same equirectangular projection used by
+  // normalizeMapDocument() in Map.svelte so tiles align with map geometry.
+  interface OsmTile { key: string; url: string; sx: number; sy: number; sw: number; sh: number; }
+
+  function computeOsmTiles(
+    origin: { lat: number; lon: number } | null,
+    scale: number,
+    xOff: number,
+    yOff: number,
+    w: number,
+    h: number,
+  ): OsmTile[] {
+    if (!origin) return [];
+    const EARTH_R = 6378137.0;
+    const toRad = Math.PI / 180;
+    const cosLat = Math.cos(origin.lat * toRad);
+
+    // Pick a zoom level where one tile covers roughly 256–512 px.
+    // One degree longitude ≈ cosLat * EARTH_R * toRad metres projected.
+    // At OSM zoom z, one tile = 360/2^z degrees longitude.
+    // We want tilePxWidth ≈ 256, so: (360/2^z) * cosLat * EARTH_R * toRad * scale ≈ 256
+    const degPerTileTarget = 256 / (cosLat * EARTH_R * toRad * scale);
+    const rawZ = Math.log2(360 / degPerTileTarget);
+    const z = Math.max(1, Math.min(19, Math.round(rawZ)));
+
+    function lonToTileX(lon: number) { return (lon + 180) / 360 * Math.pow(2, z); }
+    function latToTileY(lat: number) {
+      const sinLat = Math.sin(lat * toRad);
+      return (1 - Math.log((1 + sinLat) / (1 - sinLat)) / (2 * Math.PI)) / 2 * Math.pow(2, z);
+    }
+
+    // Tile fractional indices for the origin point (maps to screen centre + offset)
+    const originTX = lonToTileX(origin.lon);
+    const originTY = latToTileY(origin.lat);
+
+    // Tile size in projected metres
+    const tileDegLon = 360 / Math.pow(2, z);
+    // Use Web Mercator latitude span for the tile row containing the origin
+    const tileRowLat0 = origin.lat + (0.5 - (originTY % 1)) * (tileDegLon / cosLat);
+    const tileMetresX = tileDegLon * cosLat * EARTH_R * toRad;
+    // Approximate: use same scale for y
+    const tileDegLat = tileDegLon / cosLat;
+    const tileMetresY = tileDegLat * EARTH_R * toRad;
+
+    // Origin projected world coords = (0,0) — origin was set as reference point
+    // Screen position of origin:
+    const originSX = w / 2 + xOff;
+    const originSY = h / 2 + yOff;
+    // Tile size in screen pixels
+    const tilePxW = tileMetresX * scale;
+    const tilePxH = tileMetresY * scale;
+
+    // Tile grid indices of origin
+    const originTXi = Math.floor(originTX);
+    const originTYi = Math.floor(originTY);
+    // Sub-tile offset of origin (fraction within its tile)
+    const fracX = originTX - originTXi;
+    const fracY = originTY - originTYi;
+
+    // Screen position of top-left of origin tile
+    const originTileLeft = originSX - fracX * tilePxW;
+    const originTileTop = originSY - fracY * tilePxH;
+
+    const margin = 1;
+    const tilesX = Math.ceil(w / tilePxW) + margin * 2;
+    const tilesY = Math.ceil(h / tilePxH) + margin * 2;
+
+    const startIX = -Math.ceil((originSX - 0) / tilePxW) - margin;
+    const startIY = -Math.ceil((originSY - 0) / tilePxH) - margin;
+
+    const tiles: OsmTile[] = [];
+    for (let dy = startIY; dy < startIY + tilesY + 2; dy++) {
+      for (let dx = startIX; dx < startIX + tilesX + 2; dx++) {
+        const tx = originTXi + dx;
+        const ty = originTYi + dy;
+        const nTiles = Math.pow(2, z);
+        const txw = ((tx % nTiles) + nTiles) % nTiles;
+        if (ty < 0 || ty >= nTiles) continue;
+        const sx = originTileLeft + dx * tilePxW;
+        const sy = originTileTop + dy * tilePxH;
+        if (sx + tilePxW < 0 || sx > w || sy + tilePxH < 0 || sy > h) continue;
+        tiles.push({
+          key: `${z}/${txw}/${ty}`,
+          url: `https://tile.openstreetmap.org/${z}/${txw}/${ty}.png`,
+          sx,
+          sy,
+          sw: tilePxW,
+          sh: tilePxH,
+        });
+      }
+    }
+    return tiles;
+  }
+
+  $: osmTiles = computeOsmTiles($mapGpsOrigin, currentScale, offsetX, offsetY, width, height);
+
   onDestroy(() => {
     dragTarget = null;
     isPanning = false;
@@ -944,23 +1042,37 @@
         </pattern>
       </defs>
 
-      <rect x="0" y="0" {width} {height} fill="url(#grid)" />
-      <line
-        x1="0"
-        y1={height / 2}
-        x2={width}
-        y2={height / 2}
-        stroke="rgba(148,163,184,0.18)"
-        stroke-width="1"
-      />
-      <line
-        x1={width / 2}
-        y1="0"
-        x2={width / 2}
-        y2={height}
-        stroke="rgba(148,163,184,0.18)"
-        stroke-width="1"
-      />
+      {#if $mapGpsOrigin}
+        <rect x="0" y="0" {width} {height} fill="#e8e0d8" />
+        {#each osmTiles as tile (tile.key)}
+          <image
+            href={tile.url}
+            x={tile.sx}
+            y={tile.sy}
+            width={tile.sw}
+            height={tile.sh}
+            preserveAspectRatio="none"
+          />
+        {/each}
+      {:else}
+        <rect x="0" y="0" {width} {height} fill="url(#grid)" />
+        <line
+          x1="0"
+          y1={height / 2}
+          x2={width}
+          y2={height / 2}
+          stroke="rgba(148,163,184,0.18)"
+          stroke-width="1"
+        />
+        <line
+          x1={width / 2}
+          y1="0"
+          x2={width / 2}
+          y2={height}
+          stroke="rgba(148,163,184,0.18)"
+          stroke-width="1"
+        />
+      {/if}
 
       {#if $mapStore.map.perimeter.length === 2}
         <polyline

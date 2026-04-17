@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import PageLayout from "../components/PageLayout.svelte";
   import MapCanvas from "../components/Map/MapCanvas.svelte";
+  import { mapGpsOrigin } from "../stores/mapGpsOrigin";
   import BottomPanel from "../components/Dashboard/BottomPanel.svelte";
   import {
     activateStoredMap,
@@ -114,7 +115,9 @@
     // to local metres using an equirectangular projection centred at the
     // perimeter centroid.  Without this the rendering pipeline (which expects
     // metres) would display a ~0.001° garden as a sub-pixel dot.
+    // The GPS origin is also stored so MapCanvas can render OSM tile background.
     let projectPoints = (pts: Point[]): Point[] => pts;
+    mapGpsOrigin.set(null);
     if (perimeter.length >= 3) {
       let sumX = 0;
       let sumY = 0;
@@ -147,6 +150,7 @@
         const cosLat = Math.cos(avgY * toRad);
         const refLon = avgX;
         const refLat = avgY;
+        mapGpsOrigin.set({ lat: refLat, lon: refLon });
         projectPoints = (pts: Point[]): Point[] =>
           pts.map((p) => ({
             x: (p.x - refLon) * cosLat * EARTH_R * toRad,
