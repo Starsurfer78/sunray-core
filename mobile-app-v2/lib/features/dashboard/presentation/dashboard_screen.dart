@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_controller.dart';
+import '../../../domain/robot/robot_status.dart';
 import '../../../shared/widgets/robot_map_view.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -104,8 +105,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 bottom: 0,
                 child: _DashboardActionModule(
                   view: view,
-                  weeklyAreaSquareMeters: controller.weeklyAreaSquareMeters,
+                  mapAreaSquareMeters: controller.mapAreaSquareMeters,
                   batteryPercent: controller.batteryPercent,
+                  gpsLabel:
+                      controller.connectionStatus.rtkState ?? 'GPS unbekannt',
+                  isConnected:
+                      controller.connectionStatus.connectionState ==
+                      ConnectionStateKind.connected,
+                  isDocked:
+                      controller.connectionStatus.chargerConnected == true,
                   onPrimaryPressed: () {
                     if (!controller.hasMap) {
                       controller.beginMapCreation();
@@ -525,16 +533,22 @@ class _MissionTeaser extends StatelessWidget {
 class _DashboardActionModule extends StatelessWidget {
   const _DashboardActionModule({
     required this.view,
-    required this.weeklyAreaSquareMeters,
+    required this.mapAreaSquareMeters,
     required this.batteryPercent,
+    required this.gpsLabel,
+    required this.isConnected,
+    required this.isDocked,
     required this.onPrimaryPressed,
     required this.onSecondaryPressed,
     required this.onAntennaFinder,
   });
 
   final _DashboardViewData view;
-  final int weeklyAreaSquareMeters;
+  final int mapAreaSquareMeters;
   final int batteryPercent;
+  final String gpsLabel;
+  final bool isConnected;
+  final bool isDocked;
   final VoidCallback onPrimaryPressed;
   final VoidCallback? onSecondaryPressed;
   final VoidCallback onAntennaFinder;
@@ -568,8 +582,11 @@ class _DashboardActionModule extends StatelessWidget {
           ? _MappedActionContent(
               nextActionValue: view.nextActionValue,
               nextActionLabel: view.nextActionLabel,
-              weeklyAreaSquareMeters: weeklyAreaSquareMeters,
+              mapAreaSquareMeters: mapAreaSquareMeters,
               batteryPercent: batteryPercent,
+              gpsLabel: gpsLabel,
+              isConnected: isConnected,
+              isDocked: isDocked,
               primaryLabel: view.primaryLabel,
               secondaryLabel: view.secondaryLabel,
               onPrimaryPressed: onPrimaryPressed,
@@ -587,8 +604,11 @@ class _MappedActionContent extends StatelessWidget {
   const _MappedActionContent({
     required this.nextActionValue,
     required this.nextActionLabel,
-    required this.weeklyAreaSquareMeters,
+    required this.mapAreaSquareMeters,
     required this.batteryPercent,
+    required this.gpsLabel,
+    required this.isConnected,
+    required this.isDocked,
     required this.primaryLabel,
     required this.secondaryLabel,
     required this.onPrimaryPressed,
@@ -597,8 +617,11 @@ class _MappedActionContent extends StatelessWidget {
 
   final String nextActionValue;
   final String nextActionLabel;
-  final int weeklyAreaSquareMeters;
+  final int mapAreaSquareMeters;
   final int batteryPercent;
+  final String gpsLabel;
+  final bool isConnected;
+  final bool isDocked;
   final String primaryLabel;
   final String? secondaryLabel;
   final VoidCallback onPrimaryPressed;
@@ -612,22 +635,32 @@ class _MappedActionContent extends StatelessWidget {
       children: <Widget>[
         Row(
           children: <Widget>[
-            const Icon(
-              Icons.wifi_tethering_rounded,
+            Icon(
+              isConnected
+                  ? Icons.wifi_tethering_rounded
+                  : Icons.wifi_tethering_error_rounded,
               size: 16,
-              color: Color(0xFF6C6C70),
+              color: isConnected
+                  ? const Color(0xFF2F7D4A)
+                  : const Color(0xFFB91C1C),
             ),
             const SizedBox(width: 10),
-            const Icon(Icons.circle, size: 10, color: Color(0xFF3D8B5C)),
+            Text(
+              gpsLabel,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF1C1C1E),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(width: 10),
-            const Icon(
-              Icons.battery_5_bar_rounded,
+            Icon(
+              isDocked ? Icons.home_rounded : Icons.route_rounded,
               size: 18,
-              color: Color(0xFF6C6C70),
+              color: const Color(0xFF6C6C70),
             ),
             const SizedBox(width: 6),
             Text(
-              '$batteryPercent%',
+              isDocked ? 'Dock' : '$batteryPercent%',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: const Color(0xFF1C1C1E),
                 fontWeight: FontWeight.w800,
@@ -640,8 +673,8 @@ class _MappedActionContent extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: _StatBlock(
-                value: '$weeklyAreaSquareMeters m²',
-                label: 'Diese Woche',
+                value: '$mapAreaSquareMeters m²',
+                label: 'Kartenfläche',
               ),
             ),
             const SizedBox(width: 12),

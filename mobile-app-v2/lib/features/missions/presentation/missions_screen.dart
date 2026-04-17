@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_controller.dart';
-import '../../../shared/widgets/fake_map_canvas.dart';
+import '../../../shared/widgets/robot_map_view.dart';
 
 class MissionsScreen extends StatelessWidget {
   const MissionsScreen({super.key});
@@ -69,21 +69,23 @@ class MissionsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                itemCount: missions.length,
-                itemBuilder: (context, index) {
-                  final mission = missions[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _MissionListCard(
-                      mission: mission,
-                      onTap: () =>
-                          context.push('/missions/detail/${mission.id}'),
+              child: missions.isEmpty
+                  ? const _EmptyMissionState()
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      itemCount: missions.length,
+                      itemBuilder: (context, index) {
+                        final mission = missions[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _MissionListCard(
+                            mission: mission,
+                            onTap: () =>
+                                context.push('/missions/detail/${mission.id}'),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
@@ -99,29 +101,6 @@ class _MissionMapPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final zones = <FakeMapZoneOverlay>[
-      const FakeMapZoneOverlay(
-        id: 'zone-a',
-        label: 'Hinterer Garten',
-        coverageLabel: '253/512 m²',
-        lastRunLabel: 'In Mission',
-        left: 18,
-        top: 18,
-        popupLeft: 18,
-        popupTop: 58,
-      ),
-      const FakeMapZoneOverlay(
-        id: 'zone-b',
-        label: 'Seitengarten',
-        coverageLabel: '184/386 m²',
-        lastRunLabel: 'In Mission',
-        left: 188,
-        top: 116,
-        popupLeft: 116,
-        popupTop: 156,
-      ),
-    ].take(controller.zoneCount.clamp(0, 2)).toList();
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -137,39 +116,14 @@ class _MissionMapPreview extends StatelessWidget {
               borderRadius: BorderRadius.circular(22),
               child: AspectRatio(
                 aspectRatio: 1.48,
-                child: Stack(
-                  children: <Widget>[
-                    Positioned.fill(
-                      child: FakeMapCanvas(
-                        borderRadius: 0,
-                        showZoneLabel: zones.isNotEmpty,
-                        showNoGoLabel: controller.noGoCount > 0,
-                        showDockLabel: controller.hasMap,
-                        zones: zones,
-                      ),
-                    ),
-                    if (zones.isNotEmpty)
-                      const Positioned(
-                        left: 28,
-                        top: 66,
-                        child: _MapMissionHighlight(
-                          color: Color(0x663E8B57),
-                          width: 118,
-                          height: 76,
-                        ),
-                      ),
-                    if (zones.length > 1)
-                      const Positioned(
-                        left: 176,
-                        top: 112,
-                        child: _MapMissionHighlight(
-                          color: Color(0x667FBF4D),
-                          width: 118,
-                          height: 80,
-                        ),
-                      ),
-                  ],
-                ),
+                child: controller.hasMap
+                    ? RobotMapView(
+                        map: controller.mapGeometry,
+                        status: controller.connectionStatus,
+                        interactive: false,
+                        showCenterButton: false,
+                      )
+                    : const ColoredBox(color: Color(0xFFEFF2ED)),
               ),
             ),
             const SizedBox(height: 12),
@@ -177,23 +131,45 @@ class _MissionMapPreview extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: <Widget>[
-                const _LegendChip(
-                  color: Color(0xFF3E8B57),
-                  label: 'Aktive Mission',
-                ),
-                const _LegendChip(
-                  color: Color(0xFF7FBF4D),
-                  label: 'Zusätzliche Zone',
+                _LegendChip(
+                  color: const Color(0xFF2F7D4A),
+                  label: controller.hasMap
+                      ? '${controller.mapAreaSquareMeters} m² Kartenfläche'
+                      : 'Noch keine Karte',
                 ),
                 _LegendChip(
-                  color: const Color(0xFF8A8A90),
+                  color: const Color(0xFFC6463B),
+                  label: '${controller.noGoCount} No-Go',
+                ),
+                _LegendChip(
+                  color: const Color(0xFFF59E0B),
                   label: controller.hasZones
                       ? '${controller.zoneCount} Zonen verfügbar'
-                      : 'Noch keine Zonen',
+                      : 'Gesamte Fläche möglich',
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyMissionState extends StatelessWidget {
+  const _EmptyMissionState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Text(
+          'Noch keine Mission angelegt. Du kannst direkt eine Mission für die ganze Karte oder später gezielt für einzelne Zonen erstellen.',
+          textAlign: TextAlign.center,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF667267)),
         ),
       ),
     );
@@ -261,7 +237,7 @@ class _MissionListCard extends StatelessWidget {
                 runSpacing: 8,
                 children: mission.zones.isEmpty
                     ? const <Widget>[
-                        _MissionPill(label: 'Keine Zonen', accent: false),
+                        _MissionPill(label: 'Gesamte Karte', accent: false),
                       ]
                     : mission.zones
                           .map(
@@ -320,33 +296,6 @@ class _MissionListCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MapMissionHighlight extends StatelessWidget {
-  const _MapMissionHighlight({
-    required this.color,
-    required this.width,
-    required this.height,
-  });
-
-  final Color color;
-  final double width;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: color.withValues(alpha: 0.9), width: 1.5),
         ),
       ),
     );

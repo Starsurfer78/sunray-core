@@ -886,6 +886,12 @@ namespace sunray
                     if (!isAuthorized(req))
                         return crow::response(401, R"({"error":"unauthorized"})");
                     nlohmann::json mapJson;
+                    const std::string raw = mapPath_.empty() ? std::string() : readFile(mapPath_);
+                    if (!raw.empty())
+                    {
+                        mapJson = nlohmann::json::parse(raw, nullptr, false);
+                    }
+                    if (mapJson.is_discarded() || mapJson.is_null() || !mapJson.is_object())
                     {
                         std::lock_guard<std::mutex> lk(mapReloadMutex_);
                         if (mapGetCallback_)
@@ -893,15 +899,7 @@ namespace sunray
                             mapJson = mapGetCallback_();
                         }
                     }
-                    if (mapJson.is_null() || mapJson.empty())
-                    {
-                        const std::string raw = mapPath_.empty() ? std::string() : readFile(mapPath_);
-                        if (!raw.empty())
-                        {
-                            mapJson = nlohmann::json::parse(raw, nullptr, false);
-                        }
-                    }
-                    if (mapJson.is_discarded() || mapJson.is_null() || !mapJson.is_object())
+                    if (mapJson.is_null() || mapJson.is_discarded() || !mapJson.is_object())
                     {
                         mapJson = nlohmann::json::parse(kDefaultMapJson);
                     }

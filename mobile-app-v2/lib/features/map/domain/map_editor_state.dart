@@ -33,6 +33,7 @@ class MapEditorState {
     this.showNoGo = true,
     this.showZones = true,
     this.showDock = true,
+    this.showToolPanel = true,
   });
 
   final MapEditorMode mode;
@@ -45,6 +46,7 @@ class MapEditorState {
   final bool showNoGo;
   final bool showZones;
   final bool showDock;
+  final bool showToolPanel;
 
   bool get canEditPoints => mode == MapEditorMode.record || mode == MapEditorMode.edit;
 
@@ -59,6 +61,7 @@ class MapEditorState {
     bool? showNoGo,
     bool? showZones,
     bool? showDock,
+    bool? showToolPanel,
     bool clearActiveZone = false,
     bool clearActiveNoGo = false,
     bool clearSelectedPoint = false,
@@ -74,6 +77,7 @@ class MapEditorState {
       showNoGo: showNoGo ?? this.showNoGo,
       showZones: showZones ?? this.showZones,
       showDock: showDock ?? this.showDock,
+      showToolPanel: showToolPanel ?? this.showToolPanel,
     );
   }
 }

@@ -129,7 +129,7 @@ class _MissionDetailScreenState extends State<MissionDetailScreen> {
                     title: 'Zonen wählen',
                     child: availableZones.isEmpty
                         ? const Text(
-                            'In der Karte müssen zuerst Zonen vorhanden sein, bevor diese Mission Bereiche auswählen kann.',
+                            'Es sind noch keine Zonen vorhanden. Diese Mission kann die gesamte Karte mähen.',
                           )
                         : Wrap(
                             spacing: 8,
@@ -236,15 +236,15 @@ class _MissionDetailScreenState extends State<MissionDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          _selectedZones.isEmpty && availableZones.isNotEmpty
-                              ? 'Bitte mindestens eine Zone auswählen, bevor diese Mission gestartet werden kann.'
-                              : availableZones.isEmpty
-                              ? 'Ohne vorhandene Karten-Zonen bleibt diese Mission blockiert.'
+                          _selectedZones.isEmpty
+                              ? availableZones.isEmpty
+                                  ? 'Ohne Zonen startet diese Mission auf der gesamten Karte.'
+                                  : 'Ohne Auswahl läuft diese Mission auf der gesamten Karte. Du kannst optional einzelne Zonen begrenzen.'
                               : 'Diese Mission ist startbereit und kann Alfred sofort übernehmen.',
                         ),
                         const SizedBox(height: 16),
                         FilledButton(
-                          onPressed: _canStartMission(availableZones)
+                          onPressed: _canStartMission(controller.hasMap)
                               ? () {
                                   final updatedMission = mission.copyWith(
                                     name: _nameController.text.trim().isEmpty
@@ -270,6 +270,14 @@ class _MissionDetailScreenState extends State<MissionDetailScreen> {
                           ),
                           child: const Text('Mission starten'),
                         ),
+                        const SizedBox(height: 10),
+                        TextButton(
+                          onPressed: () {
+                            controller.deleteMission(mission.id);
+                            context.go('/missions');
+                          },
+                          child: const Text('Mission löschen'),
+                        ),
                       ],
                     ),
                   ),
@@ -289,11 +297,8 @@ class _MissionDetailScreenState extends State<MissionDetailScreen> {
     return List<String>.from(_selectedZones.reversed);
   }
 
-  bool _canStartMission(List<String> availableZones) {
-    if (availableZones.isEmpty) {
-      return false;
-    }
-    return _selectedZones.isNotEmpty;
+  bool _canStartMission(bool hasMap) {
+    return hasMap;
   }
 }
 
