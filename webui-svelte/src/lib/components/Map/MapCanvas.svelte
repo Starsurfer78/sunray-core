@@ -867,8 +867,9 @@
   }
 
   // OSM tile background — shown instead of the grid when a GPS-origin map is active.
-  // Tile positions are computed in the same equirectangular projection used by
-  // normalizeMapDocument() in Map.svelte so tiles align with map geometry.
+  // Each tile's screen position is derived from its exact GPS corners (inverse Web
+  // Mercator), then projected to local metres via the same equirectangular formula
+  // used by normalizeMapDocument().  This ensures tiles align with map geometry.
   interface OsmTile { key: string; url: string; sx: number; sy: number; sw: number; sh: number; }
 
   function computeOsmTiles(
@@ -884,77 +885,62 @@
     const toRad = Math.PI / 180;
     const cosLat = Math.cos(origin.lat * toRad);
 
-    // Pick a zoom level where one tile covers roughly 256–512 px.
-    // One degree longitude ≈ cosLat * EARTH_R * toRad metres projected.
-    // At OSM zoom z, one tile = 360/2^z degrees longitude.
-    // We want tilePxWidth ≈ 256, so: (360/2^z) * cosLat * EARTH_R * toRad * scale ≈ 256
-    const degPerTileTarget = 256 / (cosLat * EARTH_R * toRad * scale);
-    const rawZ = Math.log2(360 / degPerTileTarget);
-    const z = Math.max(1, Math.min(19, Math.round(rawZ)));
+    // Pick zoom so tiles are ~256 px wide at the current scale.
+    const lonPerTile256 = 256 / (cosLat * EARTH_R * toRad * scale);
+    const z = Math.max(1, Math.min(19, Math.round(Math.log2(360 / lonPerTile256))));
+    const nTiles = Math.pow(2, z);
 
-    function lonToTileX(lon: number) { return (lon + 180) / 360 * Math.pow(2, z); }
-    function latToTileY(lat: number) {
-      const sinLat = Math.sin(lat * toRad);
-      return (1 - Math.log((1 + sinLat) / (1 - sinLat)) / (2 * Math.PI)) / 2 * Math.pow(2, z);
+    // Inverse Web Mercator: tile index → GPS
+    function tileToLon(tx: number) { return tx / nTiles * 360 - 180; }
+    function tileToLat(ty: number) {
+      return Math.atan(Math.sinh(Math.PI - 2 * Math.PI * ty / nTiles)) / toRad;
     }
 
-    // Tile fractional indices for the origin point (maps to screen centre + offset)
-    const originTX = lonToTileX(origin.lon);
-    const originTY = latToTileY(origin.lat);
+    // Forward Web Mercator: GPS → tile index
+    function lonToTileX(lon: number) { return (lon + 180) / 360 * nTiles; }
+    function latToTileY(lat: number) {
+      const sinLat = Math.sin(lat * toRad);
+      return (1 - Math.log((1 + sinLat) / (1 - sinLat)) / (2 * Math.PI)) / 2 * nTiles;
+    }
 
-    // Tile size in projected metres
-    const tileDegLon = 360 / Math.pow(2, z);
-    // Use Web Mercator latitude span for the tile row containing the origin
-    const tileRowLat0 = origin.lat + (0.5 - (originTY % 1)) * (tileDegLon / cosLat);
-    const tileMetresX = tileDegLon * cosLat * EARTH_R * toRad;
-    // Approximate: use same scale for y
-    const tileDegLat = tileDegLon / cosLat;
-    const tileMetresY = tileDegLat * EARTH_R * toRad;
+    const refLon = origin.lon;
+    const refLat = origin.lat;
 
-    // Origin projected world coords = (0,0) — origin was set as reference point
-    // Screen position of origin:
-    const originSX = w / 2 + xOff;
-    const originSY = h / 2 + yOff;
-    // Tile size in screen pixels
-    const tilePxW = tileMetresX * scale;
-    const tilePxH = tileMetresY * scale;
+    // GPS → screen pixels  (equirectangular, same as normalizeMapDocument)
+    function gpsToScreen(lon: number, lat: number) {
+      const wx = (lon - refLon) * cosLat * EARTH_R * toRad;
+      const wy = (lat - refLat) * EARTH_R * toRad;
+      return { sx: w / 2 + xOff + wx * scale, sy: h / 2 + yOff - wy * scale };
+    }
 
-    // Tile grid indices of origin
-    const originTXi = Math.floor(originTX);
-    const originTYi = Math.floor(originTY);
-    // Sub-tile offset of origin (fraction within its tile)
-    const fracX = originTX - originTXi;
-    const fracY = originTY - originTYi;
+    // Viewport corners in world metres → GPS, to determine which tiles are visible
+    const wx0 = -(w / 2 + xOff) / scale;
+    const wx1 =  (w / 2 - xOff) / scale;
+    const wy_north = (h / 2 + yOff) / scale;
+    const wy_south = (yOff - h / 2) / scale;
+    const lonW = wx0 / (cosLat * EARTH_R * toRad) + refLon;
+    const lonE = wx1 / (cosLat * EARTH_R * toRad) + refLon;
+    const latN = wy_north / (EARTH_R * toRad) + refLat;
+    const latS = wy_south / (EARTH_R * toRad) + refLat;
 
-    // Screen position of top-left of origin tile
-    const originTileLeft = originSX - fracX * tilePxW;
-    const originTileTop = originSY - fracY * tilePxH;
-
-    const margin = 1;
-    const tilesX = Math.ceil(w / tilePxW) + margin * 2;
-    const tilesY = Math.ceil(h / tilePxH) + margin * 2;
-
-    const startIX = -Math.ceil((originSX - 0) / tilePxW) - margin;
-    const startIY = -Math.ceil((originSY - 0) / tilePxH) - margin;
+    const txMin = Math.max(0, Math.floor(lonToTileX(lonW)) - 1);
+    const txMax = Math.min(nTiles - 1, Math.ceil(lonToTileX(lonE)) + 1);
+    const tyMin = Math.max(0, Math.floor(latToTileY(latN)) - 1);
+    const tyMax = Math.min(nTiles - 1, Math.ceil(latToTileY(latS)) + 1);
 
     const tiles: OsmTile[] = [];
-    for (let dy = startIY; dy < startIY + tilesY + 2; dy++) {
-      for (let dx = startIX; dx < startIX + tilesX + 2; dx++) {
-        const tx = originTXi + dx;
-        const ty = originTYi + dy;
-        const nTiles = Math.pow(2, z);
-        const txw = ((tx % nTiles) + nTiles) % nTiles;
-        if (ty < 0 || ty >= nTiles) continue;
-        const sx = originTileLeft + dx * tilePxW;
-        const sy = originTileTop + dy * tilePxH;
-        if (sx + tilePxW < 0 || sx > w || sy + tilePxH < 0 || sy > h) continue;
+    for (let ty = tyMin; ty <= tyMax; ty++) {
+      for (let tx = txMin; tx <= txMax; tx++) {
+        // Exact GPS corners of this tile
+        const topLeft     = gpsToScreen(tileToLon(tx),     tileToLat(ty));
+        const bottomRight = gpsToScreen(tileToLon(tx + 1), tileToLat(ty + 1));
         tiles.push({
-          key: `${z}/${txw}/${ty}`,
-          url: `https://tile.openstreetmap.org/${z}/${txw}/${ty}.png`,
-          sx,
-          sy,
-          sw: tilePxW,
-          sh: tilePxH,
+          key: `${z}/${tx}/${ty}`,
+          url: `https://tile.openstreetmap.org/${z}/${tx}/${ty}.png`,
+          sx: topLeft.sx,
+          sy: topLeft.sy,
+          sw: bottomRight.sx - topLeft.sx,
+          sh: bottomRight.sy - topLeft.sy,
         });
       }
     }
