@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
@@ -217,6 +218,30 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   bool get hasBlockingMapValidationIssues =>
       mapValidationIssues.any((issue) => issue.blocking);
   List<AppMission> get missions => List<AppMission>.unmodifiable(_missions);
+
+  void beginMapCreation() {
+    mapGeometry = const MapGeometry();
+    mapEditorState = const MapEditorState(
+      mode: MapEditorMode.record,
+      activeObject: EditableMapObjectType.perimeter,
+      setupStage: MapSetupStage.perimeter,
+    );
+    _mapUndoStack.clear();
+    _mapRedoStack.clear();
+    _recordingBaseline = const MapGeometry();
+    _dragBaseline = null;
+    _isDraggingMapPoint = false;
+    previewRoutePoints = const <MapPoint>[];
+    previewError = null;
+    isLoadingPreview = false;
+    hasMap = false;
+    zoneCount = 0;
+    noGoCount = 0;
+    channelCount = 0;
+    perimeterPointCount = 0;
+    mapAreaSquareMeters = 0;
+    notifyListeners();
+  }
   DashboardStage get dashboardStage {
     if (!hasMap) {
       return DashboardStage.noMap;
@@ -404,7 +429,34 @@ class AppController extends ChangeNotifier implements RobotStateSink {
 
   @override
   void applyConnectionStatus(RobotStatus status, {bool notify = true}) {
-    connectionStatus = status;
+    connectionStatus =
+        status.connectionState == ConnectionStateKind.connected
+        ? connectionStatus.copyWith(
+            connectionState: status.connectionState,
+            robotName: status.robotName,
+            batteryPercent: status.batteryPercent,
+            rtkState: status.rtkState,
+            statePhase: status.statePhase,
+            x: status.x,
+            y: status.y,
+            heading: status.heading,
+            gpsLat: status.gpsLat,
+            gpsLon: status.gpsLon,
+            piVersion: status.piVersion,
+            lastError: status.lastError,
+            batteryVoltage: status.batteryVoltage,
+            chargerConnected: status.chargerConnected,
+            mcuConnected: status.mcuConnected,
+            mcuVersion: status.mcuVersion,
+            runtimeHealth: status.runtimeHealth,
+            uptimeSeconds: status.uptimeSeconds,
+            mowFaultActive: status.mowFaultActive,
+            uiMessage: status.uiMessage,
+            uiSeverity: status.uiSeverity,
+            mowDistanceM: status.mowDistanceM,
+            mowDurationSec: status.mowDurationSec,
+          )
+        : status;
     if (status.robotName != null && status.robotName!.trim().isNotEmpty) {
       robotName = status.robotName!.trim();
     }
@@ -445,6 +497,24 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   }
 
   void setMapSetupStage(MapSetupStage stage) {
+    var nextGeometry = mapGeometry;
+    int? nextActiveNoGoIndex = mapEditorState.activeNoGoIndex;
+
+    if (stage == MapSetupStage.noGo && nextGeometry.noGoZones.isEmpty) {
+      nextGeometry = mapEditorController.addNoGo(nextGeometry);
+      nextActiveNoGoIndex = nextGeometry.noGoZones.length - 1;
+      applyMapGeometry(nextGeometry, notify: false);
+    }
+
+    final nextMode = switch (stage) {
+      MapSetupStage.perimeter || MapSetupStage.noGo || MapSetupStage.dock =>
+        MapEditorMode.record,
+      MapSetupStage.validate || MapSetupStage.save => MapEditorMode.view,
+    };
+    if (nextMode == MapEditorMode.record) {
+      _recordingBaseline ??= mapGeometry;
+    }
+
     mapEditorState = mapEditorState.copyWith(
       setupStage: stage,
       activeObject: switch (stage) {
@@ -454,11 +524,10 @@ class AppController extends ChangeNotifier implements RobotStateSink {
         MapSetupStage.validate ||
         MapSetupStage.save => mapEditorState.activeObject,
       },
-      mode: stage == MapSetupStage.validate || stage == MapSetupStage.save
-          ? MapEditorMode.view
-          : mapEditorState.mode == MapEditorMode.view
-          ? MapEditorMode.edit
-          : mapEditorState.mode,
+      activeNoGoIndex: stage == MapSetupStage.noGo
+          ? nextActiveNoGoIndex
+          : mapEditorState.activeNoGoIndex,
+      mode: nextMode,
       clearSelectedPoint: true,
     );
     notifyListeners();
@@ -470,11 +539,9 @@ class AppController extends ChangeNotifier implements RobotStateSink {
         hasPerimeterReady ? MapSetupStage.noGo : MapSetupStage.perimeter,
       MapSetupStage.noGo => MapSetupStage.dock,
       MapSetupStage.dock =>
-        hasDockReady ? MapSetupStage.validate : MapSetupStage.dock,
+        hasDockReady ? MapSetupStage.save : MapSetupStage.dock,
       MapSetupStage.validate =>
-        hasBlockingMapValidationIssues
-            ? MapSetupStage.validate
-            : MapSetupStage.save,
+        hasBlockingMapValidationIssues ? MapSetupStage.validate : MapSetupStage.save,
       MapSetupStage.save => MapSetupStage.save,
     };
     setMapSetupStage(nextStage);
@@ -517,13 +584,14 @@ class AppController extends ChangeNotifier implements RobotStateSink {
       activeObject: object,
       activeZoneId: object == EditableMapObjectType.zone ? zoneId : null,
       activeNoGoIndex: object == EditableMapObjectType.noGo ? noGoIndex : null,
-      setupStage: switch (object) {
-        EditableMapObjectType.perimeter => MapSetupStage.perimeter,
-        EditableMapObjectType.noGo => MapSetupStage.noGo,
-        EditableMapObjectType.dock => MapSetupStage.dock,
-        EditableMapObjectType.zone =>
-          hasBaseMapReady ? MapSetupStage.save : mapEditorState.setupStage,
-      },
+      setupStage: hasBaseMapReady
+          ? MapSetupStage.save
+          : switch (object) {
+              EditableMapObjectType.perimeter => MapSetupStage.perimeter,
+              EditableMapObjectType.noGo => MapSetupStage.noGo,
+              EditableMapObjectType.dock => MapSetupStage.dock,
+              EditableMapObjectType.zone => mapEditorState.setupStage,
+            },
       mode: mode,
       clearActiveZone: object != EditableMapObjectType.zone,
       clearActiveNoGo: object != EditableMapObjectType.noGo,
@@ -703,18 +771,36 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   void finishMapRecording() {
     _recordingBaseline = null;
     mapEditorState = mapEditorState.copyWith(
-      mode: MapEditorMode.edit,
-      setupStage: switch (mapEditorState.activeObject) {
-        EditableMapObjectType.perimeter =>
-          hasPerimeterReady ? MapSetupStage.noGo : MapSetupStage.perimeter,
-        EditableMapObjectType.noGo => MapSetupStage.dock,
-        EditableMapObjectType.dock =>
-          hasDockReady ? MapSetupStage.validate : MapSetupStage.dock,
-        EditableMapObjectType.zone => MapSetupStage.save,
-      },
+      mode: MapEditorMode.view,
+      setupStage: hasBaseMapReady
+          ? MapSetupStage.save
+          : switch (mapEditorState.activeObject) {
+              EditableMapObjectType.perimeter =>
+                hasPerimeterReady ? MapSetupStage.noGo : MapSetupStage.perimeter,
+              EditableMapObjectType.noGo => MapSetupStage.noGo,
+              EditableMapObjectType.dock =>
+                hasDockReady ? MapSetupStage.save : MapSetupStage.dock,
+              EditableMapObjectType.zone => MapSetupStage.save,
+            },
       clearSelectedPoint: true,
     );
     notifyListeners();
+  }
+
+  void deleteLastRecordedMapPoint() {
+    if (mapEditorState.mode != MapEditorMode.record) {
+      return;
+    }
+    final points = activeMapPoints;
+    if (points.isEmpty) {
+      return;
+    }
+    final next = mapEditorController.deletePoint(
+      mapGeometry,
+      mapEditorState,
+      points.length - 1,
+    );
+    _setMapGeometry(next);
   }
 
   void cancelMapRecording() {
@@ -749,6 +835,11 @@ class AppController extends ChangeNotifier implements RobotStateSink {
           port: connectedRobot!.port,
           geometry: mapGeometry,
         );
+        final reloaded = await robotRepository.fetchMapGeometry(
+          host: connectedRobot!.lastHost,
+          port: connectedRobot!.port,
+        );
+        applyMapGeometry(reloaded, notify: false);
       }
       _recordingBaseline = null;
       _dragBaseline = null;
@@ -1403,10 +1494,26 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     if (points.length < 3) {
       return 0;
     }
+    const earthRadiusM = 6378137.0;
+    var latSumRad = 0.0;
+    for (final point in points) {
+      latSumRad += point.y * math.pi / 180.0;
+    }
+    final lat0Rad = latSumRad / points.length;
+
+    final projected = points
+        .map(
+          (point) => (
+            x: earthRadiusM * point.x * math.pi / 180.0 * math.cos(lat0Rad),
+            y: earthRadiusM * point.y * math.pi / 180.0,
+          ),
+        )
+        .toList(growable: false);
+
     double area = 0;
-    for (var index = 0; index < points.length; index += 1) {
-      final current = points[index];
-      final next = points[(index + 1) % points.length];
+    for (var index = 0; index < projected.length; index += 1) {
+      final current = projected[index];
+      final next = projected[(index + 1) % projected.length];
       area += current.x * next.y - next.x * current.y;
     }
     return (area.abs() / 2).round();

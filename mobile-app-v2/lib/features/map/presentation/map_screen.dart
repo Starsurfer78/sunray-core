@@ -65,6 +65,7 @@ class MapScreen extends StatelessWidget {
                   : null,
               previewRoutePoints: controller.previewRoutePoints,
               showCenterButton: editorState.mode == MapEditorMode.view,
+              followRobot: editorState.mode == MapEditorMode.record,
               onZoneTap: controller.setActiveZone,
             ),
           ),
@@ -137,12 +138,7 @@ class MapScreen extends StatelessWidget {
                       const SizedBox(width: 8),
                       _StatusPill(
                         icon: Icons.satellite_alt_rounded,
-                        label:
-                            status != null &&
-                                status.gpsLat != null &&
-                                status.gpsLon != null
-                            ? 'GPS bereit'
-                            : 'GPS fehlt',
+                        label: _gpsStatusLabel(controller.connectionStatus),
                       ),
                       const Spacer(),
                       _RoundMapButton(
@@ -173,39 +169,46 @@ class MapScreen extends StatelessWidget {
           Positioned(
             top: MediaQuery.sizeOf(context).height * 0.24,
             right: 12,
-            child: Column(
-              children: <Widget>[
-                _ActionTile(
-                  icon: Icons.add_rounded,
-                  title: 'Objekt',
-                  subtitle: 'hinzufügen',
-                  accentColor: const Color(0xFF2F7D4A),
-                  foregroundColor: Colors.white,
-                  onTap: () => context.push('/map/add-object'),
-                ),
-                const SizedBox(height: 12),
-                _ActionTile(
-                  icon: editorState.mode == MapEditorMode.record
-                      ? Icons.check_rounded
-                      : Icons.edit_location_alt_rounded,
-                  title: editorState.mode == MapEditorMode.record
-                      ? 'Fertig'
-                      : 'Aufzeichnen',
-                  subtitle: editorState.mode == MapEditorMode.record
-                      ? 'abschließen'
-                      : 'GPS oder Tap',
-                  accentColor: const Color(0xFF3A3A3C),
-                  foregroundColor: Colors.white,
-                  onTap: () {
-                    if (editorState.mode == MapEditorMode.record) {
-                      controller.finishMapRecording();
-                    } else {
-                      controller.setMapEditorMode(MapEditorMode.record);
-                    }
-                  },
-                ),
-              ],
-            ),
+            child: editorState.mode == MapEditorMode.record
+                ? Column(
+                    children: <Widget>[
+                      _ActionTile(
+                        icon: Icons.check_rounded,
+                        title: 'Fertig',
+                        subtitle: 'abschließen',
+                        accentColor: const Color(0xFF3A3A3C),
+                        foregroundColor: Colors.white,
+                        onTap: controller.canCloseActiveMapObject()
+                            ? controller.finishMapRecording
+                            : () {},
+                      ),
+                    ],
+                  )
+                : editorState.setupStage == MapSetupStage.save
+                ? Column(
+                    children: <Widget>[
+                      _ActionTile(
+                        icon: Icons.add_rounded,
+                        title: 'Objekt',
+                        subtitle: 'hinzufügen',
+                        accentColor: const Color(0xFF2F7D4A),
+                        foregroundColor: Colors.white,
+                        onTap: () => context.push('/map/add-object'),
+                      ),
+                      const SizedBox(height: 12),
+                      _ActionTile(
+                        icon: Icons.edit_location_alt_rounded,
+                        title: 'Aufzeichnen',
+                        subtitle: 'GPS oder Tap',
+                        accentColor: const Color(0xFF3A3A3C),
+                        foregroundColor: Colors.white,
+                        onTap: () {
+                          controller.setMapEditorMode(MapEditorMode.record);
+                        },
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
           Positioned(
             left: 12,
@@ -214,11 +217,14 @@ class MapScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                _SetupStageCard(controller: controller),
-                const SizedBox(height: 12),
-                _ModePanel(controller: controller, bottomInset: bottomInset),
+                if (editorState.mode != MapEditorMode.record) ...<Widget>[
+                  if (editorState.setupStage != MapSetupStage.save)
+                    _SetupStageCard(controller: controller),
+                  if (editorState.setupStage == MapSetupStage.save) ...<Widget>[
+                    _ModePanel(controller: controller, bottomInset: bottomInset),
+                  ],
+                ],
                 if (editorState.mode == MapEditorMode.record) ...<Widget>[
-                  const SizedBox(height: 12),
                   _RecordPanel(
                     status: controller.connectionStatus,
                     activePoints: activePoints,
@@ -232,6 +238,7 @@ class MapScreen extends StatelessWidget {
                       HapticFeedback.selectionClick();
                       controller.addMapPoint(MapPoint(x: gpsLon, y: gpsLat));
                     },
+                    onDeleteLastPoint: controller.deleteLastRecordedMapPoint,
                     onClose: controller.canCloseActiveMapObject()
                         ? controller.finishMapRecording
                         : null,
@@ -245,6 +252,20 @@ class MapScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _gpsStatusLabel(RobotStatus status) {
+    final hasGps =
+        status.gpsLat != null &&
+        status.gpsLon != null &&
+        (status.gpsLat != 0.0 || status.gpsLon != 0.0);
+    if (hasGps) {
+      return status.rtkState ?? 'GPS bereit';
+    }
+    if (status.rtkState != null && status.rtkState!.trim().isNotEmpty) {
+      return '${status.rtkState} ohne Position';
+    }
+    return 'GPS fehlt';
   }
 
   void _handleMapTap(
@@ -548,6 +569,13 @@ class _SetupStageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stage = controller.mapEditorState.setupStage;
+    final title = switch (stage) {
+      MapSetupStage.perimeter => 'Perimeter aufnehmen',
+      MapSetupStage.noGo => 'No-Go optional',
+      MapSetupStage.dock => 'Dock setzen',
+      MapSetupStage.validate => 'Karte prüfen',
+      MapSetupStage.save => 'Karte bereit',
+    };
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -561,7 +589,7 @@ class _SetupStageCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              'Setup-Flow',
+              title,
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -572,20 +600,6 @@ class _SetupStageCard extends StatelessWidget {
               style: Theme.of(
                 context,
               ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF667267)),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: MapSetupStage.values
-                  .map(
-                    (candidate) => ChoiceChip(
-                      label: Text(_stageLabel(candidate)),
-                      selected: candidate == stage,
-                      onSelected: (_) => controller.setMapSetupStage(candidate),
-                    ),
-                  )
-                  .toList(growable: false),
             ),
             const SizedBox(height: 12),
             if (stage == MapSetupStage.validate ||
@@ -637,59 +651,96 @@ class _SetupStageCard extends StatelessWidget {
               ],
             ],
             const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: stage == MapSetupStage.perimeter
-                        ? null
-                        : controller.retreatMapSetupStage,
-                    child: const Text('Zurück'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: stage == MapSetupStage.save
-                        ? null
-                        : controller.advanceMapSetupStage,
-                    child: Text(
-                      stage == MapSetupStage.validate
-                          ? 'Prüfung fertig'
-                          : 'Weiter',
+            ...switch (stage) {
+              MapSetupStage.perimeter => <Widget>[
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          controller.setMapSetupStage(MapSetupStage.perimeter),
+                      icon: const Icon(Icons.crop_square_rounded),
+                      label: const Text('Perimeter aufzeichnen'),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              MapSetupStage.noGo => <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: controller.advanceMapSetupStage,
+                          child: const Text('Ohne No-Go weiter'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => controller.createMapObject(
+                            EditableMapObjectType.noGo,
+                          ),
+                          icon: const Icon(Icons.block_rounded),
+                          label: Text(
+                            controller.mapGeometry.noGoZones.isEmpty
+                                ? 'No-Go hinzufügen'
+                                : 'Weiteres No-Go',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              MapSetupStage.dock => <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: controller.retreatMapSetupStage,
+                          child: const Text('Zurück'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () =>
+                              controller.setMapSetupStage(MapSetupStage.dock),
+                          icon: const Icon(Icons.home_work_rounded),
+                          label: const Text('Dock aufzeichnen'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              MapSetupStage.validate => <Widget>[
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: controller.hasBlockingMapValidationIssues
+                          ? null
+                          : controller.advanceMapSetupStage,
+                      child: const Text('Weiter'),
+                    ),
+                  ),
+                ],
+              MapSetupStage.save => <Widget>[],
+            },
           ],
         ),
       ),
     );
   }
 
-  String _stageLabel(MapSetupStage stage) {
-    return switch (stage) {
-      MapSetupStage.perimeter => 'Perimeter',
-      MapSetupStage.noGo => 'No-Go',
-      MapSetupStage.dock => 'Dock',
-      MapSetupStage.validate => 'Prüfen',
-      MapSetupStage.save => 'Speichern',
-    };
-  }
-
   String _stageDescription(MapSetupStage stage) {
     return switch (stage) {
       MapSetupStage.perimeter =>
-        'Ziehe zuerst den Perimeter auf oder ergänze fehlende Randpunkte.',
+        'Fahre Alfred an der Außengrenze entlang und speichere die Punkte der Grundfläche.',
       MapSetupStage.noGo =>
-        'Lege optionale Sperrzonen an. Diesen Schritt kannst du auch überspringen.',
+        'Lege optionale Sperrzonen an oder überspringe diesen Schritt direkt.',
       MapSetupStage.dock =>
-        'Setze die Dock-Position mit mindestens zwei Punkten.',
+        'Setze jetzt die Dock-Position. Für eine benutzbare Basiskarte sind mindestens zwei Dock-Punkte nötig.',
       MapSetupStage.validate =>
         'Prüfe die Basiskarte, bevor du speicherst oder eine Vorschau lädst.',
       MapSetupStage.save =>
-        'Basiskarte steht. Jetzt kannst du Zonen verfeinern, speichern und die Planner-Vorschau laden.',
+        'Basiskarte steht. Du kannst jetzt speichern, später weiter bearbeiten und optional Zonen ergänzen.',
     };
   }
 }
@@ -918,6 +969,7 @@ class _RecordPanel extends StatelessWidget {
     required this.activePoints,
     required this.activeObject,
     required this.onSavePoint,
+    required this.onDeleteLastPoint,
     required this.onClose,
     required this.onCancel,
   });
@@ -926,6 +978,7 @@ class _RecordPanel extends StatelessWidget {
   final List<MapPoint> activePoints;
   final EditableMapObjectType activeObject;
   final VoidCallback onSavePoint;
+  final VoidCallback? onDeleteLastPoint;
   final VoidCallback? onClose;
   final VoidCallback onCancel;
 
@@ -934,9 +987,12 @@ class _RecordPanel extends StatelessWidget {
     final hasGps =
         status.connectionState == ConnectionStateKind.connected &&
         status.gpsLat != null &&
-        status.gpsLon != null;
-    final lastPoint = activePoints.isNotEmpty ? activePoints.last : null;
+        status.gpsLon != null &&
+        (status.gpsLat != 0.0 || status.gpsLon != 0.0);
     final minimumPoints = activeObject == EditableMapObjectType.dock ? 2 : 3;
+    final helperText = hasGps
+        ? 'GPS bereit. Punkte per GPS speichern oder direkt in die Karte tippen.'
+        : 'GPS-Position fehlt noch. Du kannst Punkte trotzdem per Tap in die Karte setzen.';
 
     return Container(
       decoration: BoxDecoration(
@@ -944,79 +1000,64 @@ class _RecordPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFF27364C)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              Text(
-                '${activePoints.length} Punkt${activePoints.length == 1 ? '' : 'e'}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF93C5FD),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (lastPoint != null)
-                Text(
-                  '${lastPoint.y.toStringAsFixed(6)}, ${lastPoint.x.toStringAsFixed(6)}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF94A3B8),
-                    fontSize: 11,
-                  ),
-                ),
-            ],
+          Text(
+            '${_closeLabel()} · ${activePoints.length} Punkt${activePoints.length == 1 ? '' : 'e'}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF93C5FD),
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           FilledButton.icon(
             onPressed: hasGps ? onSavePoint : null,
             style: FilledButton.styleFrom(
               backgroundColor: hasGps ? const Color(0xFF16A34A) : null,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              padding: const EdgeInsets.symmetric(vertical: 12),
             ),
             icon: const Icon(Icons.add_location_alt_rounded),
             label: Text(
               hasGps ? '+ Punkt speichern' : 'Kein GPS-Signal',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Text(
-            'Du kannst Punkte per GPS speichern oder direkt in die Karte tippen.',
+            helperText,
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: const Color(0xFFCBD5E1)),
           ),
-          const SizedBox(height: 12),
+          if (activePoints.length < minimumPoints) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              'Mindestens $minimumPoints Punkte nötig',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF94A3B8),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
           Row(
             children: <Widget>[
               Expanded(
-                child: OutlinedButton(
-                  onPressed: onClose,
+                child: OutlinedButton.icon(
+                  onPressed: activePoints.isNotEmpty ? onDeleteLastPoint : null,
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(
-                      color: onClose != null
-                          ? const Color(0xFF2563EB)
+                      color: activePoints.isNotEmpty
+                          ? const Color(0xFF475569)
                           : const Color(0xFF334155),
                     ),
                     foregroundColor: Colors.white,
                   ),
-                  child: Column(
-                    children: <Widget>[
-                      const Text('Schließen'),
-                      if (activePoints.length < minimumPoints)
-                        Text(
-                          'min. $minimumPoints Punkte',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                fontSize: 10,
-                                color: const Color(0xFF94A3B8),
-                              ),
-                        ),
-                    ],
-                  ),
+                  icon: const Icon(Icons.undo_rounded),
+                  label: const Text('Letzten löschen'),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1032,9 +1073,29 @@ class _RecordPanel extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: onClose,
+            style: FilledButton.styleFrom(
+              backgroundColor: onClose != null
+                  ? const Color(0xFF2563EB)
+                  : const Color(0xFF334155),
+              foregroundColor: Colors.white,
+            ),
+            child: Text(_closeLabel()),
+          ),
         ],
       ),
     );
+  }
+
+  String _closeLabel() {
+    return switch (activeObject) {
+      EditableMapObjectType.perimeter => 'Perimeter abschließen',
+      EditableMapObjectType.noGo => 'No-Go abschließen',
+      EditableMapObjectType.zone => 'Zone abschließen',
+      EditableMapObjectType.dock => 'Dock abschließen',
+    };
   }
 }
 

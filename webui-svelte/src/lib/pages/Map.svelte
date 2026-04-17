@@ -52,6 +52,8 @@
   let storedMaps: StoredMapEntry[] = [];
   let activeMapId = "";
   let selectedMapId = "";
+  let draftAvailable = false;
+  let draftSavedAt = 0;
   let mapHistory: ReturnType<typeof createUndoRedo<RobotMap>>;
   let lastHistorySnapshot = "";
   let applyingHistory = false;
@@ -244,27 +246,46 @@
       map: structuredClone($mapStore.map),
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    draftAvailable = true;
+    draftSavedAt = draft.savedAt;
   }
 
   function clearDraft() {
     if (typeof localStorage === "undefined") return;
     localStorage.removeItem(DRAFT_KEY);
+    draftAvailable = false;
+    draftSavedAt = 0;
+  }
+
+  function readDraft(): DraftDocument | null {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) {
+      draftAvailable = false;
+      draftSavedAt = 0;
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as DraftDocument;
+      draftAvailable = true;
+      draftSavedAt = parsed.savedAt ?? 0;
+      return parsed;
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+      draftAvailable = false;
+      draftSavedAt = 0;
+      return null;
+    }
   }
 
   function restoreDraft(): boolean {
-    if (typeof localStorage === "undefined") return false;
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return false;
+    const draft = readDraft();
+    if (!draft) return false;
 
-    try {
-      const draft = JSON.parse(raw) as DraftDocument;
-      mapStore.load(draft.map);
-      showInfo("Entwurf wiederhergestellt");
-      return true;
-    } catch {
-      localStorage.removeItem(DRAFT_KEY);
-      return false;
-    }
+    mapStore.load(draft.map);
+    showInfo("Lokalen Entwurf wiederhergestellt", "warning");
+    return true;
   }
 
   async function loadMap() {
@@ -275,8 +296,14 @@
       );
       mapStore.load(normalizeMapDocument(map));
       await refreshStoredMaps(true);
-      if (!restoreDraft()) {
-        showInfo("Geladen");
+      readDraft();
+      if (draftAvailable) {
+        showInfo(
+          "Roboter-Karte geladen. Lokaler Browser-Entwurf ist separat verfügbar.",
+          "warning",
+        );
+      } else {
+        showInfo("Roboter-Karte geladen");
       }
     } catch (err) {
       showInfo(err instanceof Error ? err.message : "Fehler", "error");
@@ -486,6 +513,12 @@
   }
 
   $: activeTool = $mapStore.selectedTool;
+  $: draftSavedAtLabel = draftSavedAt
+    ? new Date(draftSavedAt).toLocaleString("de-DE", {
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : "";
   $: dockActive = activeTool === "dock";
   $: zoneActive = activeTool === "zone";
   $: moveActive = activeTool === "move";
@@ -1370,6 +1403,23 @@
         <div class="sb-stat">
           <span>NoGo</span><strong>{$mapStore.map.exclusions.length}</strong>
         </div>
+        {#if draftAvailable}
+          <div class="assistant-card">
+            <strong>Lokaler Browser-Entwurf vorhanden</strong>
+            <span>
+              Separat vom Roboterstand gespeichert{#if draftSavedAtLabel}
+                : {draftSavedAtLabel}{/if}
+            </span>
+            <div class="assistant-actions">
+              <button type="button" class="sb-btn" on:click={restoreDraft}
+                >Entwurf laden</button
+              >
+              <button type="button" class="sb-btn" on:click={clearDraft}
+                >Entwurf verwerfen</button
+              >
+            </div>
+          </div>
+        {/if}
       </div>
 
       <div class="sb-section">
