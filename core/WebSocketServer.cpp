@@ -1680,15 +1680,37 @@ namespace sunray
                         }
                     }
 
+                    // Detect if stored coordinates are already WGS84 GPS degrees
+                    // (saved by mobile App) rather than local metres.
+                    // GPS longitude for Europe: 5–15°; local map values are 0–1000 m.
+                    bool coordsAreGps = false;
+                    if (map.contains("perimeter") && !map["perimeter"].empty())
+                    {
+                        const auto &fp = map["perimeter"][0];
+                        if (fp.is_array() && fp.size() >= 2)
+                        {
+                            const double px = fp[0].get<double>(); // x / lon
+                            const double py = fp[1].get<double>(); // y / lat
+                            // GPS degrees are in [-180,180] × [-90,90] and > 1°
+                            if (std::abs(py) <= 90.0 && std::abs(px) <= 180.0 &&
+                                std::abs(px) > 1.0 && std::abs(py) > 1.0)
+                                coordsAreGps = true;
+                        }
+                    }
+
+                    // Convert local metres → WGS84 (skipped when coords are already GPS).
+                    // Returns {lat, lon}.
                     auto toWgs = [&](double x, double y)
                         -> std::pair<double, double>
                     {
+                        if (coordsAreGps)
+                            return {y, x}; // stored as [lon, lat] → return {lat, lon}
                         const double lat = lat0 + y / (R * DEG);
                         const double lon = lon0 + x / (R * std::cos(lat0 * DEG) * DEG);
                         return {lat, lon};
                     };
 
-                    // local [[x,y],…] → closed GeoJSON ring [[lon,lat],…,[lon0,lat0]]
+                    // [[x,y],…] → closed GeoJSON ring [[lon,lat],…,[first]]
                     auto toRing = [&](const nlohmann::json &pts) -> nlohmann::json
                     {
                         auto ring = nlohmann::json::array();
@@ -1727,14 +1749,18 @@ namespace sunray
                                                       {"geometry", {{"type", "Polygon"}, {"coordinates", nlohmann::json::array({toRing(ex)})}}}});
                         }
                     }
-                    // dock (Point)
+                    // dock (LineString — full path, not just first point)
                     if (map.contains("dock") && !map["dock"].empty())
                     {
-                        const auto &d = map["dock"][0];
-                        auto [lat, lon] = toWgs(d[0].get<double>(), d[1].get<double>());
+                        auto coords = nlohmann::json::array();
+                        for (const auto &d : map["dock"])
+                        {
+                            auto [lat, lon] = toWgs(d[0].get<double>(), d[1].get<double>());
+                            coords.push_back({lon, lat});
+                        }
                         fc["features"].push_back({{"type", "Feature"},
                                                   {"properties", {{"type", "dock"}}},
-                                                  {"geometry", {{"type", "Point"}, {"coordinates", {lon, lat}}}}});
+                                                  {"geometry", {{"type", "LineString"}, {"coordinates", coords}}}});
                     }
                     const std::string body = fc.dump(2);
                     crow::response res(200, body);
