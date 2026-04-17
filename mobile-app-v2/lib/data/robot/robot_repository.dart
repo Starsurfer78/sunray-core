@@ -1,4 +1,5 @@
 import '../../domain/map/map_geometry.dart';
+import '../../domain/map/stored_map.dart';
 import '../../domain/robot/robot_status.dart';
 import 'robot_api.dart';
 import 'robot_ws.dart';
@@ -66,6 +67,53 @@ class RobotRepository {
       port: port,
       payload: encodeMapGeometry(geometry),
     );
+  }
+
+  Future<({String activeId, List<StoredMap> maps})> fetchStoredMaps({
+    required String host,
+    required int port,
+  }) async {
+    final raw = await _api.getStoredMaps(host: host, port: port);
+    final activeId = raw['active_id'] as String? ?? '';
+    final maps =
+        (raw['maps'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(
+              (entry) => StoredMap(
+                id: entry['id'] as String? ?? '',
+                name: entry['name'] as String? ?? 'Karte',
+                createdAtMs: entry['created_at_ms'] as int?,
+                updatedAtMs: entry['updated_at_ms'] as int?,
+              ),
+            )
+            .where((m) => m.id.isNotEmpty)
+            .toList(growable: false);
+    return (activeId: activeId, maps: maps);
+  }
+
+  Future<void> createNamedMap({
+    required String host,
+    required int port,
+    required String name,
+    required MapGeometry geometry,
+  }) async {
+    await _api.createStoredMap(
+      host: host,
+      port: port,
+      payload: <String, dynamic>{
+        'name': name,
+        'activate': true,
+        'map': encodeMapGeometry(geometry),
+      },
+    );
+  }
+
+  Future<void> activateStoredMapById({
+    required String host,
+    required int port,
+    required String mapId,
+  }) {
+    return _api.activateStoredMap(host: host, port: port, mapId: mapId);
   }
 
   Future<List<MapPoint>> fetchPlannerPreview({

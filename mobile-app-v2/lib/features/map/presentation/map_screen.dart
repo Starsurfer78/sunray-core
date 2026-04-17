@@ -184,6 +184,21 @@ class MapScreen extends StatelessWidget {
                       ),
                     ],
                   )
+                : !editorState.showToolPanel
+                ? Column(
+                    children: <Widget>[
+                      _ActionTile(
+                        icon: Icons.tune_rounded,
+                        title: 'Werkzeuge',
+                        subtitle: 'anzeigen',
+                        accentColor: const Color(0xFF3A3A3C),
+                        foregroundColor: Colors.white,
+                        onTap: () {
+                          controller.setMapToolPanelVisible(true);
+                        },
+                      ),
+                    ],
+                  )
                 : editorState.setupStage == MapSetupStage.save
                 ? Column(
                     children: <Widget>[
@@ -218,9 +233,11 @@ class MapScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 if (editorState.mode != MapEditorMode.record) ...<Widget>[
-                  if (editorState.setupStage != MapSetupStage.save)
+                  if (editorState.setupStage != MapSetupStage.save &&
+                      editorState.showToolPanel)
                     _SetupStageCard(controller: controller),
-                  if (editorState.setupStage == MapSetupStage.save) ...<Widget>[
+                  if (editorState.setupStage == MapSetupStage.save &&
+                      editorState.showToolPanel) ...<Widget>[
                     _ModePanel(controller: controller, bottomInset: bottomInset),
                   ],
                 ],
@@ -255,15 +272,15 @@ class MapScreen extends StatelessWidget {
   }
 
   String _gpsStatusLabel(RobotStatus status) {
+    if (status.rtkState != null && status.rtkState!.trim().isNotEmpty) {
+      return status.rtkState!;
+    }
     final hasGps =
         status.gpsLat != null &&
         status.gpsLon != null &&
         (status.gpsLat != 0.0 || status.gpsLon != 0.0);
     if (hasGps) {
-      return status.rtkState ?? 'GPS bereit';
-    }
-    if (status.rtkState != null && status.rtkState!.trim().isNotEmpty) {
-      return '${status.rtkState} ohne Position';
+      return 'GPS bereit';
     }
     return 'GPS fehlt';
   }
@@ -310,20 +327,18 @@ class MapScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 _GpsRow(
                   label: 'Fix-Qualität',
-                  value:
-                      controller.connectionStatus.rtkState ??
-                      controller.statusLabel,
+                  value: controller.connectionStatus.rtkState ?? 'Unbekannt',
                 ),
                 _GpsRow(
-                  label: 'Latitude',
+                  label: 'Längengrad',
                   value:
-                      controller.connectionStatus.gpsLat?.toStringAsFixed(7) ??
+                      controller.connectionStatus.gpsLon?.toStringAsFixed(7) ??
                       '-',
                 ),
                 _GpsRow(
-                  label: 'Longitude',
+                  label: 'Breitengrad',
                   value:
-                      controller.connectionStatus.gpsLon?.toStringAsFixed(7) ??
+                      controller.connectionStatus.gpsLat?.toStringAsFixed(7) ??
                       '-',
                 ),
                 _GpsRow(
@@ -412,6 +427,143 @@ List<EditableSegmentTarget> _segmentTargets(List<MapPoint> activePoints) {
     );
   }
   return targets;
+}
+
+Future<String?> _showSaveNameSheet(
+  BuildContext context,
+  AppController controller,
+) {
+  final suggestedName =
+      controller.activeMapName.isNotEmpty
+          ? controller.activeMapName
+          : 'Mein Garten';
+  final nameController = TextEditingController(text: suggestedName);
+
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'Karte speichern',
+              style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              controller.activeMapId.isEmpty
+                  ? 'Gib der Karte einen Namen, damit sie im Dropdown erscheint.'
+                  : 'Gleicher Name → aktive Karte aktualisieren. Neuer Name → neue Karte anlegen.',
+              style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF667267),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Kartenname',
+                border: OutlineInputBorder(),
+              ),
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    child: const Text('Abbrechen'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF2F7D4A),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(
+                      sheetContext,
+                    ).pop(nameController.text.trim()),
+                    child: const Text('Speichern'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showMapSwitcherSheet(
+  BuildContext context,
+  AppController controller,
+) async {
+  final selectedId = await showModalBottomSheet<String>(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Text(
+                'Karte wechseln',
+                style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            for (final storedMap in controller.storedMaps)
+              ListTile(
+                title: Text(storedMap.name),
+                trailing: storedMap.id == controller.activeMapId
+                    ? const Icon(
+                        Icons.check_rounded,
+                        color: Color(0xFF2F7D4A),
+                      )
+                    : null,
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(storedMap.id),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
+  );
+
+  if (selectedId == null || selectedId == controller.activeMapId) return;
+  if (!context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context);
+  final result = await controller.switchToStoredMap(selectedId);
+  messenger.showSnackBar(
+    SnackBar(content: Text(result ?? 'Karte gewechselt')),
+  );
 }
 
 Future<void> _openZoneConfigSheet(
@@ -802,13 +954,26 @@ class _ModePanel extends StatelessWidget {
                     ],
                   ),
                 ),
+                IconButton(
+                  tooltip: 'Werkzeuge schließen',
+                  onPressed: () => controller.setMapToolPanelVisible(false),
+                  icon: const Icon(Icons.close_rounded),
+                ),
                 const SizedBox(width: 12),
                 SizedBox(
                   width: 136,
                   child: FilledButton(
                     onPressed: () async {
+                      final name = await _showSaveNameSheet(
+                        context,
+                        controller,
+                      );
+                      if (name == null) return;
+                      if (!context.mounted) return;
                       final messenger = ScaffoldMessenger.of(context);
-                      final result = await controller.saveMapEdits();
+                      final result = await controller.saveMapEdits(
+                        name: name.isEmpty ? null : name,
+                      );
                       messenger.showSnackBar(
                         SnackBar(
                           content: Text(
@@ -829,6 +994,43 @@ class _ModePanel extends StatelessWidget {
                 ),
               ],
             ),
+            if (controller.storedMaps.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  const Icon(
+                    Icons.map_outlined,
+                    size: 14,
+                    color: Color(0xFF667267),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      controller.activeMapName.isNotEmpty
+                          ? controller.activeMapName
+                          : 'Karte',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667267),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (controller.storedMaps.length > 1)
+                    GestureDetector(
+                      onTap: () =>
+                          _showMapSwitcherSheet(context, controller),
+                      child: Text(
+                        'Wechseln',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF2F7D4A),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 14),
             Row(
               children: <Widget>[

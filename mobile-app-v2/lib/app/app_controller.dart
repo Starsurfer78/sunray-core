@@ -12,6 +12,7 @@ import '../data/robot/robot_service.dart';
 import '../data/robot/robot_ws.dart';
 import '../data/updates/ota_repository.dart';
 import '../domain/map/map_geometry.dart';
+import '../domain/map/stored_map.dart';
 import '../domain/mission/mission.dart';
 import '../domain/robot/robot_status.dart';
 import '../domain/robot/saved_robot.dart';
@@ -101,20 +102,23 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   MapEditorState mapEditorState = const MapEditorState();
   List<Mission> backendMissions = const <Mission>[];
 
+  List<StoredMap> storedMaps = const <StoredMap>[];
+  String activeMapId = '';
+
   bool hasMap = false;
   int zoneCount = 0;
   int noGoCount = 0;
   int channelCount = 0;
-  int perimeterPointCount = 24;
+  int perimeterPointCount = 0;
   int mapAreaSquareMeters = 0;
-  int weeklyAreaSquareMeters = 170;
-  int batteryPercent = 75;
+  int weeklyAreaSquareMeters = 0;
+  int batteryPercent = 0;
   int unreadNotifications = 2;
   bool onlyWhenDry = true;
   bool requiresHighBattery = true;
-  String missionName = 'Hinterer Garten';
-  String missionZoneLabel = 'Zone A';
-  String nextMissionLabel = 'Heute 17:00';
+  String missionName = 'Keine Mission';
+  String missionZoneLabel = 'Gesamte Karte';
+  String nextMissionLabel = 'Nur manuell';
   RobotMode robotMode = RobotMode.charging;
   List<MapPoint> previewRoutePoints = const <MapPoint>[];
   String? previewError;
@@ -125,7 +129,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   String? appUpdateInfoError;
   OtaInstallState appOtaInstallState = const OtaInstallState();
   int _missionCounter = 1;
-  List<AppMission> _missions = _defaultMissions();
+  List<AppMission> _missions = const <AppMission>[];
 
   final List<_AppSnapshot> _history = <_AppSnapshot>[];
   final List<MapGeometry> _mapUndoStack = <MapGeometry>[];
@@ -136,6 +140,14 @@ class AppController extends ChangeNotifier implements RobotStateSink {
 
   bool get hasZones => zoneCount > 0;
   bool get canUndo => _history.isNotEmpty;
+  String get activeMapName {
+    if (activeMapId.isEmpty) return '';
+    try {
+      return storedMaps.firstWhere((m) => m.id == activeMapId).name;
+    } catch (_) {
+      return '';
+    }
+  }
   bool get canUndoMapEdit => _mapUndoStack.isNotEmpty;
   bool get canRedoMapEdit => _mapRedoStack.isNotEmpty;
   SavedRobot? get lastConnectedRobot =>
@@ -312,7 +324,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   }
 
   String? get missionSubtitle {
-    if (!hasZones) {
+    if (_missions.isEmpty && !hasZones) {
       return null;
     }
     return switch (robotMode) {
@@ -394,11 +406,14 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     zoneCount = 0;
     noGoCount = 0;
     channelCount = 0;
-    perimeterPointCount = 24;
+    perimeterPointCount = 0;
     mapAreaSquareMeters = 0;
     robotMode = RobotMode.charging;
     _missionCounter = 1;
     _missions = const <AppMission>[];
+    missionName = 'Keine Mission';
+    missionZoneLabel = 'Gesamte Karte';
+    nextMissionLabel = 'Nur manuell';
     notifyListeners();
   }
 
@@ -491,8 +506,16 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     }
     mapEditorState = mapEditorState.copyWith(
       mode: mode,
+      showToolPanel: mode == MapEditorMode.view
+          ? mapEditorState.showToolPanel
+          : true,
       clearSelectedPoint: mode == MapEditorMode.view,
     );
+    notifyListeners();
+  }
+
+  void setMapToolPanelVisible(bool visible) {
+    mapEditorState = mapEditorState.copyWith(showToolPanel: visible);
     notifyListeners();
   }
 
@@ -528,6 +551,9 @@ class AppController extends ChangeNotifier implements RobotStateSink {
           ? nextActiveNoGoIndex
           : mapEditorState.activeNoGoIndex,
       mode: nextMode,
+      showToolPanel: stage == MapSetupStage.save
+          ? mapEditorState.showToolPanel
+          : true,
       clearSelectedPoint: true,
     );
     notifyListeners();
@@ -593,6 +619,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
               EditableMapObjectType.zone => mapEditorState.setupStage,
             },
       mode: mode,
+      showToolPanel: true,
       clearActiveZone: object != EditableMapObjectType.zone,
       clearActiveNoGo: object != EditableMapObjectType.noGo,
       clearSelectedPoint: true,
@@ -611,12 +638,14 @@ class AppController extends ChangeNotifier implements RobotStateSink {
           mode: MapEditorMode.record,
           activeObject: EditableMapObjectType.perimeter,
           setupStage: MapSetupStage.perimeter,
+          showToolPanel: true,
         );
       case EditableMapObjectType.dock:
         mapEditorState = const MapEditorState(
           mode: MapEditorMode.record,
           activeObject: EditableMapObjectType.dock,
           setupStage: MapSetupStage.dock,
+          showToolPanel: true,
         );
       case EditableMapObjectType.noGo:
         final next = mapEditorController.addNoGo(mapGeometry);
@@ -626,6 +655,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
           activeObject: EditableMapObjectType.noGo,
           setupStage: MapSetupStage.noGo,
           activeNoGoIndex: next.noGoZones.length - 1,
+          showToolPanel: true,
         );
       case EditableMapObjectType.zone:
         final next = mapEditorController.addZone(mapGeometry);
@@ -636,6 +666,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
           activeObject: EditableMapObjectType.zone,
           setupStage: MapSetupStage.save,
           activeZoneId: zoneId,
+          showToolPanel: true,
         );
     }
     notifyListeners();
@@ -772,6 +803,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     _recordingBaseline = null;
     mapEditorState = mapEditorState.copyWith(
       mode: MapEditorMode.view,
+      showToolPanel: false,
       setupStage: hasBaseMapReady
           ? MapSetupStage.save
           : switch (mapEditorState.activeObject) {
@@ -816,7 +848,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     notifyListeners();
   }
 
-  Future<String?> saveMapEdits() async {
+  Future<String?> saveMapEdits({String? name}) async {
     if (!canSaveMap) {
       final missingParts = <String>[
         if (!hasPerimeterReady) 'Perimeter',
@@ -830,16 +862,40 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     try {
       await appStateStorage.saveMapGeometry(mapGeometry);
       if (connectedRobot != null) {
-        await robotRepository.saveMapGeometry(
-          host: connectedRobot!.lastHost,
-          port: connectedRobot!.port,
-          geometry: mapGeometry,
-        );
+        final robot = connectedRobot!;
+        final resolvedName = name?.trim() ?? '';
+        final isNewName =
+            resolvedName.isNotEmpty && resolvedName != activeMapName;
+        final hasNoActiveMap = activeMapId.isEmpty;
+
+        if (isNewName || hasNoActiveMap) {
+          await robotRepository.createNamedMap(
+            host: robot.lastHost,
+            port: robot.port,
+            name: resolvedName.isNotEmpty ? resolvedName : 'Mein Garten',
+            geometry: mapGeometry,
+          );
+        } else {
+          await robotRepository.saveMapGeometry(
+            host: robot.lastHost,
+            port: robot.port,
+            geometry: mapGeometry,
+          );
+        }
+
         final reloaded = await robotRepository.fetchMapGeometry(
-          host: connectedRobot!.lastHost,
-          port: connectedRobot!.port,
+          host: robot.lastHost,
+          port: robot.port,
         );
         applyMapGeometry(reloaded, notify: false);
+
+        try {
+          final storedResult = await robotRepository.fetchStoredMaps(
+            host: robot.lastHost,
+            port: robot.port,
+          );
+          applyStoredMaps(storedResult.activeId, storedResult.maps, notify: false);
+        } catch (_) {}
       }
       _recordingBaseline = null;
       _dragBaseline = null;
@@ -849,12 +905,43 @@ class AppController extends ChangeNotifier implements RobotStateSink {
       mapEditorState = mapEditorState.copyWith(
         mode: MapEditorMode.view,
         setupStage: MapSetupStage.save,
+        showToolPanel: false,
         clearSelectedPoint: true,
       );
       notifyListeners();
       return null;
     } catch (error) {
       return 'Karte konnte nicht gespeichert werden: $error';
+    }
+  }
+
+  Future<String?> switchToStoredMap(String mapId) async {
+    final robot = connectedRobot;
+    if (robot == null) return 'Nicht verbunden';
+    try {
+      await robotRepository.activateStoredMapById(
+        host: robot.lastHost,
+        port: robot.port,
+        mapId: mapId,
+      );
+      final reloaded = await robotRepository.fetchMapGeometry(
+        host: robot.lastHost,
+        port: robot.port,
+      );
+      applyMapGeometry(reloaded, notify: false);
+      final storedResult = await robotRepository.fetchStoredMaps(
+        host: robot.lastHost,
+        port: robot.port,
+      );
+      applyStoredMaps(storedResult.activeId, storedResult.maps, notify: false);
+      mapEditorState = const MapEditorState();
+      _mapUndoStack.clear();
+      _mapRedoStack.clear();
+      _recordingBaseline = null;
+      notifyListeners();
+      return null;
+    } catch (error) {
+      return 'Karte konnte nicht gewechselt werden: $error';
     }
   }
 
@@ -974,7 +1061,24 @@ class AppController extends ChangeNotifier implements RobotStateSink {
           )
           .fold(0, (maxValue, value) => value > maxValue ? value : maxValue);
       _missionCounter = loadedCounter > 0 ? loadedCounter : _missionCounter;
+    } else {
+      missionName = 'Keine Mission';
+      missionZoneLabel = hasZones ? 'Zonen verfügbar' : 'Gesamte Karte';
+      nextMissionLabel = 'Nur manuell';
     }
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  @override
+  void applyStoredMaps(
+    String activeId,
+    List<StoredMap> maps, {
+    bool notify = true,
+  }) {
+    activeMapId = activeId;
+    storedMaps = maps;
     if (notify) {
       notifyListeners();
     }
@@ -983,9 +1087,6 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   @override
   void applyTelemetry(RobotStatus status) {
     applyConnectionStatus(status, notify: false);
-    if (status.mowDistanceM != null) {
-      weeklyAreaSquareMeters = status.mowDistanceM!.round();
-    }
     notifyListeners();
   }
 
@@ -1131,7 +1232,6 @@ class AppController extends ChangeNotifier implements RobotStateSink {
       missionZoneLabel = 'Gesamte Karte';
     }
     nextMissionLabel = hasZones ? nextMissionLabel : 'Manueller Lauf';
-    weeklyAreaSquareMeters += clearProgressBeforeStart ? 18 : 12;
     notifyListeners();
   }
 
@@ -1318,11 +1418,10 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   }
 
   List<String> get availableMissionZones {
-    if (!hasZones) {
-      return const <String>[];
-    }
-    const zoneNames = <String>['Hinterer Garten', 'Seitengarten'];
-    return zoneNames.take(zoneCount.clamp(0, zoneNames.length)).toList();
+    return mapGeometry.zones
+        .map((zone) => zone.name.trim())
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
   }
 
   AppMission? missionById(String missionId) {
@@ -1335,12 +1434,11 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   }
 
   AppMission createMission() {
-    final zones = availableMissionZones;
     _missionCounter += 1;
     final mission = AppMission(
       id: 'mission-$_missionCounter',
       name: 'Mission $_missionCounter',
-      zones: zones.isEmpty ? const <String>[] : <String>[zones.first],
+      zones: const <String>[],
       scheduleLabel: 'Nur manuell',
       statusLabel: 'Entwurf',
       isEnabled: false,
@@ -1363,6 +1461,25 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     notifyListeners();
   }
 
+  void deleteMission(String missionId) {
+    _missions = _missions
+        .where((mission) => mission.id != missionId)
+        .toList(growable: false);
+    if (_missions.isEmpty) {
+      missionName = 'Keine Mission';
+      missionZoneLabel = hasZones ? 'Zonen verfügbar' : 'Gesamte Karte';
+      nextMissionLabel = 'Nur manuell';
+    } else {
+      final first = _missions.first;
+      missionName = first.name;
+      missionZoneLabel = first.zones.isEmpty
+          ? 'Gesamte Karte'
+          : first.zones.join(', ');
+      nextMissionLabel = first.scheduleLabel;
+    }
+    notifyListeners();
+  }
+
   void startMission(String missionId) {
     final mission = missionById(missionId);
     if (mission == null) {
@@ -1375,9 +1492,6 @@ class AppController extends ChangeNotifier implements RobotStateSink {
         ? 'Gesamte Karte'
         : mission.zones.join(', ');
     nextMissionLabel = mission.scheduleLabel;
-    weeklyAreaSquareMeters += mission.zones.isEmpty
-        ? 10
-        : mission.zones.length * 8;
     _missions = _missions
         .map(
           (item) => item.id == missionId
@@ -1399,7 +1513,6 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     missionName = 'Zonenstart';
     missionZoneLabel = zoneName;
     nextMissionLabel = 'Nur manuell';
-    weeklyAreaSquareMeters += 8;
     _missions = _missions
         .map(
           (item) => item.copyWith(
@@ -1601,6 +1714,15 @@ class _RobotStateAdapter implements RobotStateSink {
   }
 
   @override
+  void applyStoredMaps(
+    String activeId,
+    List<StoredMap> maps, {
+    bool notify = true,
+  }) {
+    controller?.applyStoredMaps(activeId, maps, notify: notify);
+  }
+
+  @override
   void applyTelemetry(RobotStatus status) {
     controller?.applyTelemetry(status);
   }
@@ -1652,33 +1774,6 @@ class AppMission {
       optimizeOrder: optimizeOrder ?? this.optimizeOrder,
     );
   }
-}
-
-List<AppMission> _defaultMissions() {
-  return const <AppMission>[
-    AppMission(
-      id: 'mission-1',
-      name: 'Hinterer Garten',
-      zones: <String>['Hinterer Garten', 'Seitengarten'],
-      scheduleLabel: 'Mo / Mi / Fr 17:00',
-      statusLabel: 'Geplant',
-      isEnabled: true,
-      onlyWhenDry: true,
-      requiresHighBattery: true,
-      optimizeOrder: true,
-    ),
-    AppMission(
-      id: 'mission-maintenance',
-      name: 'Wochenendkanten',
-      zones: <String>['Seitengarten'],
-      scheduleLabel: 'Sa 09:30',
-      statusLabel: 'Pausiert',
-      isEnabled: false,
-      onlyWhenDry: true,
-      requiresHighBattery: false,
-      optimizeOrder: false,
-    ),
-  ];
 }
 
 class _AppSnapshot {

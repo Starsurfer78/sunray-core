@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import '../../core/config/app_constants.dart';
 import '../../domain/map/map_geometry.dart';
+import '../../domain/map/stored_map.dart';
 import '../../domain/mission/mission.dart';
 import '../../domain/robot/robot_status.dart';
 import '../../domain/robot/saved_robot.dart';
@@ -14,6 +15,11 @@ abstract class RobotStateSink {
   void applyConnectionStatus(RobotStatus status, {bool notify = true});
   void applyMapGeometry(MapGeometry geometry, {bool notify = true});
   void applyMissions(List<Mission> missions, {bool notify = true});
+  void applyStoredMaps(
+    String activeId,
+    List<StoredMap> maps, {
+    bool notify = true,
+  });
   void applyTelemetry(RobotStatus status);
 }
 
@@ -90,6 +96,22 @@ class RobotService {
       _stateSink.applyConnectedRobot(resolvedRobot, notify: false);
       _stateSink.applyMapGeometry(mapGeometry, notify: false);
       _stateSink.applyMissions(missions, notify: false);
+
+      try {
+        final storedResult = await _repository.fetchStoredMaps(
+          host: resolvedRobot.lastHost,
+          port: resolvedRobot.port,
+        );
+        _stateSink.applyStoredMaps(
+          storedResult.activeId,
+          storedResult.maps,
+          notify: false,
+        );
+      } catch (_) {
+        // Non-fatal: stored maps list supplements the live map.
+        _stateSink.applyStoredMaps('', const <StoredMap>[], notify: false);
+      }
+
       _stateSink.applyConnectionStatus(status);
 
       _reconnectAttempt = 0;
