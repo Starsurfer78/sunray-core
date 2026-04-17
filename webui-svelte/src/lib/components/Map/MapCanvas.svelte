@@ -586,9 +586,8 @@
     const minY = Math.min(...points.map((point) => point.y));
     const maxY = Math.max(...points.map((point) => point.y));
 
-    const minSpan = coordMode === "wgs84" ? 0.00001 : 1;
-    const spanX = Math.max(maxX - minX, minSpan);
-    const spanY = Math.max(maxY - minY, minSpan);
+    const spanX = Math.max(maxX - minX, 0.000001);
+    const spanY = Math.max(maxY - minY, 0.000001);
     const padding = 48;
 
     const availableWidth = Math.max(width - padding * 2, 120);

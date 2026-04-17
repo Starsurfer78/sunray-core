@@ -52,7 +52,7 @@ export function normalizeZone<T extends { id: string; name?: string; order?: num
  * - < 0 if clockwise
  */
 export function orientation(a: Point, b: Point, c: Point): number {
-    return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+    return (b.y - a.y) * (c.x - a.x) - (b.x - a.x) * (c.y - a.y);
 }
 
 /**
@@ -76,10 +76,11 @@ export function segmentsIntersect(s1: Segment, s2: Segment): boolean {
     const o3 = orientation(s2.a, s2.b, s1.a);
     const o4 = orientation(s2.a, s2.b, s1.b);
 
-    if (o1 === 0 && onSegment(s1.a, s2.a, s1.b)) return true;
-    if (o2 === 0 && onSegment(s1.a, s2.b, s1.b)) return true;
-    if (o3 === 0 && onSegment(s2.a, s1.a, s2.b)) return true;
-    if (o4 === 0 && onSegment(s2.a, s1.b, s2.b)) return true;
+    const EPS = 1e-9;
+    if (Math.abs(o1) < EPS && onSegment(s1.a, s2.a, s1.b)) return true;
+    if (Math.abs(o2) < EPS && onSegment(s1.a, s2.b, s1.b)) return true;
+    if (Math.abs(o3) < EPS && onSegment(s2.a, s1.a, s2.b)) return true;
+    if (Math.abs(o4) < EPS && onSegment(s2.a, s1.b, s2.b)) return true;
 
     return o1 > 0 !== o2 > 0 && o3 > 0 !== o4 > 0;
 }
