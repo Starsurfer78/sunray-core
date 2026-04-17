@@ -27,6 +27,52 @@
    *  target crosshair). Use on pages that edit static geometry (Map page). */
   export let showRuntimeLayers = true;
 
+  type CoordMode = "local" | "wgs84";
+  let coordMode: CoordMode = "local";
+
+  function detectCoordMode(
+    perimeter: Point[],
+    gpsLat: number,
+    gpsLon: number,
+  ): CoordMode {
+    if (perimeter.length < 3) return "local";
+    if (gpsLat === 0 || gpsLon === 0) return "local";
+
+    let sumX = 0;
+    let sumY = 0;
+    for (const p of perimeter) {
+      sumX += p.x;
+      sumY += p.y;
+    }
+    const avgX = sumX / perimeter.length;
+    const avgY = sumY / perimeter.length;
+
+    const closeToGps =
+      Math.abs(avgY - gpsLat) < 1 && Math.abs(avgX - gpsLon) < 1;
+    if (!closeToGps) return "local";
+
+    const minX = Math.min(...perimeter.map((p) => p.x));
+    const maxX = Math.max(...perimeter.map((p) => p.x));
+    const minY = Math.min(...perimeter.map((p) => p.y));
+    const maxY = Math.max(...perimeter.map((p) => p.y));
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+
+    if (
+      avgY >= -90 &&
+      avgY <= 90 &&
+      avgX >= -180 &&
+      avgX <= 180 &&
+      spanX > 0 &&
+      spanX < 0.5 &&
+      spanY > 0 &&
+      spanY < 0.5
+    ) {
+      return "wgs84";
+    }
+    return "local";
+  }
+
   const dispatch = createEventDispatcher<{
     pointrejected: { tool: string; reason?: string };
   }>();
@@ -511,7 +557,13 @@
       ...$mapStore.map.exclusions.flatMap((exclusion) => exclusion),
     ];
     if (showRobot) {
-      points.push({ x: $telemetry.x, y: $telemetry.y });
+      if (coordMode === "wgs84") {
+        if ($telemetry.gps_lat !== 0 && $telemetry.gps_lon !== 0) {
+          points.push({ x: $telemetry.gps_lon, y: $telemetry.gps_lat });
+        }
+      } else {
+        points.push({ x: $telemetry.x, y: $telemetry.y });
+      }
     }
     return points;
   }
@@ -534,8 +586,9 @@
     const minY = Math.min(...points.map((point) => point.y));
     const maxY = Math.max(...points.map((point) => point.y));
 
-    const spanX = Math.max(maxX - minX, 1);
-    const spanY = Math.max(maxY - minY, 1);
+    const minSpan = coordMode === "wgs84" ? 0.00001 : 1;
+    const spanX = Math.max(maxX - minX, minSpan);
+    const spanY = Math.max(maxY - minY, minSpan);
     const padding = 48;
 
     const availableWidth = Math.max(width - padding * 2, 120);
@@ -564,7 +617,9 @@
   }
 
   $: robotScreen = worldToScreen(
-    { x: $telemetry.x, y: $telemetry.y },
+    coordMode === "wgs84"
+      ? { x: $telemetry.gps_lon, y: $telemetry.gps_lat }
+      : { x: $telemetry.x, y: $telemetry.y },
     currentScale,
     offsetX,
     offsetY,
@@ -785,6 +840,12 @@
   if (showRuntimeLayers) fetchLiveOverlay();
   // -------------------------------------------------------------------------
 
+  $: coordMode = detectCoordMode(
+    $mapStore.map.perimeter,
+    $telemetry.gps_lat,
+    $telemetry.gps_lon,
+  );
+
   $: robotScale = Number(zoom.toFixed(3));
   $: pointRadius = Number(clamp(3.1 * zoom, 2.1, 4.3).toFixed(2));
   $: selectionRadius = Number((pointRadius + 3.6).toFixed(2));
@@ -832,7 +893,11 @@
   <div class="canvas-wrap" bind:clientWidth={width} bind:clientHeight={height}>
     {#if cursorWorld}
       <div class="cursor-coords">
-        x {cursorWorld.x.toFixed(2)} m &nbsp; y {cursorWorld.y.toFixed(2)} m
+        {#if coordMode === "wgs84"}
+          lon {cursorWorld.x.toFixed(6)} &nbsp; lat {cursorWorld.y.toFixed(6)}
+        {:else}
+          x {cursorWorld.x.toFixed(2)} m &nbsp; y {cursorWorld.y.toFixed(2)} m
+        {/if}
       </div>
     {/if}
 
