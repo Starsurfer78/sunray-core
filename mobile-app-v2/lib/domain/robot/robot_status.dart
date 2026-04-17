@@ -18,6 +18,8 @@ class RobotStatus {
     this.heading,
     this.gpsLat,
     this.gpsLon,
+    this.gpsNumSv,
+    this.gpsDgpsAgeMs,
     this.piVersion,
     this.lastError,
     this.batteryVoltage,
@@ -43,6 +45,8 @@ class RobotStatus {
   final double? heading;
   final double? gpsLat;
   final double? gpsLon;
+  final int? gpsNumSv;
+  final int? gpsDgpsAgeMs;
   final String? piVersion;
   final String? lastError;
   final double? batteryVoltage;
@@ -68,6 +72,8 @@ class RobotStatus {
     double? heading,
     double? gpsLat,
     double? gpsLon,
+    int? gpsNumSv,
+    int? gpsDgpsAgeMs,
     String? piVersion,
     String? lastError,
     double? batteryVoltage,
@@ -93,6 +99,8 @@ class RobotStatus {
       heading: heading ?? this.heading,
       gpsLat: gpsLat ?? this.gpsLat,
       gpsLon: gpsLon ?? this.gpsLon,
+      gpsNumSv: gpsNumSv ?? this.gpsNumSv,
+      gpsDgpsAgeMs: gpsDgpsAgeMs ?? this.gpsDgpsAgeMs,
       piVersion: piVersion ?? this.piVersion,
       lastError: lastError ?? this.lastError,
       batteryVoltage: batteryVoltage ?? this.batteryVoltage,

@@ -437,6 +437,24 @@ namespace sunray
                 }
                 break;
             }
+            case 0x07:
+            { // UBX-NAV-PVT
+                if (msgLen_ < 44)
+                    break;
+                // lon/lat in 1e-7 degrees at offsets 24/28
+                const double lon = 1e-7 * static_cast<double>(static_cast<int32_t>(unpackU32(24)));
+                const double lat = 1e-7 * static_cast<double>(static_cast<int32_t>(unpackU32(28)));
+                // hAcc in mm at offset 40 → metres
+                const float hAcc = static_cast<float>(unpackU32(40)) / 1000.f;
+                if (lat != 0.0 || lon != 0.0)
+                {
+                    std::lock_guard<std::mutex> lock(dataMutex_);
+                    data_.lat = lat;
+                    data_.lon = lon;
+                    data_.hAccuracy = hAcc;
+                }
+                break;
+            }
             case 0x43:
             { // UBX-NAV-SIG
                 if (msgLen_ < 8)

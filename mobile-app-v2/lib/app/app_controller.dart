@@ -457,6 +457,8 @@ class AppController extends ChangeNotifier implements RobotStateSink {
             heading: status.heading,
             gpsLat: status.gpsLat,
             gpsLon: status.gpsLon,
+            gpsNumSv: status.gpsNumSv,
+            gpsDgpsAgeMs: status.gpsDgpsAgeMs,
             piVersion: status.piVersion,
             lastError: status.lastError,
             batteryVoltage: status.batteryVoltage,

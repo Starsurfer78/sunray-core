@@ -371,6 +371,8 @@ class RobotService {
       final heading = decoded['heading'] as num?;
       final gpsLat = decoded['gps_lat'] as num?;
       final gpsLon = decoded['gps_lon'] as num?;
+      final gpsNumSv = decoded['gps_num_sv'] as num?;
+      final gpsDgpsAgeMs = decoded['gps_dgps_age_ms'] as num?;
       final piVersion = decoded['pi_v'] as String?;
       final chargerConnected = decoded['charger_connected'] as bool?;
       final mcuConnected = decoded['mcu_connected'] as bool?;
@@ -397,6 +399,8 @@ class RobotService {
           heading: heading?.toDouble(),
           gpsLat: gpsLat?.toDouble(),
           gpsLon: gpsLon?.toDouble(),
+          gpsNumSv: gpsNumSv?.toInt(),
+          gpsDgpsAgeMs: gpsDgpsAgeMs?.toInt(),
           piVersion: piVersion ?? baseStatus.piVersion,
           batteryVoltage: batteryVoltage?.toDouble(),
           chargerConnected: chargerConnected,

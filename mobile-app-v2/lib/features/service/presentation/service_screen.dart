@@ -216,26 +216,33 @@ class ServiceScreen extends StatelessWidget {
                       _ServiceEntry(
                         icon: Icons.gps_fixed_rounded,
                         title: 'GPS / RTK-Detail',
-                        subtitle: controller.robotMode == RobotMode.parking
-                            ? 'App-Modell: RTK Float'
-                            : 'App-Modell: RTK Fixed',
+                        subtitle:
+                            controller.connectionStatus.rtkState ??
+                            'GPS unbekannt',
                         onTap: () => _openInfoSheet(
                           context,
                           title: 'GPS / RTK-Detail',
                           rows: <_InfoRow>[
                             _InfoRow(
                               label: 'Qualität',
-                              value: controller.robotMode == RobotMode.parking
-                                  ? 'RTK Float'
-                                  : 'RTK Fixed',
+                              value:
+                                  controller.connectionStatus.rtkState ??
+                                  'Unbekannt',
                             ),
-                            const _InfoRow(
+                            _InfoRow(
                               label: 'Satelliten',
-                              value: 'Unbekannt',
+                              value:
+                                  controller.connectionStatus.gpsNumSv
+                                      ?.toString() ??
+                                  'Unbekannt',
                             ),
-                            const _InfoRow(
+                            _InfoRow(
                               label: 'Correction age',
-                              value: 'Unbekannt',
+                              value:
+                                  controller.connectionStatus.gpsDgpsAgeMs !=
+                                      null
+                                  ? '${controller.connectionStatus.gpsDgpsAgeMs} ms'
+                                  : 'Unbekannt',
                             ),
                           ],
                         ),
