@@ -296,7 +296,8 @@ namespace sunray
             if (ch == '\n')
             {
                 if (nmeaAccum_.size() > 6 &&
-                    nmeaAccum_.substr(0, 6) == "$GNGGA")
+                    nmeaAccum_[0] == '$' &&
+                    nmeaAccum_.substr(3, 3) == "GGA")
                 {
                     // Trim trailing CR/LF
                     std::string gga = nmeaAccum_;
