@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 # ota_update.sh — OTA update for sunray-core.
 #
