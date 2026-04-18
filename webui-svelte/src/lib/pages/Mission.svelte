@@ -14,14 +14,14 @@
     type MapZone,
     type MissionDocument,
   } from "../api/rest";
+  import { mapGpsOrigin } from "../stores/mapGpsOrigin";
   import { mapStore, type Point, type Zone } from "../stores/map";
   import { missionStore, type Mission } from "../stores/missions";
   import { toast } from "../stores/notificationStore";
   import { withLoading } from "../stores/loadingState";
   import { sendCmd } from "../api/websocket";
   import {
-    normalizePoints,
-    normalizeZone,
+    normalizeMapDocumentForUi,
     orientation,
     segmentsIntersect,
     hasSelfIntersection,
@@ -78,16 +78,9 @@
     error = "";
     try {
       const map = await getMapDocument();
-      mapStore.load({
-        perimeter: normalizePoints(map.perimeter),
-        dock: normalizePoints(map.dock),
-        exclusions: (map.exclusions ?? []).map((exclusion) =>
-          normalizePoints(exclusion as Array<[number, number]>),
-        ),
-        zones: (map.zones ?? []).map((zone, index) =>
-          normalizeZone(zone, index),
-        ),
-      });
+      const normalized = normalizeMapDocumentForUi(map as any);
+      mapGpsOrigin.set(normalized.gpsOrigin);
+      mapStore.load(normalized.map as any);
       info = "Zonen aus Karte geladen";
     } catch (err) {
       error = describeBackendLoadError("Karte", err);
