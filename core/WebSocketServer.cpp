@@ -2210,18 +2210,25 @@ namespace sunray
                 output.pop_back();
             }
 
+            // Extract only the last line (which contains the actual status code)
+            std::string lastLine = output;
+            size_t lastNewlinePos = output.find_last_of('\n');
+            if (lastNewlinePos != std::string::npos) {
+                lastLine = output.substr(lastNewlinePos + 1);
+            }
+
             nlohmann::json j;
-            if (output == "already_up_to_date") {
+            if (lastLine == "already_up_to_date") {
                 j["status"] = "up_to_date";
-            } else if (output.rfind("update_available:", 0) == 0) {
+            } else if (lastLine.rfind("update_available:", 0) == 0) {
                 j["status"] = "update_available";
-                j["hash"]   = output.substr(std::string("update_available:").size());
-            } else if (output.rfind("error:", 0) == 0) {
+                j["hash"]   = lastLine.substr(std::string("update_available:").size());
+            } else if (lastLine.rfind("error:", 0) == 0) {
                 j["status"] = "error";
-                j["detail"] = output.substr(6);
+                j["detail"] = lastLine.substr(6);
             } else {
                 j["status"] = "unknown";
-                j["detail"] = output;
+                j["detail"] = output; // Return full output on error for debugging
             }
 
             crow::response res(200, j.dump());
