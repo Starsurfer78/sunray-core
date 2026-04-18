@@ -128,6 +128,7 @@ private:
     SensorData  sensors_{};
     BatteryData battery_{};
     bool        rawChargerConnected_ = false;
+    float       chargerConnectedVoltageV_ = 7.0f;
     bool        motorFaultFast_ = false;
     bool        motorFaultSummary_ = false;
     unsigned    chargerConnectedStableCount_ = 0;
@@ -219,6 +220,20 @@ private:
     static int           fieldInt  (const std::string& s);
     static unsigned long fieldULong(const std::string& s);  ///< BUG-003: for tick counters
     static float         fieldFloat(const std::string& s);
+
+    void tickImu(uint64_t now);
+    void tickMotor(uint64_t now);
+    void tickSummary(uint64_t now);
+    void tickConsole(uint64_t now);
+    void tickCpuTemp(uint64_t now);
+    void tickWifi(uint64_t now);
+    void tickLed(uint64_t now);
+    void tickShutdown(uint64_t now);
+
+    void setChargeVoltage(float v);
+    void setMotorFaultFast(bool fault);
+    void setMotorFaultSummary(bool fault);
+    void updateLatchedMotorFault();
 };
 
 } // namespace sunray

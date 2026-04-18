@@ -23,20 +23,91 @@ constexpr auto kStartupBuzzerPulse = std::chrono::milliseconds(120);
 constexpr unsigned kChargerDebounceSamples = 2;
 constexpr uint64_t kWifiScanIntervalMs = 15000;
 constexpr uint64_t kWifiReconnectIntervalMs = 10000;
+constexpr uint64_t kImuPeriodMs = 20;
+constexpr uint64_t kMotorPeriodMinMs = 5;
+constexpr uint64_t kSummaryPeriodMs = 500;
+constexpr uint64_t kConsolePeriodMs = 1000;
+constexpr uint64_t kLedPeriodMs = 3000;
+constexpr uint64_t kWifiPeriodMs = 7000;
+constexpr uint64_t kTempPeriodMs = 59000;
+constexpr uint64_t kImuRecoverPeriodMs = 10000;
 
+// Convert charge-voltage reading into boolean charger-connected signal.
 bool chargerConnectedFromVoltage(float chargeVoltage, float threshold) {
     return chargeVoltage > threshold;
+}
+
+// Convert loop period (ms) into expected frequency (Hz), minimum 1.
+int expectedHzFromPeriodMs(uint64_t periodMs) {
+    if (periodMs == 0) return 1;
+    return std::max(1, static_cast<int>(1000 / periodMs));
+}
+
+// Warn when measured rate drops more than a small margin below expected.
+int warnBelowHz(int expectedHz) {
+    return std::max(1, expectedHz - 2);
+}
+
+enum class MotorFrameSchema {
+    Compact,
+    Legacy,
+};
+
+MotorFrameSchema detectMotorFrameSchema(const std::vector<std::string>& f) {
+    return (f.size() == 6) ? MotorFrameSchema::Compact : MotorFrameSchema::Legacy;
+}
+
+// Cached config snapshot read once during init().
+struct InitCfg {
+    bool serialDebug = false;
+    uint64_t rxGapMs = 50;
+    std::string wifiInterface = "wlan0";
+
+    std::string uartPort = "/dev/ttyS0";
+    int uartBaud = 115200;
+    uint64_t motorPeriodMs = kImuPeriodMs;
+
+    std::string i2cBus = "/dev/i2c-1";
+    int imuMuxChannel = 4;
+    int ex3MuxChannel = 0;
+    int legacyMuxChannel = 0;
+    float chargerConnectedVoltageV = 7.0f;
+};
+
+// Read/init all SerialRobotDriver config keys in one place and clamp values.
+InitCfg loadInitCfg(const sunray::Config& config) {
+    InitCfg out;
+    out.serialDebug = config.get<bool>("serial_debug", false);
+    out.rxGapMs = static_cast<uint64_t>(config.get<int>("serial_rx_gap_ms", 50));
+    out.wifiInterface = config.get<std::string>("wifi_interface", "wlan0");
+
+    out.uartPort = config.get<std::string>("driver_port", "/dev/ttyS0");
+    out.uartBaud = config.get<int>("driver_baud", 115200);
+
+    out.motorPeriodMs = static_cast<uint64_t>(config.get<int>(
+        "serial_motor_period_ms",
+        (out.uartBaud <= 19200) ? 35 : 20));
+    if (out.motorPeriodMs < kMotorPeriodMinMs) out.motorPeriodMs = kMotorPeriodMinMs;
+
+    out.i2cBus = config.get<std::string>("i2c_bus", "/dev/i2c-1");
+    out.imuMuxChannel = config.get<int>("imu_mux_channel", 4);
+    out.ex3MuxChannel = config.get<int>("ex3_mux_channel", 0);
+    out.legacyMuxChannel = config.get<int>("i2c_mux_legacy_channel", 0);
+    out.chargerConnectedVoltageV = config.get<float>("charger_connected_voltage_v", 7.0f);
+    return out;
 }
 
 } // namespace
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
+// Construct driver without touching hardware; actual IO opens in init().
 SerialRobotDriver::SerialRobotDriver(std::shared_ptr<Config> config, std::shared_ptr<Logger> logger)
     : config_(std::move(config))
     , logger_(std::move(logger))
 {}
 
+// Destructor relies on RAII cleanup of platform objects; does not power down fan.
 SerialRobotDriver::~SerialRobotDriver() {
     // Platform objects closed by their own destructors.
     // Fan stays in whatever state it was — keepPowerOn handles graceful shutdown.
@@ -44,18 +115,18 @@ SerialRobotDriver::~SerialRobotDriver() {
 
 // ── HardwareInterface: init() ─────────────────────────────────────────────────
 
+// Open UART/I2C, power up peripherals, init IMU, run LED/buzzer startup, arm timers.
 bool SerialRobotDriver::init() {
-    serialDebug_ = config_->get<bool>("serial_debug", false);
-    rxGapMs_     = static_cast<uint64_t>(config_->get<int>("serial_rx_gap_ms", 50));
-    wifiInterface_ = config_->get<std::string>("wifi_interface", "wlan0");
+    const InitCfg cfg = loadInitCfg(*config_);
+    serialDebug_ = cfg.serialDebug;
+    rxGapMs_ = cfg.rxGapMs;
+    wifiInterface_ = cfg.wifiInterface;
+    chargerConnectedVoltageV_ = cfg.chargerConnectedVoltageV;
 
     // ── UART to STM32 ─────────────────────────────────────────────────────────
-    const std::string port = config_->get<std::string>("driver_port", "/dev/ttyS0");
-    const int         baud = config_->get<int>        ("driver_baud", 115200);
-    motorPeriodMs_ = static_cast<uint64_t>(config_->get<int>(
-        "serial_motor_period_ms",
-        (baud <= 19200) ? 35 : 20));
-    if (motorPeriodMs_ < 5) motorPeriodMs_ = 5;
+    const std::string port = cfg.uartPort;
+    const int baud = cfg.uartBaud;
+    motorPeriodMs_ = cfg.motorPeriodMs;
     try {
         uart_ = std::make_unique<platform::Serial>(port, static_cast<unsigned>(baud));
     } catch (const std::runtime_error& e) {
@@ -64,7 +135,7 @@ bool SerialRobotDriver::init() {
     }
 
     // ── I2C bus ───────────────────────────────────────────────────────────────
-    const std::string i2cBus = config_->get<std::string>("i2c_bus", "/dev/i2c-1");
+    const std::string i2cBus = cfg.i2cBus;
     try {
         i2c_ = std::make_unique<platform::I2C>(i2cBus);
         if (config_->get<bool>("i2c_mux_enabled", true)) {
@@ -85,9 +156,9 @@ bool SerialRobotDriver::init() {
     if (logger_) logger_->info("SRD", "Robot ID: " + robotId_);
 
     // ── I2C Mux (TCA9548A) — cache channel numbers from config ───────────────
-    imuMuxChannel_    = config_->get<int>("imu_mux_channel",        4);
-    ex3MuxChannel_    = config_->get<int>("ex3_mux_channel",        0);
-    legacyMuxChannel_ = config_->get<int>("i2c_mux_legacy_channel", 0);
+    imuMuxChannel_ = cfg.imuMuxChannel;
+    ex3MuxChannel_ = cfg.ex3MuxChannel;
+    legacyMuxChannel_ = cfg.legacyMuxChannel;
     // Select the legacy/EX1 channel first so EX1 power and buzzer ops are routed correctly.
     selectLegacyChannel();
 
@@ -175,11 +246,11 @@ bool SerialRobotDriver::init() {
     // Avoid an immediate false communication warning on the very first run().
     const uint64_t now = nowMs();
     nextMotorMs_          = now + motorPeriodMs_;
-    nextSummaryMs_        = now + 500;
-    nextConsoleMs_        = now + 1000;
-    nextLedMs_            = now + 3000;
-    nextTempMs_           = now + 59000;
-    nextWifiMs_           = now + 7000;
+    nextSummaryMs_        = now + kSummaryPeriodMs;
+    nextConsoleMs_        = now + kConsolePeriodMs;
+    nextLedMs_            = now + kLedPeriodMs;
+    nextTempMs_           = now + kTempPeriodMs;
+    nextWifiMs_           = now + kWifiPeriodMs;
     // Give the IMU a few seconds to become valid before mux recovery kicks in.
     nextImuMuxRecoverMs_  = now + 10000;
 
@@ -192,6 +263,7 @@ bool SerialRobotDriver::init() {
 
 // ── HardwareInterface: run() ──────────────────────────────────────────────────
 
+// Non-blocking periodic tick. Poll RX first, then run scheduled tasks (motor, summary, IMU, etc).
 void SerialRobotDriver::run() {
     if (!uart_) return;
 
@@ -199,99 +271,122 @@ void SerialRobotDriver::run() {
 
     const uint64_t now = nowMs();
 
-    // 50 Hz — IMU update
-    if (imu_ && now >= nextImuMs_) {
-        selectImuChannel();  // exclusive: only ch4 active, prevents address collision with ADC etc.
-        const float dt = (lastImuMs_ == 0) ? 0.02f : (now - lastImuMs_) / 1000.0f;
-        imu_->update(dt);
-        lastImuMs_ = now;
-        nextImuMs_ = now + 20;
+    tickImu(now);
+    tickMotor(now);
+    tickSummary(now);
+    tickConsole(now);
+    tickCpuTemp(now);
+    tickWifi(now);
+    tickLed(now);
+    tickShutdown(now);
+}
 
-        // Enhanced logging for IMU issues - but let the driver handle re-init internally
-        if (!imu_->isValid() && now >= nextImuMuxRecoverMs_) {
-            nextImuMuxRecoverMs_ = now + 10000;  // Reduced frequency: check every 10s instead of 5s
-            if (logger_) {
-                logger_->warn("SRD", "IMU still not valid after driver recovery attempts - check hardware");
-                // Log additional diagnostic info
-                ImuData data = imu_->getData();
-                std::ostringstream ss;
-                ss << "IMU data - valid: " << data.valid << ", calibrating: " << data.calibrating 
-                   << ", acc: [" << data.accX << ", " << data.accY << ", " << data.accZ << "]";
-                logger_->info("SRD", ss.str());
-            }
+// IMU update tick (nominal 50 Hz) + periodic diagnostics when IMU remains invalid.
+void SerialRobotDriver::tickImu(uint64_t now) {
+    if (!imu_ || now < nextImuMs_) return;
+
+    selectImuChannel();
+    const float dt = (lastImuMs_ == 0) ? (static_cast<float>(kImuPeriodMs) / 1000.0f)
+                                       : (now - lastImuMs_) / 1000.0f;
+    imu_->update(dt);
+    lastImuMs_ = now;
+    nextImuMs_ = now + kImuPeriodMs;
+
+    if (!imu_->isValid() && now >= nextImuMuxRecoverMs_) {
+        nextImuMuxRecoverMs_ = now + kImuRecoverPeriodMs;
+        if (logger_) {
+            logger_->warn("SRD", "IMU still not valid after driver recovery attempts - check hardware");
+            ImuData data = imu_->getData();
+            std::ostringstream ss;
+            ss << "IMU data - valid: " << data.valid << ", calibrating: " << data.calibrating
+               << ", acc: [" << data.accX << ", " << data.accY << ", " << data.accZ << "]";
+            logger_->info("SRD", ss.str());
         }
     }
+}
 
-    // AT+M motor command
-    if (now >= nextMotorMs_) {
-        nextMotorMs_ = now + motorPeriodMs_;
-        // BUG-07: send rightPwm as field1, leftPwm as field2 (cross-wiring compensation)
-        std::string cmd = "AT+M," + std::to_string(pwmRight_)
-                        + ","     + std::to_string(pwmLeft_)
-                        + ","     + std::to_string(pwmMow_);
-        sendAt(cmd);
-        motorTxCount_++;
-    }
+// Motor command tick: send AT+M with latched PWM values.
+void SerialRobotDriver::tickMotor(uint64_t now) {
+    if (now < nextMotorMs_) return;
 
-    // 2 Hz — AT+S summary
-    if (now >= nextSummaryMs_) {
-        nextSummaryMs_ = now + 500;
-        sendAt("AT+S");
-        summaryTxCount_++;
-    }
+    nextMotorMs_ = now + motorPeriodMs_;
+    std::string cmd = "AT+M," + std::to_string(pwmRight_)
+                    + ","     + std::to_string(pwmLeft_)
+                    + ","     + std::to_string(pwmMow_);
+    sendAt(cmd);
+    motorTxCount_++;
+}
 
-    // 1 Hz — comms health check + AT+V if not yet received
-    if (now >= nextConsoleMs_) {
-        nextConsoleMs_ = now + 1000;
-        if (mcuConnected_ && mcuFirmwareName_.empty()) {
-            sendAt("AT+V");
-        }
-        if (motorTxCount_ > 0 && motorRxCount_ == 0) {
-            std::cerr << "[SRD] WARN: MCU not responding — resetting ticks\n";
-            resetTicks_   = true;
-            mcuConnected_ = false;
-        }
-        const int expectedMotorHz = std::max(1, static_cast<int>(1000 / std::max<uint64_t>(1, motorPeriodMs_)));
-        const int motorWarnBelow = std::max(1, expectedMotorHz - 2);
-        if (motorRxCount_ < motorWarnBelow) {
-            std::cerr << "[SRD] WARN: motor freq " << motorRxCount_
-                      << "/" << expectedMotorHz
-                      << "  summary " << summaryRxCount_ << "/2\n";
-        }
-        motorTxCount_ = motorRxCount_ = summaryTxCount_ = summaryRxCount_ = 0;
-    }
+// Summary request tick: send AT+S (slow battery/safety summary).
+void SerialRobotDriver::tickSummary(uint64_t now) {
+    if (now < nextSummaryMs_) return;
 
-    // 59 s — CPU temperature + fan control
-    if (now >= nextTempMs_) {
-        nextTempMs_ = now + 59000;
-        updateCpuTemp();
-        if      (cpuTemp_ < 60.0f) setFanPower(false);
-        else if (cpuTemp_ > 65.0f) setFanPower(true);
-    }
+    nextSummaryMs_ = now + kSummaryPeriodMs;
+    sendAt("AT+S");
+    summaryTxCount_++;
+}
 
-    // 7 s — WiFi state poll (used by updateWifiLed)
-    if (now >= nextWifiMs_) {
-        nextWifiMs_ = now + 7000;
-        updateWifi();
-    }
+// Console/health tick: request AT+V if needed, compute warn thresholds, reset counters.
+void SerialRobotDriver::tickConsole(uint64_t now) {
+    if (now < nextConsoleMs_) return;
 
-    // 3 s — WiFi LED update
-    if (now >= nextLedMs_) {
-        nextLedMs_ = now + 3000;
-        updateWifiLed();
+    nextConsoleMs_ = now + kConsolePeriodMs;
+    if (mcuConnected_ && mcuFirmwareName_.empty()) {
+        sendAt("AT+V");
     }
+    if (motorTxCount_ > 0 && motorRxCount_ == 0) {
+        std::cerr << "[SRD] WARN: MCU not responding — resetting ticks\n";
+        resetTicks_   = true;
+        mcuConnected_ = false;
+    }
+    const int expectedMotorHz = expectedHzFromPeriodMs(motorPeriodMs_);
+    if (motorRxCount_ < warnBelowHz(expectedMotorHz)) {
+        std::cerr << "[SRD] WARN: motor freq " << motorRxCount_
+                  << "/" << expectedMotorHz
+                  << "  summary " << summaryRxCount_ << "/2\n";
+    }
+    motorTxCount_ = motorRxCount_ = summaryTxCount_ = summaryRxCount_ = 0;
+}
 
-    // Shutdown sequencing
-    if (shutdownPending_ && now >= shutdownAt_) {
-        shutdownAt_ = now + 10000;  // re-arm in case shutdown command is slow
-        std::cerr << "[SRD] LINUX SHUTDOWN\n";
-        setFanPower(false);
-        std::system("shutdown now");
-    }
+// CPU temperature tick + fan hysteresis control.
+void SerialRobotDriver::tickCpuTemp(uint64_t now) {
+    if (now < nextTempMs_) return;
+
+    nextTempMs_ = now + kTempPeriodMs;
+    updateCpuTemp();
+    if      (cpuTemp_ < 60.0f) setFanPower(false);
+    else if (cpuTemp_ > 65.0f) setFanPower(true);
+}
+
+// WiFi state tick (reads wpa_state and runs recovery policy).
+void SerialRobotDriver::tickWifi(uint64_t now) {
+    if (now < nextWifiMs_) return;
+
+    nextWifiMs_ = now + kWifiPeriodMs;
+    updateWifi();
+}
+
+// LED tick (WiFi LED reflects connection state).
+void SerialRobotDriver::tickLed(uint64_t now) {
+    if (now < nextLedMs_) return;
+
+    nextLedMs_ = now + kLedPeriodMs;
+    updateWifiLed();
+}
+
+// Shutdown sequencing tick (grace period then shutdown).
+void SerialRobotDriver::tickShutdown(uint64_t now) {
+    if (!shutdownPending_ || now < shutdownAt_) return;
+
+    shutdownAt_ = now + 10000;
+    std::cerr << "[SRD] LINUX SHUTDOWN\n";
+    setFanPower(false);
+    std::system("shutdown now");
 }
 
 // ── HardwareInterface: motor ──────────────────────────────────────────────────
 
+// Latch PWM setpoints. Applied on next AT+M tick; optional inversion via config.
 void SerialRobotDriver::setMotorPwm(int left, int right, int mow) {
     if (config_->get<bool>("invert_left_motor", false)) left = -left;
     if (config_->get<bool>("invert_right_motor", false)) right = -right;
@@ -300,6 +395,7 @@ void SerialRobotDriver::setMotorPwm(int left, int right, int mow) {
     pwmMow_   = mow;
 }
 
+// Alfred: no-op (MCU recovers fault internally).
 void SerialRobotDriver::resetMotorFault() {
     // Alfred STM32 auto-recovers from motor fault — nothing to send.
     std::cerr << "[SRD] resetMotorFault called (no-op on Alfred)\n";
@@ -307,6 +403,7 @@ void SerialRobotDriver::resetMotorFault() {
 
 // ── HardwareInterface: sensors ────────────────────────────────────────────────
 
+// Return encoder tick deltas since last call; handles reconnect/reset and wraparound.
 OdometryData SerialRobotDriver::readOdometry() {
     OdometryData data;
     data.mcuConnected = mcuConnected_;
@@ -342,25 +439,30 @@ OdometryData SerialRobotDriver::readOdometry() {
     return data;
 }
 
+// Return last sensor snapshot decoded from incoming AT frames.
 SensorData SerialRobotDriver::readSensors() {
     return sensors_;
 }
 
+// Return last battery snapshot decoded from incoming AT frames.
 BatteryData SerialRobotDriver::readBattery() {
     return battery_;
 }
 
+// Return last IMU snapshot (or invalid/zero struct if IMU absent).
 ImuData SerialRobotDriver::readImu() {
     if (imu_) return imu_->getData();
     return {};
 }
 
+// Start IMU calibration routine (bias estimation).
 void SerialRobotDriver::calibrateImu() {
     if (imu_) imu_->startCalibration();
 }
 
 // ── HardwareInterface: actuators ──────────────────────────────────────────────
 
+// Drive buzzer via EX2 port expander.
 void SerialRobotDriver::setBuzzer(bool on) {
     if (ex2_) {
         selectLegacyChannel();
@@ -374,10 +476,12 @@ void SerialRobotDriver::setBuzzer(bool on) {
     }
 }
 
+// Drive panel LED via EX3 port expander.
 void SerialRobotDriver::setLed(LedId id, LedState state) {
     writeLed(id, state);
 }
 
+// keepPowerOn(false) arms shutdown grace period; keepPowerOn(true) cancels it.
 void SerialRobotDriver::keepPowerOn(bool flag) {
     if (flag) {
         shutdownPending_ = false;
@@ -396,20 +500,24 @@ void SerialRobotDriver::keepPowerOn(bool flag) {
 
 // ── HardwareInterface: system info ───────────────────────────────────────────
 
+// Last measured CPU temperature (°C).
 float SerialRobotDriver::getCpuTemperature() { return cpuTemp_; }
 
+// Identity strings discovered during init()/AT+V handshake.
 std::string SerialRobotDriver::getRobotId()           { return robotId_;           }
 std::string SerialRobotDriver::getMcuFirmwareName()   { return mcuFirmwareName_;   }
 std::string SerialRobotDriver::getMcuFirmwareVersion(){ return mcuFirmwareVersion_; }
 
 // ── AT protocol — send ────────────────────────────────────────────────────────
 
+// Compute additive checksum over raw command string (matches RM18 cmdAnswer()).
 uint8_t SerialRobotDriver::calcCrc(const std::string& s) {
     uint8_t crc = 0;
     for (unsigned char c : s) crc += c;
     return crc;
 }
 
+// Send one AT command with appended CRC trailer and CRLF.
 void SerialRobotDriver::sendAt(const std::string& cmd) {
     char crcBuf[12];
     std::snprintf(crcBuf, sizeof(crcBuf), ",0x%02X\r\n", calcCrc(cmd));
@@ -422,6 +530,7 @@ void SerialRobotDriver::sendAt(const std::string& cmd) {
 
 // ── AT protocol — receive ─────────────────────────────────────────────────────
 
+// Poll UART, accumulate into rxBuf_, dispatch frames on CR/LF or gap/CRC-framer.
 void SerialRobotDriver::pollRx() {
     const uint64_t now = nowMs();
     bool sawData = false;
@@ -482,6 +591,7 @@ void SerialRobotDriver::pollRx() {
     }
 }
 
+// Extract back-to-back frames by scanning for ",0xNN" trailers inside rxBuf_.
 void SerialRobotDriver::drainFramedRx() {
     // Alfred/RM18 replies can arrive as back-to-back frames without CR/LF.
     // Detect the CRC trailer ",0xNN" and dispatch each complete frame directly
@@ -522,6 +632,7 @@ void SerialRobotDriver::drainFramedRx() {
     }
 }
 
+// Verify additive CRC; on success strips trailing ",0xNN" from frame.
 bool SerialRobotDriver::verifyCrc(std::string& frame) {
     const auto idx = frame.rfind(',');
     if (idx == std::string::npos || idx == 0) return false;
@@ -537,6 +648,7 @@ bool SerialRobotDriver::verifyCrc(std::string& frame) {
     return true;
 }
 
+// Validate CRC then route frame by type prefix (M/S/V).
 void SerialRobotDriver::dispatchFrame(std::string frame) {
     if (frame.size() < 4) return;
     if (!verifyCrc(frame)) {
@@ -569,14 +681,15 @@ int          SerialRobotDriver::fieldInt  (const std::string& s) { return std::s
 unsigned long SerialRobotDriver::fieldULong(const std::string& s) { return std::stoul(s);  }  // BUG-003 fix
 float        SerialRobotDriver::fieldFloat(const std::string& s) { return std::stof(s);          }
 
+// Parse motor response frame; supports compact v1.1.25+ and legacy schema.
 void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
     const auto f = csvSplit(frame);
     try {
-        if (f.size() == 6) {
+        const auto applyCompact = [&]() {
             rawTicksRight_ += fieldULong(f[1]);
             rawTicksLeft_  += fieldULong(f[2]);
             rawTicksMow_   += fieldULong(f[3]);
-            battery_.chargeVoltage = static_cast<float>(fieldInt(f[4])) / 100.0f;
+            setChargeVoltage(static_cast<float>(fieldInt(f[4])) / 100.0f);
 
             const unsigned int flags = static_cast<unsigned int>(fieldULong(f[5]));
             const bool bumperCombined = (flags & (1U << 0)) != 0;
@@ -586,33 +699,34 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
             sensors_.bumperRight = bumperRight;
             sensors_.lift = (flags & (1U << 1)) != 0;
             sensors_.stopButton = (flags & (1U << 2)) != 0;
-            motorFaultFast_ = (flags & (1U << 3)) != 0;
-        } else {
+            setMotorFaultFast((flags & (1U << 3)) != 0);
+        };
+
+        const auto applyLegacy = [&]() {
             if (f.size() > 1) rawTicksRight_ = fieldULong(f[1]);
             if (f.size() > 2) rawTicksLeft_  = fieldULong(f[2]);
             if (f.size() > 3) rawTicksMow_   = fieldULong(f[3]);
-            if (f.size() > 4) battery_.chargeVoltage  = fieldFloat(f[4]);
+            if (f.size() > 4) setChargeVoltage(fieldFloat(f[4]));
             if (f.size() > 5) {
                 sensors_.bumperLeft  = (fieldInt(f[5]) != 0);
                 sensors_.bumperRight = false;
             }
             if (f.size() > 6) sensors_.lift       = (fieldInt(f[6]) != 0);
             if (f.size() > 7) sensors_.stopButton = (fieldInt(f[7]) != 0);
-            if (f.size() > 8) motorFaultFast_ = (fieldInt(f[8]) != 0);
+            if (f.size() > 8) setMotorFaultFast(fieldInt(f[8]) != 0);
             if (f.size() > 9) sensors_.bumperLeft  = (fieldInt(f[9])  != 0);
             if (f.size() > 10) sensors_.bumperRight = (fieldInt(f[10]) != 0);
+        };
+
+        switch (detectMotorFrameSchema(f)) {
+            case MotorFrameSchema::Compact: applyCompact(); break;
+            case MotorFrameSchema::Legacy:  applyLegacy();  break;
         }
     } catch (...) {
         return;  // malformed frame — ignore
     }
 
-    // AT+M field 8 is the fast overload/fault hint. It may assert early, but a
-    // low value must not clear a fault latched by the slower AT+S summary path.
-    sensors_.motorFault = (motorFaultFast_ || motorFaultSummary_);
-
-    updateChargerConnected(chargerConnectedFromVoltage(
-        battery_.chargeVoltage,
-        config_->get<float>("charger_connected_voltage_v", 7.0f)));
+    updateLatchedMotorFault();
     mcuConnected_ = true;
     motorRxCount_++;
     if (serialDebug_) {
@@ -630,12 +744,13 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
     }
 }
 
+// Parse summary response frame (2 Hz) and update battery/sensor snapshots.
 void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
     // S,f1..f14 legacy + optional f15..f18 detailed mow-fault causes (2 Hz)
     const auto f = csvSplit(frame);
     try {
         if (f.size() > 1)  battery_.voltage       = fieldFloat(f[1]);
-        if (f.size() > 2)  battery_.chargeVoltage  = fieldFloat(f[2]);
+        if (f.size() > 2)  setChargeVoltage(fieldFloat(f[2]));
         if (f.size() > 3)  battery_.chargeCurrent  = fieldFloat(f[3]);
         if (f.size() > 4)  sensors_.lift            = (fieldInt(f[4]) != 0);
         if (f.size() > 5)  {
@@ -643,11 +758,11 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
             sensors_.bumperRight = false;
         }
         if (f.size() > 6)  sensors_.rain      = (fieldInt(f[6])  != 0);
-        motorFaultSummary_ = (f.size() > 7) ? (fieldInt(f[7]) != 0) : false;
+        setMotorFaultSummary((f.size() > 7) ? (fieldInt(f[7]) != 0) : false);
         // f[8]=mowCurr, f[9]=leftCurr, f[10]=rightCurr — not in SensorData/BatteryData
         if (f.size() > 11) battery_.batteryTemp   = fieldFloat(f[11]);
         sensors_.mowOvCheck = (f.size() > 12) ? (fieldInt(f[12]) != 0) : false;
-        if (sensors_.mowOvCheck) motorFaultSummary_ = true;  // IMP-01: hardware overvoltage signal
+        if (sensors_.mowOvCheck) setMotorFaultSummary(true);
         if (f.size() > 13) sensors_.bumperLeft  = (fieldInt(f[13]) != 0);
         if (f.size() > 14) sensors_.bumperRight = (fieldInt(f[14]) != 0);
         sensors_.mowFaultPin = (f.size() > 15) ? (fieldInt(f[15]) != 0) : false;
@@ -656,17 +771,13 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
         if (f.size() > 18) sensors_.mowOvCheck = (fieldInt(f[18]) != 0);
         if (sensors_.mowFaultPin || sensors_.mowOverload
             || sensors_.mowPermanentFault || sensors_.mowOvCheck) {
-            motorFaultSummary_ = true;
+            setMotorFaultSummary(true);
         }
     } catch (...) {
         return;
     }
 
-    sensors_.motorFault = (motorFaultFast_ || motorFaultSummary_);
-
-    updateChargerConnected(chargerConnectedFromVoltage(
-        battery_.chargeVoltage,
-        config_->get<float>("charger_connected_voltage_v", 7.0f)));
+    updateLatchedMotorFault();
     summaryRxCount_++;
     if (serialDebug_) {
         std::cerr << "[SRD] S parsed"
@@ -687,6 +798,7 @@ void SerialRobotDriver::parseSummaryFrame(const std::string& frame) {
     }
 }
 
+// Parse version response frame (firmware name/version).
 void SerialRobotDriver::parseVersionFrame(const std::string& frame) {
     // V,name,version
     const auto f = csvSplit(frame);
@@ -696,6 +808,7 @@ void SerialRobotDriver::parseVersionFrame(const std::string& frame) {
               << " v" << mcuFirmwareVersion_ << '\n';
 }
 
+// Debounce charger-connected state changes derived from charge voltage.
 void SerialRobotDriver::updateChargerConnected(bool rawConnected) {
     rawChargerConnected_ = rawConnected;
 
@@ -717,8 +830,30 @@ void SerialRobotDriver::updateChargerConnected(bool rawConnected) {
     }
 }
 
+// Set charge voltage and update chargerConnected debounce state.
+void SerialRobotDriver::setChargeVoltage(float v) {
+    battery_.chargeVoltage = v;
+    updateChargerConnected(chargerConnectedFromVoltage(v, chargerConnectedVoltageV_));
+}
+
+// Set fast fault bit (from AT+M).
+void SerialRobotDriver::setMotorFaultFast(bool fault) {
+    motorFaultFast_ = fault;
+}
+
+// Set summary fault bit (from AT+S).
+void SerialRobotDriver::setMotorFaultSummary(bool fault) {
+    motorFaultSummary_ = fault;
+}
+
+// Update exported sensors_.motorFault from fast+summary latch bits.
+void SerialRobotDriver::updateLatchedMotorFault() {
+    sensors_.motorFault = (motorFaultFast_ || motorFaultSummary_);
+}
+
 // ── Hardware helpers ──────────────────────────────────────────────────────────
 
+// Select IMU mux channel (exclusive) before accessing IMU over I2C.
 void SerialRobotDriver::selectImuChannel() {
     if (mux_) {
         bool success = mux_->selectChannel(static_cast<uint8_t>(imuMuxChannel_));
@@ -730,6 +865,7 @@ void SerialRobotDriver::selectImuChannel() {
     }
 }
 
+// Select EX3 mux channel (exclusive) before accessing LED panel expander.
 void SerialRobotDriver::selectEx3Channel() {
     if (mux_) {
         bool success = mux_->selectChannel(static_cast<uint8_t>(ex3MuxChannel_));
@@ -741,6 +877,7 @@ void SerialRobotDriver::selectEx3Channel() {
     }
 }
 
+// Select legacy mux channel (exclusive) for EX1/EX2 devices (fan, buzzer, etc).
 void SerialRobotDriver::selectLegacyChannel() {
     if (mux_) {
         bool success = mux_->selectChannel(static_cast<uint8_t>(legacyMuxChannel_));
@@ -751,6 +888,7 @@ void SerialRobotDriver::selectLegacyChannel() {
     }
 }
 
+// Toggle fan power pin via EX1 port expander.
 void SerialRobotDriver::setFanPower(bool on) {
     selectLegacyChannel();
     if (ex1_ && !ex1_->setPin(1, 7, on)) {
@@ -762,6 +900,7 @@ void SerialRobotDriver::setFanPower(bool on) {
     }
 }
 
+// Write one LED color state via EX3 expander; returns false on I2C failure.
 bool SerialRobotDriver::writeLed(LedId id, LedState state) {
     if (!ex3_) return false;
     selectEx3Channel();  // exclusive: only LED channel active during EX3 access
@@ -787,6 +926,7 @@ bool SerialRobotDriver::writeLed(LedId id, LedState state) {
     return ok;
 }
 
+// Read CPU temperature from sysfs.
 void SerialRobotDriver::updateCpuTemp() {
     const std::string s = shellRead("cat /sys/class/thermal/thermal_zone0/temp");
     if (!s.empty()) {
@@ -794,6 +934,7 @@ void SerialRobotDriver::updateCpuTemp() {
     }
 }
 
+// Read WiFi state from wpa_cli, log transitions, run recovery, update flags.
 void SerialRobotDriver::updateWifi() {
     // wpa_state values: COMPLETED, DISCONNECTED, SCANNING, INACTIVE, …
     const std::string cmd = "wpa_cli -i " + wifiInterface_
@@ -811,6 +952,7 @@ void SerialRobotDriver::updateWifi() {
     recoverWifi();
 }
 
+// Recovery policy: periodic scan + reconnect when not connected.
 void SerialRobotDriver::recoverWifi() {
     if (wifiConnected_) {
         wifiLastScanMs_ = 0;
@@ -833,6 +975,7 @@ void SerialRobotDriver::recoverWifi() {
     }
 }
 
+// Drive WiFi LED based on wifiConnected_/wifiInactive_.
 void SerialRobotDriver::updateWifiLed() {
     if      (wifiConnected_) writeLed(LedId::LED_1, LedState::GREEN);
     else if (wifiInactive_)  writeLed(LedId::LED_1, LedState::RED);
@@ -841,12 +984,14 @@ void SerialRobotDriver::updateWifiLed() {
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
+// Monotonic time base used for driver scheduling.
 uint64_t SerialRobotDriver::nowMs() {
     using namespace std::chrono;
     return static_cast<uint64_t>(
         duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+// Run shell command and collect stdout (best-effort).
 std::string SerialRobotDriver::shellRead(const char* cmd) {
     FILE* f = ::popen(cmd, "r");
     if (!f) return {};
@@ -857,10 +1002,12 @@ std::string SerialRobotDriver::shellRead(const char* cmd) {
     return result;
 }
 
+// Run shell command; returns true on exit code 0.
 bool SerialRobotDriver::shellExec(const std::string& cmd) {
     return std::system(cmd.c_str()) == 0;
 }
 
+// Trim whitespace/newlines from both ends.
 std::string SerialRobotDriver::trim(std::string s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r' ||
                           s.back() == ' ' || s.back() == '\t')) {
@@ -874,6 +1021,7 @@ std::string SerialRobotDriver::trim(std::string s) {
     return s.substr(first);
 }
 
+// Debug helper: print bytes in hex plus ASCII.
 void SerialRobotDriver::logSerialBytes(const char* prefix, const uint8_t* buf, size_t len) const {
     std::ostringstream oss;
     oss << prefix << ' ';
@@ -889,6 +1037,7 @@ void SerialRobotDriver::logSerialBytes(const char* prefix, const uint8_t* buf, s
     std::cerr << oss.str() << '\n';
 }
 
+// Read I2C address from config string ("0x70") or int fallback; clamp to 7-bit.
 uint8_t SerialRobotDriver::configI2cAddr(const std::string& key, uint8_t fallback) const {
     const std::string s = config_->get<std::string>(key, "");
     if (!s.empty()) {
