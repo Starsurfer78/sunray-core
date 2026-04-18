@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_controller.dart';
-import '../../../shared/widgets/robot_map_view.dart';
 
 class MissionsScreen extends StatelessWidget {
   const MissionsScreen({super.key});
@@ -49,10 +48,13 @@ class MissionsScreen extends StatelessWidget {
                     ),
                   ),
                   FilledButton.icon(
-                    onPressed: () {
-                      final mission = AppScope.read(context).createMission();
-                      context.push('/missions/detail/${mission.id}');
-                    },
+                    onPressed: controller.connectedRobot == null
+                        ? null
+                        : () {
+                            final mission =
+                                AppScope.read(context).createMission();
+                            context.push('/missions/detail/${mission.id}');
+                          },
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF2F7D4A),
                       foregroundColor: Colors.white,
@@ -63,11 +65,6 @@ class MissionsScreen extends StatelessWidget {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _MissionMapPreview(controller: controller),
-            ),
-            const SizedBox(height: 12),
             Expanded(
               child: missions.isEmpty
                   ? const _EmptyMissionState()
@@ -86,68 +83,6 @@ class MissionsScreen extends StatelessWidget {
                         );
                       },
                     ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MissionMapPreview extends StatelessWidget {
-  const _MissionMapPreview({required this.controller});
-
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFFDCE4D8)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: AspectRatio(
-                aspectRatio: 1.48,
-                child: controller.hasMap
-                    ? RobotMapView(
-                        map: controller.mapGeometry,
-                        status: controller.connectionStatus,
-                        interactive: false,
-                        showCenterButton: false,
-                      )
-                    : const ColoredBox(color: Color(0xFFEFF2ED)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                _LegendChip(
-                  color: const Color(0xFF2F7D4A),
-                  label: controller.hasMap
-                      ? '${controller.mapAreaSquareMeters} m² Kartenfläche'
-                      : 'Noch keine Karte',
-                ),
-                _LegendChip(
-                  color: const Color(0xFFC6463B),
-                  label: '${controller.noGoCount} No-Go',
-                ),
-                _LegendChip(
-                  color: const Color(0xFFF59E0B),
-                  label: controller.hasZones
-                      ? '${controller.zoneCount} Zonen verfügbar'
-                      : 'Gesamte Fläche möglich',
-                ),
-              ],
             ),
           ],
         ),
@@ -296,44 +231,6 @@ class _MissionListCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LegendChip extends StatelessWidget {
-  const _LegendChip({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF1F2A22),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
         ),
       ),
     );

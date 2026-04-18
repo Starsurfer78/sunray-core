@@ -11,8 +11,7 @@ class AddMapObjectScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppScope.watch(context);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final canCreateZone = controller.mapGeometry.perimeter.length >= 3 &&
-        controller.mapGeometry.dock.isNotEmpty;
+    final canCreateZone = controller.mapGeometry.perimeter.length >= 3;
 
     return Scaffold(
       backgroundColor: const Color(0xFFE8E8EC),

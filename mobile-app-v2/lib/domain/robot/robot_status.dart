@@ -33,6 +33,8 @@ class RobotStatus {
     this.uiSeverity,
     this.mowDistanceM,
     this.mowDurationSec,
+    this.wifiRssiDbm,
+    this.bluetoothConnected,
   });
 
   final ConnectionStateKind connectionState;
@@ -60,6 +62,8 @@ class RobotStatus {
   final String? uiSeverity;
   final double? mowDistanceM;
   final int? mowDurationSec;
+  final int? wifiRssiDbm;
+  final bool? bluetoothConnected;
 
   RobotStatus copyWith({
     ConnectionStateKind? connectionState,
@@ -87,6 +91,8 @@ class RobotStatus {
     String? uiSeverity,
     double? mowDistanceM,
     int? mowDurationSec,
+    int? wifiRssiDbm,
+    bool? bluetoothConnected,
   }) {
     return RobotStatus(
       connectionState: connectionState ?? this.connectionState,
@@ -114,6 +120,8 @@ class RobotStatus {
       uiSeverity: uiSeverity ?? this.uiSeverity,
       mowDistanceM: mowDistanceM ?? this.mowDistanceM,
       mowDurationSec: mowDurationSec ?? this.mowDurationSec,
+      wifiRssiDbm: wifiRssiDbm ?? this.wifiRssiDbm,
+      bluetoothConnected: bluetoothConnected ?? this.bluetoothConnected,
     );
   }
 }

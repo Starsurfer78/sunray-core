@@ -8,6 +8,7 @@ export const CONNECTION_FRESH_MS = 5000;
 
 export type Point = { x: number; y: number };
 export type Segment = { a: Point; b: Point };
+export type GpsOrigin = { lat: number; lon: number };
 
 /**
  * Clamp a value between min and max.
@@ -105,4 +106,107 @@ export function hasSelfIntersection(points: Point[]): boolean {
         }
     }
     return false;
+}
+
+export function gpsOriginForPerimeter(perimeter: Point[]): GpsOrigin | null {
+    if (perimeter.length < 3) return null;
+    let sumLon = 0;
+    let sumLat = 0;
+    for (const p of perimeter) {
+        sumLon += p.x;
+        sumLat += p.y;
+    }
+    const avgLon = sumLon / perimeter.length;
+    const avgLat = sumLat / perimeter.length;
+    const spanLon = Math.max(...perimeter.map((p) => p.x)) - Math.min(...perimeter.map((p) => p.x));
+    const spanLat = Math.max(...perimeter.map((p) => p.y)) - Math.min(...perimeter.map((p) => p.y));
+    if (
+        avgLat >= -90 &&
+        avgLat <= 90 &&
+        avgLon >= -180 &&
+        avgLon <= 180 &&
+        spanLon > 0 &&
+        spanLon < 0.5 &&
+        spanLat > 0 &&
+        spanLat < 0.5
+    ) {
+        return { lat: avgLat, lon: avgLon };
+    }
+    return null;
+}
+
+export function gpsToLocalMeters(
+    lon: number,
+    lat: number,
+    origin: GpsOrigin,
+): Point {
+    const EARTH_R = 6378137.0;
+    const toRad = Math.PI / 180;
+    const refMercY = Math.log(Math.tan(Math.PI / 4 + (origin.lat * toRad) / 2));
+    return {
+        x: (lon - origin.lon) * EARTH_R * toRad,
+        y: (Math.log(Math.tan(Math.PI / 4 + (lat * toRad) / 2)) - refMercY) * EARTH_R,
+    };
+}
+
+export function projectGpsPointsToLocalMeters(
+    points: Point[],
+    origin: GpsOrigin,
+): Point[] {
+    return points.map((p) => gpsToLocalMeters(p.x, p.y, origin));
+}
+
+type NormalizeMapInput = {
+    perimeter?: Array<[number, number]> | Point[];
+    dock?: Array<[number, number]> | Point[];
+    exclusions?: Array<Array<[number, number]> | Point[]>;
+    zones?: Array<{ id: string; name?: string; order?: number; polygon: any }>;
+    planner?: unknown;
+    dockMeta?: { corridor?: Array<[number, number]> | Point[]; [key: string]: unknown };
+    exclusionMeta?: unknown;
+    captureMeta?: unknown;
+};
+
+export function normalizeMapDocumentForUi(map: NormalizeMapInput): {
+    map: {
+        perimeter: Point[];
+        dock: Point[];
+        exclusions: Point[][];
+        zones: Array<{ id: string; name: string; order: number; polygon: Point[] }>;
+        planner?: unknown;
+        dockMeta?: unknown;
+        exclusionMeta?: unknown;
+        captureMeta?: unknown;
+    };
+    gpsOrigin: GpsOrigin | null;
+} {
+    const perimeter = normalizePoints(map.perimeter ?? []);
+    const gpsOrigin = gpsOriginForPerimeter(perimeter);
+    const projectPoints = gpsOrigin
+        ? (pts: Point[]) => projectGpsPointsToLocalMeters(pts, gpsOrigin)
+        : (pts: Point[]) => pts;
+
+    return {
+        map: {
+            perimeter: projectPoints(perimeter),
+            dock: projectPoints(normalizePoints(map.dock ?? [])),
+            exclusions: (map.exclusions ?? []).map((exclusion) =>
+                projectPoints(normalizePoints(exclusion as Array<[number, number]> | Point[])),
+            ),
+            zones: (map.zones ?? []).map((zone, index) => {
+                const z = normalizeZone(zone, index);
+                return { ...z, polygon: projectPoints(z.polygon) };
+            }),
+            planner: map.planner,
+            dockMeta: map.dockMeta
+                ? {
+                      ...map.dockMeta,
+                      corridor: projectPoints(normalizePoints(map.dockMeta.corridor ?? [])),
+                  }
+                : undefined,
+            exclusionMeta: map.exclusionMeta,
+            captureMeta: map.captureMeta ?? {},
+        },
+        gpsOrigin,
+    };
 }

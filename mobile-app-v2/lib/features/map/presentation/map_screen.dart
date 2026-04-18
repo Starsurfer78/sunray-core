@@ -139,6 +139,7 @@ class MapScreen extends StatelessWidget {
                       _StatusPill(
                         icon: Icons.satellite_alt_rounded,
                         label: _gpsStatusLabel(controller.connectionStatus),
+                        iconColor: _gpsStatusColor(controller.connectionStatus),
                       ),
                       const Spacer(),
                       _RoundMapButton(
@@ -273,7 +274,11 @@ class MapScreen extends StatelessWidget {
 
   String _gpsStatusLabel(RobotStatus status) {
     if (status.rtkState != null && status.rtkState!.trim().isNotEmpty) {
-      return status.rtkState!;
+      final state = status.rtkState!;
+      if (state.contains('Float') && status.gpsDgpsAgeMs != null) {
+        return '$state (${status.gpsDgpsAgeMs} ms)';
+      }
+      return state;
     }
     final hasGps =
         status.gpsLat != null &&
@@ -283,6 +288,20 @@ class MapScreen extends StatelessWidget {
       return 'GPS bereit';
     }
     return 'GPS fehlt';
+  }
+
+  Color? _gpsStatusColor(RobotStatus status) {
+    final state = status.rtkState;
+    if (state == null || state.trim().isEmpty) {
+      return null;
+    }
+    if (state.contains('Fix')) {
+      return const Color(0xFF16A34A);
+    }
+    if (state.contains('Float')) {
+      return const Color(0xFFF59E0B);
+    }
+    return const Color(0xFFDC2626);
   }
 
   void _handleMapTap(
@@ -954,12 +973,7 @@ class _ModePanel extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Werkzeuge schließen',
-                  onPressed: () => controller.setMapToolPanelVisible(false),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 SizedBox(
                   width: 136,
                   child: FilledButton(
@@ -991,6 +1005,11 @@ class _ModePanel extends StatelessWidget {
                     ),
                     child: const Text('Speichern'),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Werkzeuge schließen',
+                  onPressed: () => controller.setMapToolPanelVisible(false),
+                  icon: const Icon(Icons.close_rounded),
                 ),
               ],
             ),
@@ -1422,10 +1441,11 @@ class _TitlePill extends StatelessWidget {
 }
 
 class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.icon, required this.label});
+  const _StatusPill({required this.icon, required this.label, this.iconColor});
 
   final IconData icon;
   final String label;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -1439,7 +1459,7 @@ class _StatusPill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 16, color: const Color(0xFF1F2A22)),
+            Icon(icon, size: 16, color: iconColor ?? const Color(0xFF1F2A22)),
             const SizedBox(width: 6),
             Text(label),
           ],
