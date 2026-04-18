@@ -157,6 +157,7 @@ export function projectGpsPointsToLocalMeters(
 }
 
 type NormalizeMapInput = {
+    origin?: { lat?: number; lon?: number } | null;
     perimeter?: Array<[number, number]> | Point[];
     dock?: Array<[number, number]> | Point[];
     exclusions?: Array<Array<[number, number]> | Point[]>;
@@ -166,6 +167,31 @@ type NormalizeMapInput = {
     exclusionMeta?: unknown;
     captureMeta?: unknown;
 };
+
+export function localMetersToGps(
+    x: number,
+    y: number,
+    origin: GpsOrigin,
+): { lon: number; lat: number } {
+    const EARTH_R = 6378137.0;
+    const toRad = Math.PI / 180;
+    const refMercY = Math.log(Math.tan(Math.PI / 4 + (origin.lat * toRad) / 2));
+
+    const lon = origin.lon + x / (EARTH_R * toRad);
+    const mercY = y / EARTH_R + refMercY;
+    const lat = ((2 * Math.atan(Math.exp(mercY))) - Math.PI / 2) / toRad;
+    return { lon, lat };
+}
+
+export function projectLocalMetersToGpsPoints(
+    points: Point[],
+    origin: GpsOrigin,
+): Point[] {
+    return points.map((p) => {
+        const gps = localMetersToGps(p.x, p.y, origin);
+        return { x: gps.lon, y: gps.lat };
+    });
+}
 
 export function normalizeMapDocumentForUi(map: NormalizeMapInput): {
     map: {
@@ -181,7 +207,13 @@ export function normalizeMapDocumentForUi(map: NormalizeMapInput): {
     gpsOrigin: GpsOrigin | null;
 } {
     const perimeter = normalizePoints(map.perimeter ?? []);
-    const gpsOrigin = gpsOriginForPerimeter(perimeter);
+    const originFromDoc =
+        map.origin &&
+        typeof map.origin.lat === "number" &&
+        typeof map.origin.lon === "number"
+            ? { lat: map.origin.lat, lon: map.origin.lon }
+            : null;
+    const gpsOrigin = originFromDoc ?? gpsOriginForPerimeter(perimeter);
     const projectPoints = gpsOrigin
         ? (pts: Point[]) => projectGpsPointsToLocalMeters(pts, gpsOrigin)
         : (pts: Point[]) => pts;

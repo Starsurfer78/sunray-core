@@ -1288,6 +1288,42 @@ namespace sunray
                     return crow::response(400, R"({"error":"invalid map payload"})");
                 }
 
+                if (!mapDoc.contains("origin") || !mapDoc["origin"].is_object())
+                {
+                    constexpr double R = 6371000.0;
+                    constexpr double DEG = M_PI / 180.0;
+
+                    TelemetryData t;
+                    {
+                        std::lock_guard<std::mutex> lk(telemetryMutex_);
+                        t = latestTelemetry_;
+                    }
+                    if (t.gps_lat != 0.0 && t.gps_lon != 0.0)
+                    {
+                        const double lat0 = t.gps_lat - static_cast<double>(t.y) / (R * DEG);
+                        const double lon0 = t.gps_lon - static_cast<double>(t.x) / (R * std::cos(lat0 * DEG) * DEG);
+                        mapDoc["origin"] = {{"lat", lat0}, {"lon", lon0}};
+                    }
+                    else if (mapDoc.contains("perimeter") && mapDoc["perimeter"].is_array() && mapDoc["perimeter"].size() >= 3)
+                    {
+                        double sumLon = 0.0, sumLat = 0.0;
+                        std::size_t n = 0;
+                        for (const auto &p : mapDoc["perimeter"])
+                        {
+                            if (!p.is_array() || p.size() < 2) continue;
+                            sumLon += p[0].get<double>();
+                            sumLat += p[1].get<double>();
+                            ++n;
+                        }
+                        if (n > 0)
+                        {
+                            const double lon0 = sumLon / static_cast<double>(n);
+                            const double lat0 = sumLat / static_cast<double>(n);
+                            mapDoc["origin"] = {{"lat", lat0}, {"lon", lon0}};
+                        }
+                    }
+                }
+
                 std::lock_guard<std::mutex> lk(mapCatalogMutex_);
                 std::string err;
                 if (!ensureMapsCatalogLocked(&err)) {
@@ -1601,6 +1637,42 @@ namespace sunray
             try {
                 auto j = nlohmann::json::parse(req.body);
                 if (!j.is_object()) return crow::response(400);
+
+                if (!j.contains("origin") || !j["origin"].is_object())
+                {
+                    constexpr double R = 6371000.0;
+                    constexpr double DEG = M_PI / 180.0;
+
+                    TelemetryData t;
+                    {
+                        std::lock_guard<std::mutex> lk(telemetryMutex_);
+                        t = latestTelemetry_;
+                    }
+                    if (t.gps_lat != 0.0 && t.gps_lon != 0.0)
+                    {
+                        const double lat0 = t.gps_lat - static_cast<double>(t.y) / (R * DEG);
+                        const double lon0 = t.gps_lon - static_cast<double>(t.x) / (R * std::cos(lat0 * DEG) * DEG);
+                        j["origin"] = {{"lat", lat0}, {"lon", lon0}};
+                    }
+                    else if (j.contains("perimeter") && j["perimeter"].is_array() && j["perimeter"].size() >= 3)
+                    {
+                        double sumLon = 0.0, sumLat = 0.0;
+                        std::size_t n = 0;
+                        for (const auto &p : j["perimeter"])
+                        {
+                            if (!p.is_array() || p.size() < 2) continue;
+                            sumLon += p[0].get<double>();
+                            sumLat += p[1].get<double>();
+                            ++n;
+                        }
+                        if (n > 0)
+                        {
+                            const double lon0 = sumLon / static_cast<double>(n);
+                            const double lat0 = sumLat / static_cast<double>(n);
+                            j["origin"] = {{"lat", lat0}, {"lon", lon0}};
+                        }
+                    }
+                }
 
                 // Write map file
                 {

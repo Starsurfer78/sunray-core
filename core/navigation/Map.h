@@ -219,6 +219,10 @@ namespace sunray
             const std::vector<ExclusionMeta> &exclusionMeta() const { return exclusionMeta_; }
             const DockMeta &dockMeta() const { return dockMeta_; }
             const nlohmann::json &captureMeta() const { return captureMeta_; }
+            bool hasOrigin() const { return hasOrigin_; }
+            double originLat() const { return originLat_; }
+            double originLon() const { return originLon_; }
+            bool coordsAreGps() const { return coordsAreGps_; }
             std::string zoneIdForPoint(float x, float y,
                                        const std::vector<std::string> &preferredOrder = {}) const;
 
@@ -255,6 +259,10 @@ namespace sunray
             PlannerSettings planner_;
             DockMeta dockMeta_;
             nlohmann::json captureMeta_ = nlohmann::json::object(); ///< optional map capture metadata (C.14-g)
+            bool hasOrigin_ = false;
+            double originLat_ = 0.0;
+            double originLon_ = 0.0;
+            bool coordsAreGps_ = false;
 
             std::shared_ptr<Config> config_;
 

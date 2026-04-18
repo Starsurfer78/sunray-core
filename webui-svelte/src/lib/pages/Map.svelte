@@ -37,6 +37,8 @@
     CONNECTION_FRESH_MS,
     normalizePoints,
     normalizeMapDocumentForUi,
+    gpsToLocalMeters,
+    projectLocalMetersToGpsPoints,
     normalizeZone,
     orientation,
     segmentsIntersect,
@@ -165,11 +167,17 @@
   }
 
   function mapPayload() {
+    const origin = $mapGpsOrigin;
+    const encodePoints = (points: Point[]) => {
+      if (!origin) return points.map((p) => [p.x, p.y]);
+      return projectLocalMetersToGpsPoints(points, origin).map((p) => [p.x, p.y]);
+    };
     return {
-      perimeter: $mapStore.map.perimeter.map((p) => [p.x, p.y]),
-      dock: $mapStore.map.dock.map((p) => [p.x, p.y]),
+      origin: origin ? { lat: origin.lat, lon: origin.lon } : undefined,
+      perimeter: encodePoints($mapStore.map.perimeter),
+      dock: encodePoints($mapStore.map.dock),
       exclusions: $mapStore.map.exclusions.map((ex) =>
-        ex.map((p) => [p.x, p.y]),
+        encodePoints(ex),
       ),
       exclusionMeta: ($mapStore.map.exclusionMeta ?? []).map((meta) => ({
         type: meta.type,
@@ -178,13 +186,13 @@
       })),
       zones: $mapStore.map.zones.map((zone) => ({
         ...zone,
-        polygon: zone.polygon.map((p) => [p.x, p.y]),
+        polygon: encodePoints(zone.polygon),
       })),
       planner: $mapStore.map.planner,
       dockMeta: $mapStore.map.dockMeta
         ? {
             ...$mapStore.map.dockMeta,
-            corridor: $mapStore.map.dockMeta.corridor.map((p) => [p.x, p.y]),
+            corridor: encodePoints($mapStore.map.dockMeta.corridor),
           }
         : undefined,
       captureMeta: $mapStore.map.captureMeta,
@@ -585,10 +593,11 @@
       return;
     }
 
-    const point = {
-      x: Number($telemetry.x.toFixed(2)),
-      y: Number($telemetry.y.toFixed(2)),
-    };
+    const point = $mapGpsOrigin && $telemetry.gps_lat !== 0 && $telemetry.gps_lon !== 0
+      ? gpsToLocalMeters($telemetry.gps_lon, $telemetry.gps_lat, $mapGpsOrigin)
+      : { x: $telemetry.x, y: $telemetry.y };
+    point.x = Number(point.x.toFixed(2));
+    point.y = Number(point.y.toFixed(2));
 
     const result = mapStore.addPoint(point);
     if (!result.accepted) {
