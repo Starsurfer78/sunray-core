@@ -59,6 +59,74 @@ namespace sunray
             return arr;
         }
 
+        static bool coordsLookLikeGps(const PolygonPoints &pts)
+        {
+            if (pts.size() < 3)
+                return false;
+            float minX = pts[0].x, maxX = pts[0].x;
+            float minY = pts[0].y, maxY = pts[0].y;
+            float sumX = 0.0f, sumY = 0.0f;
+            for (const auto &p : pts)
+            {
+                minX = std::min(minX, p.x);
+                maxX = std::max(maxX, p.x);
+                minY = std::min(minY, p.y);
+                maxY = std::max(maxY, p.y);
+                sumX += p.x;
+                sumY += p.y;
+            }
+            const float avgX = sumX / static_cast<float>(pts.size());
+            const float avgY = sumY / static_cast<float>(pts.size());
+            const float spanX = maxX - minX;
+            const float spanY = maxY - minY;
+
+            if (avgY < -90.0f || avgY > 90.0f || avgX < -180.0f || avgX > 180.0f)
+                return false;
+            if (spanX <= 0.0f || spanY <= 0.0f)
+                return false;
+            if (spanX >= 0.5f || spanY >= 0.5f)
+                return false;
+            if (std::fabs(avgX) <= 1.0f || std::fabs(avgY) <= 1.0f)
+                return false;
+            return true;
+        }
+
+        struct GeoOrigin
+        {
+            double lat = 0.0;
+            double lon = 0.0;
+            bool valid = false;
+        };
+
+        static GeoOrigin parseOrigin(const nlohmann::json &j)
+        {
+            GeoOrigin o;
+            if (!j.contains("origin") || !j["origin"].is_object())
+                return o;
+            o.lat = j["origin"].value("lat", 0.0);
+            o.lon = j["origin"].value("lon", 0.0);
+            o.valid = (o.lat != 0.0 || o.lon != 0.0);
+            return o;
+        }
+
+        static Point toLocalMeters(double lon, double lat, const GeoOrigin &o)
+        {
+            constexpr double R = 6371000.0;
+            constexpr double DEG = M_PI / 180.0;
+            const double x = (lon - o.lon) * R * std::cos(o.lat * DEG) * DEG;
+            const double y = (lat - o.lat) * R * DEG;
+            return Point{static_cast<float>(x), static_cast<float>(y)};
+        }
+
+        static std::pair<double, double> toWgs84(double x, double y, const GeoOrigin &o)
+        {
+            constexpr double R = 6371000.0;
+            constexpr double DEG = M_PI / 180.0;
+            const double lat = o.lat + y / (R * DEG);
+            const double lon = o.lon + x / (R * std::cos(o.lat * DEG) * DEG);
+            return {lon, lat};
+        }
+
         static ExclusionType parseExclusionType(const std::string &value)
         {
             return value == "soft" ? ExclusionType::SOFT : ExclusionType::HARD;
@@ -248,6 +316,10 @@ namespace sunray
             clear();
             try
             {
+                GeoOrigin origin = parseOrigin(j);
+                hasOrigin_ = origin.valid;
+                originLat_ = origin.lat;
+                originLon_ = origin.lon;
 
                 if (j.contains("perimeter"))
                     perimeterPoints_ = parsePoints(j["perimeter"]);
@@ -290,6 +362,27 @@ namespace sunray
                     std::sort(zones_.begin(), zones_.end(), [](const Zone &a, const Zone &b)
                               { return a.order < b.order; });
                 }
+
+                coordsAreGps_ = coordsLookLikeGps(perimeterPoints_);
+                if (coordsAreGps_ && !hasOrigin_)
+                {
+                    if (!perimeterPoints_.empty())
+                    {
+                        double sumLon = 0.0, sumLat = 0.0;
+                        for (const auto &p : perimeterPoints_)
+                        {
+                            sumLon += static_cast<double>(p.x);
+                            sumLat += static_cast<double>(p.y);
+                        }
+                        origin.lon = sumLon / static_cast<double>(perimeterPoints_.size());
+                        origin.lat = sumLat / static_cast<double>(perimeterPoints_.size());
+                        origin.valid = true;
+                        hasOrigin_ = true;
+                        originLat_ = origin.lat;
+                        originLon_ = origin.lon;
+                    }
+                }
+
                 if (j.contains("planner") && j["planner"].is_object())
                 {
                     planner_ = parsePlannerSettings(j["planner"]);
@@ -309,6 +402,25 @@ namespace sunray
                 if (j.contains("captureMeta") && j["captureMeta"].is_object())
                 {
                     captureMeta_ = j["captureMeta"];
+                }
+
+                if (coordsAreGps_ && hasOrigin_)
+                {
+                    auto convertPoly = [&](PolygonPoints &poly)
+                    {
+                        for (auto &p : poly)
+                        {
+                            const Point local = toLocalMeters(static_cast<double>(p.x), static_cast<double>(p.y), origin);
+                            p = local;
+                        }
+                    };
+                    convertPoly(perimeterPoints_);
+                    convertPoly(parsedDockPoints);
+                    for (auto &ex : exclusions_)
+                        convertPoly(ex);
+                    for (auto &zone : zones_)
+                        convertPoly(zone.polygon);
+                    convertPoly(dockMeta_.corridor);
                 }
                 dockRoute_ = buildDockRoutePlan(parsedDockPoints);
                 for (auto &routePoint : dockRoute_.points)
@@ -347,6 +459,57 @@ namespace sunray
         nlohmann::json Map::exportMapJson() const
         {
             nlohmann::json j;
+            if (coordsAreGps_ && hasOrigin_)
+            {
+                GeoOrigin origin;
+                origin.lat = originLat_;
+                origin.lon = originLon_;
+                origin.valid = true;
+                j["origin"] = {{"lat", origin.lat}, {"lon", origin.lon}};
+
+                auto encodeWgs = [&](const PolygonPoints &pts)
+                {
+                    nlohmann::json arr = nlohmann::json::array();
+                    for (const auto &p : pts)
+                    {
+                        const auto [lon, lat] = toWgs84(p.x, p.y, origin);
+                        arr.push_back({lon, lat});
+                    }
+                    return arr;
+                };
+
+                j["perimeter"] = encodeWgs(perimeterPoints_);
+                j["dock"] = encodeWgs(exportPolygonPoints(dockRoute_));
+                j["exclusions"] = nlohmann::json::array();
+                for (const auto &ex : exclusions_)
+                    j["exclusions"].push_back(encodeWgs(ex));
+                j["zones"] = nlohmann::json::array();
+                for (const auto &z : zones_)
+                {
+                    nlohmann::json jz;
+                    jz["id"] = z.id;
+                    jz["name"] = z.name;
+                    jz["order"] = z.order;
+                    jz["polygon"] = encodeWgs(z.polygon);
+                    jz["activeProfile"] = z.activeProfileId;
+                    jz["profiles"] = nlohmann::json::object();
+                    for (const auto &[profileId, profile] : z.profiles)
+                        jz["profiles"][profileId] = encodeZoneProfile(profile);
+                    j["zones"].push_back(jz);
+                }
+                j["planner"] = encodePlannerSettings(planner_);
+                j["dockMeta"] = encodeDockMeta(dockMeta_);
+                if (!exclusionMeta_.empty())
+                {
+                    j["exclusionMeta"] = encodeExclusionMeta(exclusionMeta_);
+                }
+                if (!captureMeta_.empty())
+                {
+                    j["captureMeta"] = captureMeta_;
+                }
+                return j;
+            }
+
             j["perimeter"] = encodePoints(perimeterPoints_);
             j["dock"] = encodePoints(exportPolygonPoints(dockRoute_));
             j["exclusions"] = nlohmann::json::array();
@@ -378,6 +541,10 @@ namespace sunray
             {
                 j["captureMeta"] = captureMeta_;
             }
+            if (hasOrigin_)
+            {
+                j["origin"] = {{"lat", originLat_}, {"lon", originLon_}};
+            }
             return j;
         }
 
@@ -391,6 +558,10 @@ namespace sunray
             zones_.clear();
             applyConfigDefaults();
             captureMeta_ = nlohmann::json::object();
+            hasOrigin_ = false;
+            originLat_ = 0.0;
+            originLon_ = 0.0;
+            coordsAreGps_ = false;
             mapCRC_ = 0;
         }
 
