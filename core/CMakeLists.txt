@@ -16,6 +16,7 @@ add_library(sunray_core STATIC
     control/DifferentialDriveController.cpp
     op/Op.cpp
     op/IdleOp.cpp
+    op/ManualDriveOp.cpp
     op/ChargeOp.cpp
     op/UndockOp.cpp
     op/NavToStartOp.cpp

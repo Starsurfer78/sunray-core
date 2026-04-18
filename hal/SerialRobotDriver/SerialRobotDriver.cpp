@@ -563,25 +563,38 @@ unsigned long SerialRobotDriver::fieldULong(const std::string& s) { return std::
 float        SerialRobotDriver::fieldFloat(const std::string& s) { return std::stof(s);          }
 
 void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
-    // M,f1,f2,f3,f4,f5,f6,f7,f8[,f9,f10]
-    // BUG-07: STM32 sends leftTicks as f1, rightTicks as f2
-    //         Pi maps f1→rawTicksRight_, f2→rawTicksLeft_ (cross-wiring compensation)
     const auto f = csvSplit(frame);
     try {
-        if (f.size() > 1) rawTicksRight_ = fieldULong(f[1]);  // BUG-003 fix
-        if (f.size() > 2) rawTicksLeft_  = fieldULong(f[2]);  // BUG-003 fix
-        if (f.size() > 3) rawTicksMow_   = fieldULong(f[3]);  // BUG-003 fix
-        if (f.size() > 4) battery_.chargeVoltage  = fieldFloat(f[4]);
-        if (f.size() > 5) {
-            // Legacy combined bumper field — overridden by f[9]/f[10] if present
-            sensors_.bumperLeft  = (fieldInt(f[5]) != 0);
-            sensors_.bumperRight = false;
+        if (f.size() == 6) {
+            rawTicksRight_ += fieldULong(f[1]);
+            rawTicksLeft_  += fieldULong(f[2]);
+            rawTicksMow_   += fieldULong(f[3]);
+            battery_.chargeVoltage = static_cast<float>(fieldInt(f[4])) / 100.0f;
+
+            const unsigned int flags = static_cast<unsigned int>(fieldULong(f[5]));
+            const bool bumperCombined = (flags & (1U << 0)) != 0;
+            const bool bumperLeft = (flags & (1U << 4)) != 0;
+            const bool bumperRight = (flags & (1U << 5)) != 0;
+            sensors_.bumperLeft = bumperLeft || (!bumperRight && bumperCombined);
+            sensors_.bumperRight = bumperRight;
+            sensors_.lift = (flags & (1U << 1)) != 0;
+            sensors_.stopButton = (flags & (1U << 2)) != 0;
+            motorFaultFast_ = (flags & (1U << 3)) != 0;
+        } else {
+            if (f.size() > 1) rawTicksRight_ = fieldULong(f[1]);
+            if (f.size() > 2) rawTicksLeft_  = fieldULong(f[2]);
+            if (f.size() > 3) rawTicksMow_   = fieldULong(f[3]);
+            if (f.size() > 4) battery_.chargeVoltage  = fieldFloat(f[4]);
+            if (f.size() > 5) {
+                sensors_.bumperLeft  = (fieldInt(f[5]) != 0);
+                sensors_.bumperRight = false;
+            }
+            if (f.size() > 6) sensors_.lift       = (fieldInt(f[6]) != 0);
+            if (f.size() > 7) sensors_.stopButton = (fieldInt(f[7]) != 0);
+            if (f.size() > 8) motorFaultFast_ = (fieldInt(f[8]) != 0);
+            if (f.size() > 9) sensors_.bumperLeft  = (fieldInt(f[9])  != 0);
+            if (f.size() > 10) sensors_.bumperRight = (fieldInt(f[10]) != 0);
         }
-        if (f.size() > 6) sensors_.lift       = (fieldInt(f[6]) != 0);
-        if (f.size() > 7) sensors_.stopButton = (fieldInt(f[7]) != 0);
-        if (f.size() > 8) motorFaultFast_ = (fieldInt(f[8]) != 0);
-        if (f.size() > 9) sensors_.bumperLeft  = (fieldInt(f[9])  != 0);  // precise
-        if (f.size() > 10) sensors_.bumperRight = (fieldInt(f[10]) != 0); // precise
     } catch (...) {
         return;  // malformed frame — ignore
     }

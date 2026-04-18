@@ -83,7 +83,7 @@
 
 // #define DEBUG 1
 
-#define VER "RM18,1.1.24" // Bump Software version to 1.1.24 for release (odometry ISRs now use a simple deterministic debounce path without the old experimental spike eliminator; previous 1.1.23 OV-check gating remains)
+#define VER "RM18,1.1.25"
 
 #define pinSwdCLK PA14
 #define pinSwdSDA PA13
@@ -166,6 +166,10 @@
 volatile int odomTicksLeft = 0;
 volatile int odomTicksRight = 0;
 volatile int odomTicksMow = 0;
+
+unsigned long lastOdomTicksLeftSent = 0;
+unsigned long lastOdomTicksRightSent = 0;
+unsigned long lastOdomTicksMowSent = 0;
 
 volatile unsigned long motorLeftTicksTimeout = 0;
 volatile unsigned long motorRightTicksTimeout = 0;
@@ -718,27 +722,45 @@ void cmdMotor()
   // digitalWrite(pinMotorRightBrake, LOW);  // enable brakes
   //}
   motorTimeout = millis() + 3000;
+  unsigned long ticksLeft = 0;
+  unsigned long ticksRight = 0;
+  unsigned long ticksMow = 0;
+  noInterrupts();
+  ticksLeft = static_cast<unsigned long>(odomTicksLeft);
+  ticksRight = static_cast<unsigned long>(odomTicksRight);
+  ticksMow = static_cast<unsigned long>(odomTicksMow);
+  interrupts();
+
+  unsigned long dLeft = 0;
+  unsigned long dRight = 0;
+  unsigned long dMow = 0;
+  if (ticksLeft >= lastOdomTicksLeftSent) dLeft = ticksLeft - lastOdomTicksLeftSent;
+  if (ticksRight >= lastOdomTicksRightSent) dRight = ticksRight - lastOdomTicksRightSent;
+  if (ticksMow >= lastOdomTicksMowSent) dMow = ticksMow - lastOdomTicksMowSent;
+  lastOdomTicksLeftSent = ticksLeft;
+  lastOdomTicksRightSent = ticksRight;
+  lastOdomTicksMowSent = ticksMow;
+
+  unsigned int flags = 0;
+  if (bumper) flags |= (1U << 0);
+  if (lift) flags |= (1U << 1);
+  if (stopButton) flags |= (1U << 2);
+  if (motorOverload) flags |= (1U << 3);
+  if (bumperLeft) flags |= (1U << 4);
+  if (bumperRight) flags |= (1U << 5);
+
+  const int chgCv = static_cast<int>(chgVoltage * 100.0f + 0.5f);
   String s = F("M");
   s += ",";
-  s += odomTicksLeft;
+  s += dLeft;
   s += ",";
-  s += odomTicksRight;
+  s += dRight;
   s += ",";
-  s += odomTicksMow;
+  s += dMow;
   s += ",";
-  s += chgVoltage;
+  s += chgCv;
   s += ",";
-  s += int(bumper);
-  s += ",";
-  s += int(lift);
-  s += ",";
-  s += int(stopButton);
-  s += ",";
-  s += int(motorOverload); // BUG-06: motorOverload now reported at 50 Hz via AT+M (was only via AT+S at 2 Hz)
-  s += ",";
-  s += int(bumperLeft); // TASK-BUMPER-01: field 9 — left bumper channel (PA4/bumperX)
-  s += ",";
-  s += int(bumperRight); // TASK-BUMPER-01: field 10 — right bumper channel (PA5/bumperY)
+  s += flags;
   cmdAnswer(s);
 }
 

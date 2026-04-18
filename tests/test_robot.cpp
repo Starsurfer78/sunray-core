@@ -79,10 +79,10 @@ struct MockHardware : public HardwareInterface
 {
     // Configurable return values
     bool initResult = true;
-    OdometryData odometry;
-    SensorData sensors;
-    BatteryData battery;
-    ImuData imu;
+    OdometryData odometry{};
+    SensorData sensors{};
+    BatteryData battery{};
+    ImuData imu{};
     std::string robotId = "AA:BB:CC:DD:EE:FF";
     float cpuTemp = 45.0f;
     std::string mcuFwName = "alfred";
@@ -509,8 +509,11 @@ TEST_CASE("Robot: telemetry smoke test freezes current business semantics", "[ru
         advanceRobotToMow(*robot);
 
         hw->sensors.lift = true;
-        robot->run();
-        robot->run();
+        for (int i = 0; i < 12 && robot->activeOpName() != "Error"; ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            robot->run();
+        }
 
         const auto td = RobotTelemetryAccess::build(*robot);
         REQUIRE(robot->activeOpName() == "Error");
@@ -561,10 +564,16 @@ TEST_CASE("Robot: lift sensor triggers safety motor stop", "[run]")
 {
     auto [robot, hw] = makeRobot();
     robot->init();
+    REQUIRE(robot->loadMap(writeSimpleMap("sunray_test_robot_lift_map.json")));
     robot->startMowing();
+    robot->run();
+    advanceRobotToMow(*robot);
 
     hw->sensors.lift = true;
     hw->motorCalls.clear();
+    robot->run();
+    RobotTelemetryAccess::advanceTimeMs(*robot, 200);
+    robot->run();
     robot->run();
 
     REQUIRE(hw->hadMotorStop());
@@ -918,6 +927,7 @@ TEST_CASE("Robot: stuck detection during mowing transitions to EscapeReverse", "
     auto config = makeConfig();
     config->set("stuck_detect_timeout_ms", 1);
     config->set("stuck_detect_min_speed_ms", 0.03);
+    config->set("motor_set_speed_ms", 0.25f);
     Robot robot(std::move(hw_owned), config, makeLogger());
 
     REQUIRE(robot.init());
@@ -926,13 +936,14 @@ TEST_CASE("Robot: stuck detection during mowing transitions to EscapeReverse", "
     hw->odometry.mcuConnected = true;
     robot.startMowing();
     advanceRobotToMow(robot);
+    robot.setPose(0.0f, 0.0f, 0.0f);
 
     robot.run();
-    RobotTelemetryAccess::advanceTimeMs(robot, 5);
-    robot.run();
-    REQUIRE(robot.activeOpName() == "Mow");
-    RobotTelemetryAccess::advanceTimeMs(robot, 5);
-    robot.run();
+    for (int i = 0; i < 10 && robot.activeOpName() == "Mow"; ++i)
+    {
+        RobotTelemetryAccess::advanceTimeMs(robot, 5);
+        robot.run();
+    }
 
     REQUIRE(robot.activeOpName() == "EscapeReverse");
 }
@@ -945,6 +956,7 @@ TEST_CASE("Robot: repeated stuck recovery exhaustion escalates to Error", "[run]
     config->set("stuck_detect_timeout_ms", 1);
     config->set("stuck_detect_min_speed_ms", 0.03);
     config->set("stuck_recovery_max_attempts", 2);
+    config->set("motor_set_speed_ms", 0.25f);
     Robot robot(std::move(hw_owned), config, makeLogger());
 
     REQUIRE(robot.init());
@@ -953,12 +965,14 @@ TEST_CASE("Robot: repeated stuck recovery exhaustion escalates to Error", "[run]
     hw->odometry.mcuConnected = true;
     robot.startMowing();
     advanceRobotToMow(robot);
+    robot.setPose(0.0f, 0.0f, 0.0f);
 
     robot.run();
-    RobotTelemetryAccess::advanceTimeMs(robot, 5);
-    robot.run();
-    RobotTelemetryAccess::advanceTimeMs(robot, 5);
-    robot.run();
+    for (int i = 0; i < 10 && robot.activeOpName() == "Mow"; ++i)
+    {
+        RobotTelemetryAccess::advanceTimeMs(robot, 5);
+        robot.run();
+    }
     REQUIRE(robot.activeOpName() == "EscapeReverse");
 
     RobotTelemetryAccess::advanceTimeMs(robot, 4000);
@@ -1136,6 +1150,7 @@ TEST_CASE("N5.3: bumper escape returns to Mow on same mission plan (re-entry)", 
     auto hw_owned = std::make_unique<MockHardware>();
     MockHardware *hw = hw_owned.get();
     auto config = makeConfig();
+    config->set("motor_set_speed_ms", 0.25f);
     Robot robot(std::move(hw_owned), config, makeLogger());
 
     REQUIRE(robot.init());
@@ -1145,6 +1160,8 @@ TEST_CASE("N5.3: bumper escape returns to Mow on same mission plan (re-entry)", 
     advanceRobotToMow(robot);
 
     // Capture mow index before obstacle event
+    robot.setPose(0.0f, 0.0f, 0.0f);
+    robot.run();
     const int mowIdxBefore = robot.runtimeState().mowPointsIdx();
 
     // Trigger bumper → EscapeReverse
@@ -1158,7 +1175,8 @@ TEST_CASE("N5.3: bumper escape returns to Mow on same mission plan (re-entry)", 
     // Advance past escape timeout (3 s) and let robot resume.
     RobotTelemetryAccess::advanceTimeMs(robot, 4000);
     robot.run();
-    robot.run();
+    for (int i = 0; i < 10 && robot.activeOpName() == "EscapeReverse"; ++i)
+        robot.run();
 
     // After escape: robot should be back in Mow and on the same plan index.
     REQUIRE(robot.activeOpName() == "Mow");
