@@ -234,10 +234,11 @@ TEST_CASE("A4: Error state keeps motors at zero", "[a4_invariants]")
 
     hw->motorCalls.clear();
     hw->sensors.lift = true; // edge event: Mow::onLiftTriggered -> Error pending
-    robot->run();
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    //robot->run();
-    robot->run(); // flush pending transition to Error
+    for (int i = 0; i < 12 && robot->activeOpName() != "Error"; ++i)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        robot->run();
+    }
     REQUIRE(robot->activeOpName() == "Error");
     REQUIRE(hasMotorStop(hw->motorCalls));
 

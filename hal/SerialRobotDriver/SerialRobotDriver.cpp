@@ -565,7 +565,10 @@ float        SerialRobotDriver::fieldFloat(const std::string& s) { return std::s
 void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
     const auto f = csvSplit(frame);
     try {
-        if (f.size() == 6) {
+        // New compact format (RM18 v1.1.25+):
+        //   M,dL,dR,dM,chgCv,flags,0xNN
+        // Note: CRC is always the final field ("0xNN"), appended by cmdAnswer().
+        if (f.size() == 7) {
             rawTicksRight_ += fieldULong(f[1]);
             rawTicksLeft_  += fieldULong(f[2]);
             rawTicksMow_   += fieldULong(f[3]);
