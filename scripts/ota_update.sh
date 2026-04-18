@@ -12,7 +12,13 @@
 #   update_available:<short-hash>
 #   update_complete
 #   error:<message>
+# Ensure we are running under bash (in case executed via 'sh script.sh')
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -euo pipefail
+
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_NAME="sunray-core"

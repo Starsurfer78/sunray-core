@@ -12,6 +12,11 @@
 #   FQBN              Board FQBN, e.g. STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX
 #   ALFRED_SKETCH     Path to rm18.ino (default: ~/sunray_install/alfred/firmware/rm18.ino)
 
+# Ensure we are running under bash (in case executed via 'sh script.sh')
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
