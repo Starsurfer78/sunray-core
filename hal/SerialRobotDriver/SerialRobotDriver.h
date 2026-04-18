@@ -157,6 +157,7 @@ private:
     uint64_t rxGapMs_      = 50;
     uint64_t wifiLastScanMs_ = 0;
     uint64_t wifiLastReconnectMs_ = 0;
+    uint64_t motorPeriodMs_ = 20;
 
     // Diagnostic counters (reset every 1 s)
     int motorTxCount_   = 0;

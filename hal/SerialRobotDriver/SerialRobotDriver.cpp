@@ -52,6 +52,10 @@ bool SerialRobotDriver::init() {
     // ── UART to STM32 ─────────────────────────────────────────────────────────
     const std::string port = config_->get<std::string>("driver_port", "/dev/ttyS0");
     const int         baud = config_->get<int>        ("driver_baud", 115200);
+    motorPeriodMs_ = static_cast<uint64_t>(config_->get<int>(
+        "serial_motor_period_ms",
+        (baud <= 19200) ? 35 : 20));
+    if (motorPeriodMs_ < 5) motorPeriodMs_ = 5;
     try {
         uart_ = std::make_unique<platform::Serial>(port, static_cast<unsigned>(baud));
     } catch (const std::runtime_error& e) {
@@ -170,7 +174,7 @@ bool SerialRobotDriver::init() {
 
     // Avoid an immediate false communication warning on the very first run().
     const uint64_t now = nowMs();
-    nextMotorMs_          = now + 20;
+    nextMotorMs_          = now + motorPeriodMs_;
     nextSummaryMs_        = now + 500;
     nextConsoleMs_        = now + 1000;
     nextLedMs_            = now + 3000;
@@ -218,9 +222,9 @@ void SerialRobotDriver::run() {
         }
     }
 
-    // 50 Hz — AT+M motor command
+    // AT+M motor command
     if (now >= nextMotorMs_) {
-        nextMotorMs_ = now + 20;
+        nextMotorMs_ = now + motorPeriodMs_;
         // BUG-07: send rightPwm as field1, leftPwm as field2 (cross-wiring compensation)
         std::string cmd = "AT+M," + std::to_string(pwmRight_)
                         + ","     + std::to_string(pwmLeft_)
@@ -247,9 +251,12 @@ void SerialRobotDriver::run() {
             resetTicks_   = true;
             mcuConnected_ = false;
         }
-        if (motorRxCount_ < 30) {
+        const int expectedMotorHz = std::max(1, static_cast<int>(1000 / std::max<uint64_t>(1, motorPeriodMs_)));
+        const int motorWarnBelow = std::max(1, expectedMotorHz - 2);
+        if (motorRxCount_ < motorWarnBelow) {
             std::cerr << "[SRD] WARN: motor freq " << motorRxCount_
-                      << "/50  summary " << summaryRxCount_ << "/2\n";
+                      << "/" << expectedMotorHz
+                      << "  summary " << summaryRxCount_ << "/2\n";
         }
         motorTxCount_ = motorRxCount_ = summaryTxCount_ = summaryRxCount_ = 0;
     }
@@ -565,10 +572,7 @@ float        SerialRobotDriver::fieldFloat(const std::string& s) { return std::s
 void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
     const auto f = csvSplit(frame);
     try {
-        // New compact format (RM18 v1.1.25+):
-        //   M,dL,dR,dM,chgCv,flags,0xNN
-        // Note: CRC is always the final field ("0xNN"), appended by cmdAnswer().
-        if (f.size() == 7) {
+        if (f.size() == 6) {
             rawTicksRight_ += fieldULong(f[1]);
             rawTicksLeft_  += fieldULong(f[2]);
             rawTicksMow_   += fieldULong(f[3]);
