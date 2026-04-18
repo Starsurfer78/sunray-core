@@ -212,6 +212,7 @@ namespace sunray
     // Robot creates one OpManager and calls tick() each loop iteration.
 
     class IdleOp;
+    class ManualDriveOp;
     class MowOp;
     class DockOp;
     class ChargeOp;
@@ -243,6 +244,7 @@ namespace sunray
         // ── Op instances (owned here, not global) ─────────────────────────────────
         // Forward-declared above — definitions in each .cpp file
         IdleOp &idle() { return *idle_; }
+        ManualDriveOp &manual() { return *manual_; }
         MowOp &mow() { return *mow_; }
         DockOp &dock() { return *dock_; }
         ChargeOp &charge() { return *charge_; }
@@ -256,6 +258,7 @@ namespace sunray
     private:
         // unique_ptr to avoid forward-declaration issues with inline constructors
         std::unique_ptr<IdleOp> idle_;
+        std::unique_ptr<ManualDriveOp> manual_;
         std::unique_ptr<MowOp> mow_;
         std::unique_ptr<DockOp> dock_;
         std::unique_ptr<ChargeOp> charge_;
@@ -281,6 +284,16 @@ namespace sunray
         void begin(OpContext &ctx) override;
         void end(OpContext &ctx) override;
         void run(OpContext &ctx) override;
+    };
+
+    class ManualDriveOp : public Op
+    {
+    public:
+        std::string name() const override { return "Manual"; }
+        void begin(OpContext &ctx) override;
+        void end(OpContext &ctx) override;
+        void run(OpContext &ctx) override;
+        void onLiftTriggered(OpContext &ctx) override;
     };
 
     class MowOp : public Op

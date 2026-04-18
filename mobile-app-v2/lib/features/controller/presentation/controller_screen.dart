@@ -75,6 +75,19 @@ class _ControllerScreenState extends State<ControllerScreen> {
     });
   }
 
+  String? _blockingReasonLabel(String? eventReason) {
+    return switch (eventReason) {
+      'lift_triggered' => 'Lift-Sensor ausgelöst — Roboter scheint angehoben. Joystick blockiert.',
+      'kidnap_detected' => 'Kidnap erkannt — GPS-Position springt zu stark vom erwarteten Pfad ab.',
+      'bumper_triggered' => 'Bumper ausgelöst — Kollision erkannt.',
+      'motor_fault' => 'Motorfehler — Antrieb gesperrt.',
+      'mcu_comm_lost' => 'MCU-Verbindung verloren — Steuerung nicht möglich.',
+      'battery_critical' => 'Kritischer Akkustand — Fahren gesperrt.',
+      'gps_fix_timeout' => 'GPS-Timeout — kein Fix.',
+      _ => null,
+    };
+  }
+
   Future<bool> _confirmMowMotorActivation() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -134,9 +147,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final isConnected = controller.connectionStatus.connectionState ==
         ConnectionStateKind.connected;
     final status = isConnected ? controller.connectionStatus : null;
+    final statePhase = controller.connectionStatus.statePhase;
     final inIdle = isConnected &&
-        (controller.connectionStatus.statePhase == null ||
-            controller.connectionStatus.statePhase == 'idle');
+        (statePhase == null || statePhase == 'idle' || statePhase == 'manual');
+    final eventReason = isConnected ? controller.connectionStatus.eventReason : null;
+    final blockingReason = _blockingReasonLabel(eventReason);
 
     return Scaffold(
       backgroundColor: const Color(0xFF08111F),
@@ -241,6 +256,32 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  if (blockingReason != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _InfoCard(
+                        color: const Color(0xAA7F1D1D),
+                        child: Row(
+                          children: <Widget>[
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                              color: Color(0xFFFCA5A5),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                blockingReason,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: const Color(0xFFFCA5A5)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   Expanded(
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -595,15 +636,16 @@ class _ControllerIconButton extends StatelessWidget {
 }
 
 class _InfoCard extends StatelessWidget {
-  const _InfoCard({required this.child});
+  const _InfoCard({required this.child, this.color});
 
   final Widget child;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xCC0F172A),
+        color: color ?? const Color(0xCC0F172A),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0x331E3A5F)),
       ),

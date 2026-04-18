@@ -206,7 +206,7 @@ namespace sunray
             }
             tickButtonControl();
             tickUserFeedback();
-            tickManualDrive();
+            tickManualDrive(ctx);
             tickSafetyStop(ctx);
             tickSessionTracking();
             updateStatusLeds();
@@ -255,6 +255,13 @@ namespace sunray
 
         odometry_ = hw_->readOdometry();
         sensors_ = hw_->readSensors();
+        // Debounce lift sensor: require signal stable for 150 ms to filter motor-start vibration.
+        if (!sensors_.lift) {
+            liftActiveStart_ms_ = 0;
+        } else {
+            if (liftActiveStart_ms_ == 0) liftActiveStart_ms_ = now_ms_;
+            sensors_.lift = (now_ms_ - liftActiveStart_ms_ >= 150UL);
+        }
         battery_ = hw_->readBattery();
         if (battery_.chargerConnected && !previousChargerConnected_)
         {
@@ -564,7 +571,7 @@ namespace sunray
         const bool mowDone = (diagReq_.mowTicksTarget <= 0) || (std::abs(diagReq_.mowTicks) >= diagReq_.mowTicksTarget);
         const bool timeDone = !hasTickTarget && (now_ms_ - diagReq_.startMs >= diagReq_.duration_ms);
         const bool tickDone = hasTickTarget && leftDone && rightDone && mowDone;
-        const bool safeTimeout = (now_ms_ - diagReq_.startMs >= 15000u);
+        const bool safeTimeout = (now_ms_ - diagReq_.startMs >= diagReq_.duration_ms);
         if (timeDone || tickDone || safeTimeout)
         {
             hw_->setMotorPwm(0.0f, 0.0f, 0.0f);
@@ -680,35 +687,42 @@ namespace sunray
         buzzerSequencer_.tick(*hw_, now_ms_);
     }
 
-    void Robot::tickManualDrive()
+    void Robot::tickManualDrive(OpContext &ctx)
     {
         const uint64_t driveTs = manualDriveTs_ms_.load();
         const std::string op = activeOpName();
-        const bool inIdle = (op == "Idle"); // Charge excluded: driving while charging risks disconnect → Error
-        const bool fresh = (now_ms_ - driveTs < 500UL);
+        // Charge excluded: driving while charging risks dock-pin disconnect → Error op.
+        const bool inIdle   = (op == "Idle");
+        const bool inManual = (op == "Manual");
+        const bool fresh    = (driveTs > 0 && now_ms_ - driveTs < 500UL);
 
-        if (inIdle && fresh && driveTs > 0)
+        if (inIdle && fresh)
         {
-            if (sensors_.stopButton || sensors_.bumperLeft || sensors_.bumperRight || sensors_.lift || sensors_.motorFault)
+            // First fresh joystick command while idle → enter Manual op.
+            opMgr_.changeOperationTypeByOperator(ctx, "Manual");
+            return;
+        }
+
+        if (inManual)
+        {
+            if (!fresh)
+            {
+                // No command for >500 ms → return to Idle.
+                opMgr_.changeOperationTypeByOperator(ctx, "Idle");
+                return;
+            }
+
+            if (sensors_.stopButton || sensors_.bumperLeft || sensors_.bumperRight
+                || sensors_.lift || sensors_.motorFault)
             {
                 static uint64_t lastStopLogTs = 0;
                 if (now_ms_ - lastStopLogTs > 5000UL)
                 {
-                    logger_->warn(TAG, "Joystick blocked: safety sensor active (stop/bumper/lift/fault)");
+                    logger_->warn(TAG, "Joystick blocked: safety sensor active");
                     lastStopLogTs = now_ms_;
                 }
+                hw_->setMotorPwm(0, 0, 0);
                 return;
-            }
-
-            if (now_ms_ - driveTs < 50UL)
-            {
-                // Log once when a new fresh manual command stream starts.
-                static uint64_t lastLogTs = 0;
-                if (now_ms_ - lastLogTs > 2000UL)
-                {
-                    logger_->info(TAG, "Manual drive active (op=" + op + ")");
-                    lastLogTs = now_ms_;
-                }
             }
 
             driveController_.reset();
@@ -716,13 +730,11 @@ namespace sunray
             const float lin = manualLinear1000_.load() / 1000.f;
             const float ang = manualAngular1000_.load() / 1000.f;
             constexpr float MAX_PWM = 0.35f;
-            float left = (lin - ang * 0.5f) * MAX_PWM;
+            float left  = (lin - ang * 0.5f) * MAX_PWM;
             float right = (lin + ang * 0.5f) * MAX_PWM;
-            left = left < -1.f ? -1.f : left > 1.f ? 1.f
-                                                   : left;
-            right = right < -1.f ? -1.f : right > 1.f ? 1.f
-                                                      : right;
-            hw_->setMotorPwm(static_cast<int>(left * 255.0f),
+            left  = left  < -1.f ? -1.f : left  > 1.f ? 1.f : left;
+            right = right < -1.f ? -1.f : right > 1.f ? 1.f : right;
+            hw_->setMotorPwm(static_cast<int>(left  * 255.0f),
                              static_cast<int>(right * 255.0f), 0);
         }
     }
@@ -1619,6 +1631,8 @@ namespace sunray
         const std::string opName = activeOpName();
         if (opName == "Idle")
             return "idle";
+        if (opName == "Manual")
+            return "manual";
         if (opName == "Undock")
             return "undocking";
         if (opName == "NavToStart")
@@ -1762,12 +1776,15 @@ namespace sunray
             return "bumper_triggered";
         if (battery_.chargerConnected)
             return "charger_connected";
-        if (lineTracker_.kidnapped())
+        // Stale kidnap flag is meaningless during manual joystick driving.
+        if (lineTracker_.kidnapped() && opName != "Manual")
             return "kidnap_detected";
         if (gpsFixTimeoutLatched_)
             return "gps_fix_timeout";
         if (gpsNoSignalLatched_)
             return "gps_signal_lost";
+        if (opName == "Manual")
+            return "manual_drive";
         if (opName == "Undock")
             return "undocking";
         if (opName == "NavToStart")
@@ -2493,7 +2510,7 @@ namespace sunray
         const float wheelCircumference = std::max(0.001f, wheelDiameter * static_cast<float>(M_PI));
         const int ticksTarget = std::max(1, static_cast<int>(std::lround(distance_m / wheelCircumference * ticksPerRev)));
         const unsigned duration_ms = static_cast<unsigned>(
-            std::clamp(distance_m / std::max(0.05f, std::abs(pwm)) * 4000.0f, 1000.0f, 15000.0f));
+            std::clamp(distance_m / std::max(0.05f, std::abs(pwm)) * 4000.0f, 1000.0f, 90000.0f));
 
         std::unique_lock<std::mutex> lk(diagMutex_);
         diagReq_ = DiagReq{};
@@ -2505,7 +2522,8 @@ namespace sunray
         diagReq_.rightTicksTarget = ticksTarget;
         diagReq_.targetDistance_m = distance_m;
         diagReq_.active = true;
-        const bool ok = diagCv_.wait_for(lk, std::chrono::seconds(30),
+        const unsigned waitSec = (duration_ms / 1000u) + 10u;
+        const bool ok = diagCv_.wait_for(lk, std::chrono::seconds(waitSec),
                                          [this]
                                          { return diagReq_.done; });
         if (!ok)

@@ -35,6 +35,7 @@ class RobotStatus {
     this.mowDurationSec,
     this.wifiRssiDbm,
     this.bluetoothConnected,
+    this.eventReason,
   });
 
   final ConnectionStateKind connectionState;
@@ -42,6 +43,7 @@ class RobotStatus {
   final int? batteryPercent;
   final String? rtkState;
   final String? statePhase;
+  final String? eventReason;
   final double? x;
   final double? y;
   final double? heading;
@@ -93,6 +95,7 @@ class RobotStatus {
     int? mowDurationSec,
     int? wifiRssiDbm,
     bool? bluetoothConnected,
+    String? eventReason,
   }) {
     return RobotStatus(
       connectionState: connectionState ?? this.connectionState,
@@ -122,6 +125,7 @@ class RobotStatus {
       mowDurationSec: mowDurationSec ?? this.mowDurationSec,
       wifiRssiDbm: wifiRssiDbm ?? this.wifiRssiDbm,
       bluetoothConnected: bluetoothConnected ?? this.bluetoothConnected,
+      eventReason: eventReason ?? this.eventReason,
     );
   }
 }

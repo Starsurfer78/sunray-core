@@ -239,7 +239,7 @@ namespace sunray
         bool tickDiag();
         void tickButtonControl();
         void tickUserFeedback();
-        void tickManualDrive();
+        void tickManualDrive(OpContext &ctx);
         void tickSafetyStop(OpContext &ctx);
         void tickTelemetry();
         void tickSessionTracking();
@@ -404,6 +404,7 @@ namespace sunray
         std::atomic<int> manualLinear1000_{0};
         std::atomic<int> manualAngular1000_{0};
         std::atomic<uint64_t> manualDriveTs_ms_{0};
+        uint64_t liftActiveStart_ms_ = 0; ///< debounce: first cycle lift=true; 0 when lift=false
 
         ButtonHoldThresholds buttonHoldThresholds_;
         BuzzerSequencer buzzerSequencer_;
@@ -417,10 +418,10 @@ namespace sunray
         mutable std::string uiEventReason_ = "none";
         std::string lastRecordedOpName_ = "Idle";
 
-        OdometryData odometry_;
-        SensorData sensors_;
-        SensorData previousSensors_; ///< for edge-detection of safety events
-        BatteryData battery_;
+        OdometryData odometry_{};
+        SensorData sensors_{};
+        SensorData previousSensors_{};
+        BatteryData battery_{};
         bool previousChargerConnected_ = false;
 
         unsigned long now_ms_ = 0;
@@ -458,7 +459,7 @@ namespace sunray
         };
         mutable std::mutex diagMutex_;
         std::condition_variable diagCv_;
-        DiagReq diagReq_;
+        DiagReq diagReq_{};
 
         // ── Constants ─────────────────────────────────────────────────────────────
 

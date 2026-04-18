@@ -125,7 +125,7 @@ namespace sunray
                 case WayType::DOCK:
                     return std::max(0.6f, map.dockMeta().slowZoneRadius_m + 0.25f);
                 case WayType::FREE:
-                    return std::max(1.0f, map.plannerSettings().defaultClearance_m + map.plannerSettings().obstacleInflation_m + 0.5f);
+                    return std::max(2.0f, map.plannerSettings().defaultClearance_m + map.plannerSettings().obstacleInflation_m + 0.5f);
                 case WayType::MOW:
                 default:
                     return 3.0f;

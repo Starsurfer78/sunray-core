@@ -91,6 +91,7 @@ std::string Op::getOpChain() const {
 
 OpManager::OpManager()
     : idle_         (std::make_unique<IdleOp>())
+    , manual_       (std::make_unique<ManualDriveOp>())
     , mow_          (std::make_unique<MowOp>())
     , dock_         (std::make_unique<DockOp>())
     , charge_       (std::make_unique<ChargeOp>())
@@ -150,6 +151,9 @@ void OpManager::changeOperationTypeByOperator(OpContext& ctx, const std::string&
     if (opType == "Idle" || opType == "stop") {
         activeOp_->requestOp(ctx, *idle_, Op::PRIO_CRITICAL, false);
         idle_->initiatedByOperator = true;
+    } else if (opType == "Manual" || opType == "manual") {
+        activeOp_->requestOp(ctx, *manual_, Op::PRIO_NORMAL, false);
+        manual_->initiatedByOperator = true;
     } else if (opType == "Dock" || opType == "dock") {
         activeOp_->requestOp(ctx, *dock_, Op::PRIO_HIGH, false);
         dock_->initiatedByOperator = true;

@@ -60,6 +60,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   view: view,
                   robotName: controller.robotName,
                   savedRobotsCount: controller.savedRobots.length,
+                  storedMapsCount: controller.storedMaps.length,
+                  activeMapName: controller.activeMapName,
                   unreadNotifications: controller.unreadNotifications,
                   isConnected:
                       controller.connectionStatus.connectionState ==
@@ -67,6 +69,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   onOpenDashboard: () => context.go('/dashboard'),
                   onOpenHelp: () => _openHelp(context),
                   onOpenNotifications: () => context.push('/notifications'),
+                  onSwitchMap: () =>
+                      _showDashboardMapSwitcher(context, controller),
                 ),
               ),
               if (view.hasMap)
@@ -234,6 +238,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _showDashboardMapSwitcher(
+    BuildContext context,
+    AppController controller,
+  ) async {
+    final maps = controller.storedMaps;
+    if (maps.isEmpty) return;
+
+    final selectedId = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Text(
+                  'Karte wechseln',
+                  style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              for (final storedMap in maps)
+                ListTile(
+                  title: Text(storedMap.name),
+                  trailing: storedMap.id == controller.activeMapId
+                      ? const Icon(
+                          Icons.check_rounded,
+                          color: Color(0xFF2F7D4A),
+                        )
+                      : null,
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(storedMap.id),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selectedId == null || selectedId == controller.activeMapId) return;
+    if (!context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await controller.switchToStoredMap(selectedId);
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text(result ?? 'Karte gewechselt')),
+    );
+  }
+
   Future<void> _openHelp(BuildContext context) {
     return showDialog<void>(
       context: context,
@@ -371,24 +429,36 @@ class _DashboardTopBar extends StatelessWidget {
     required this.view,
     required this.robotName,
     required this.savedRobotsCount,
+    required this.storedMapsCount,
+    required this.activeMapName,
     required this.unreadNotifications,
     required this.isConnected,
     required this.onOpenDashboard,
     required this.onOpenHelp,
     required this.onOpenNotifications,
+    required this.onSwitchMap,
   });
 
   final _DashboardViewData view;
   final String robotName;
   final int savedRobotsCount;
+  final int storedMapsCount;
+  final String activeMapName;
   final int unreadNotifications;
   final bool isConnected;
   final VoidCallback onOpenDashboard;
   final VoidCallback onOpenHelp;
   final VoidCallback onOpenNotifications;
+  final VoidCallback onSwitchMap;
+
+  static const _shadow = <Shadow>[
+    Shadow(color: Color(0x88000000), blurRadius: 6),
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final showMapSwitcher = isConnected && storedMapsCount > 1;
+
     return Row(
       children: <Widget>[
         _DarkCircleAction(icon: Icons.home_rounded, onTap: onOpenDashboard),
@@ -413,12 +483,7 @@ class _DashboardTopBar extends StatelessWidget {
                               ?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w800,
-                                shadows: const <Shadow>[
-                                  Shadow(
-                                    color: Color(0x88000000),
-                                    blurRadius: 6,
-                                  ),
-                                ],
+                                shadows: _shadow,
                               ),
                         ),
                         Text(
@@ -435,14 +500,40 @@ class _DashboardTopBar extends StatelessWidget {
                                 fontWeight: isConnected
                                     ? FontWeight.w500
                                     : FontWeight.w700,
-                                shadows: const <Shadow>[
-                                  Shadow(
-                                    color: Color(0x88000000),
-                                    blurRadius: 6,
-                                  ),
-                                ],
+                                shadows: _shadow,
                               ),
                         ),
+                        if (showMapSwitcher) ...<Widget>[
+                          const SizedBox(height: 2),
+                          GestureDetector(
+                            onTap: onSwitchMap,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Text(
+                                  activeMapName.isNotEmpty
+                                      ? activeMapName
+                                      : 'Karte',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.7),
+                                    shadows: _shadow,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.swap_horiz_rounded,
+                                  size: 14,
+                                  color: Colors.white.withValues(alpha: 0.7),
+                                  shadows: _shadow,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

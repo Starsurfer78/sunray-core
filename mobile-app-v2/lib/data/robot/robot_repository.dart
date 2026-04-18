@@ -226,6 +226,7 @@ class RobotRepository {
           final zone = entry.value;
           return <String, dynamic>{
             'id': zone.id,
+            'name': zone.name,
             'order': index + 1,
             'polygon': encodeMapPoints(zone.points),
             'settings': <String, dynamic>{

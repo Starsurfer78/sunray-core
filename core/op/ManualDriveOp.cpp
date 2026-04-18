@@ -10,8 +10,8 @@
 //   - Perimeter check disabled (user intentionally moves anywhere)
 //   - Watchdog timer disabled  (timeout handled in tickManualDrive)
 
-#include "core/op/Op.h"
-#include "core/navigation/LineTracker.h"
+#include "Op.h"
+#include "../navigation/LineTracker.h"
 
 namespace sunray {
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
@@ -476,6 +475,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
             mowDurationSec: status.mowDurationSec,
             wifiRssiDbm: status.wifiRssiDbm,
             bluetoothConnected: status.bluetoothConnected,
+            eventReason: status.eventReason,
           )
         : status;
     final incomingMessage = status.uiMessage;
@@ -512,6 +512,13 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     noGoCount = geometry.noGoCount;
     perimeterPointCount = geometry.perimeter.length;
     mapAreaSquareMeters = _polygonAreaSquareMeters(geometry.perimeter);
+    // Advance editor stage so "Objekt hinzufügen" appears when a map with a
+    // perimeter arrives from the robot or from local storage.
+    if (hasPerimeterReady &&
+        mapEditorState.mode != MapEditorMode.record &&
+        mapEditorState.setupStage != MapSetupStage.save) {
+      mapEditorState = mapEditorState.copyWith(setupStage: MapSetupStage.save);
+    }
     if (notify) {
       notifyListeners();
     }
@@ -935,6 +942,28 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     }
   }
 
+  Future<String?> reloadMapFromRobot() async {
+    final robot = connectedRobot;
+    if (robot == null) return 'Nicht verbunden';
+    try {
+      final reloaded = await robotRepository.fetchMapGeometry(
+        host: robot.lastHost,
+        port: robot.port,
+      );
+      applyMapGeometry(reloaded, notify: false);
+      final storedResult = await robotRepository.fetchStoredMaps(
+        host: robot.lastHost,
+        port: robot.port,
+      );
+      applyStoredMaps(storedResult.activeId, storedResult.maps, notify: false);
+      unawaited(appStateStorage.saveMapGeometry(reloaded));
+      notifyListeners();
+      return null;
+    } catch (error) {
+      return 'Karte konnte nicht geladen werden: $error';
+    }
+  }
+
   Future<String?> switchToStoredMap(String mapId) async {
     final robot = connectedRobot;
     if (robot == null) return 'Nicht verbunden';
@@ -1243,12 +1272,8 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     }
   }
 
-  void startMowing({
-    required bool reorderZones,
-    required bool clearProgressBeforeStart,
-  }) {
-    final missionId = backendMissions.isEmpty ? null : backendMissions.first.id;
-    robotService.startMowing(missionId: hasZones ? missionId : null);
+  void startMowing({required bool clearProgressBeforeStart}) {
+    robotService.startMowing();
     if (!hasMap) {
       createMap();
       return;
@@ -1588,6 +1613,10 @@ class AppController extends ChangeNotifier implements RobotStateSink {
       final persistedRobot = connectedRobot ?? robot;
       await robotStorage.saveConnectedRobot(persistedRobot);
       savedRobots = await robotStorage.loadSavedRobots();
+      // Persist the freshly loaded map so it's available offline after restart.
+      if (hasPerimeterReady) {
+        unawaited(appStateStorage.saveMapGeometry(mapGeometry));
+      }
       notifyListeners();
     }
     return status;
@@ -1599,17 +1628,17 @@ class AppController extends ChangeNotifier implements RobotStateSink {
       final savedMap = await appStateStorage.loadMapGeometry();
       if (savedMap != null) {
         applyMapGeometry(savedMap, notify: false);
-        mapEditorState = mapEditorState.copyWith(
-          setupStage: hasBaseMapReady
-              ? MapSetupStage.save
-              : MapSetupStage.perimeter,
-        );
       }
       final activeRobot = await robotStorage.loadActiveRobot();
       if (activeRobot != null) {
         connectedRobot = activeRobot;
         hasKnownRobot = true;
         robotName = activeRobot.name;
+        connectionStatus = RobotStatus(
+          connectionState: ConnectionStateKind.connecting,
+          robotName: activeRobot.name,
+        );
+        unawaited(_connectAndRemember(activeRobot));
       }
     } finally {
       isRestoringSession = false;
@@ -1634,29 +1663,13 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   }
 
   int _polygonAreaSquareMeters(List<MapPoint> points) {
-    if (points.length < 3) {
-      return 0;
-    }
-    const earthRadiusM = 6378137.0;
-    var latSumRad = 0.0;
-    for (final point in points) {
-      latSumRad += point.y * math.pi / 180.0;
-    }
-    final lat0Rad = latSumRad / points.length;
-
-    final projected = points
-        .map(
-          (point) => (
-            x: earthRadiusM * point.x * math.pi / 180.0 * math.cos(lat0Rad),
-            y: earthRadiusM * point.y * math.pi / 180.0,
-          ),
-        )
-        .toList(growable: false);
-
-    double area = 0;
-    for (var index = 0; index < projected.length; index += 1) {
-      final current = projected[index];
-      final next = projected[(index + 1) % projected.length];
+    if (points.length < 3) return 0;
+    // Coordinates are local metres relative to the robot origin — Shoelace
+    // formula applies directly without any geographic projection.
+    var area = 0.0;
+    for (var i = 0; i < points.length; i++) {
+      final current = points[i];
+      final next = points[(i + 1) % points.length];
       area += current.x * next.y - next.x * current.y;
     }
     return (area.abs() / 2).round();

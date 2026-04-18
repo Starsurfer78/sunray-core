@@ -892,7 +892,22 @@ class _SetupStageCard extends StatelessWidget {
                     ),
                   ),
                 ],
-              MapSetupStage.save => <Widget>[],
+              MapSetupStage.save => <Widget>[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => controller.createMapObject(
+                        EditableMapObjectType.zone,
+                      ),
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(
+                        controller.mapGeometry.zones.isEmpty
+                            ? 'Zone hinzufügen'
+                            : 'Weitere Zone',
+                      ),
+                    ),
+                  ),
+                ],
             },
           ],
         ),
@@ -1013,43 +1028,64 @@ class _ModePanel extends StatelessWidget {
                 ),
               ],
             ),
-            if (controller.storedMaps.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 10),
-              Row(
-                children: <Widget>[
-                  const Icon(
-                    Icons.map_outlined,
-                    size: 14,
-                    color: Color(0xFF667267),
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.map_outlined,
+                  size: 14,
+                  color: Color(0xFF667267),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    controller.activeMapName.isNotEmpty
+                        ? controller.activeMapName
+                        : 'Karte',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667267),
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: 6),
-                  Expanded(
+                ),
+                GestureDetector(
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final result =
+                        await controller.reloadMapFromRobot();
+                    if (!context.mounted) return;
+                    if (result != null) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(result)),
+                      );
+                    }
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Icon(
+                      Icons.sync_rounded,
+                      size: 16,
+                      color: Color(0xFF667267),
+                    ),
+                  ),
+                ),
+                if (controller.storedMaps.length > 1) ...<Widget>[
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: () =>
+                        _showMapSwitcherSheet(context, controller),
                     child: Text(
-                      controller.activeMapName.isNotEmpty
-                          ? controller.activeMapName
-                          : 'Karte',
+                      'Wechseln',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667267),
-                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF2F7D4A),
+                        fontWeight: FontWeight.w700,
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (controller.storedMaps.length > 1)
-                    GestureDetector(
-                      onTap: () =>
-                          _showMapSwitcherSheet(context, controller),
-                      child: Text(
-                        'Wechseln',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF2F7D4A),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
                 ],
-              ),
-            ],
+              ],
+            ),
             const SizedBox(height: 14),
             Row(
               children: <Widget>[
@@ -1150,6 +1186,13 @@ class _ModePanel extends StatelessWidget {
                       mode: MapEditorMode.edit,
                     ),
                   ),
+                _ObjectChip(
+                  label: '+ Zone',
+                  selected: false,
+                  onTap: () => controller.createMapObject(
+                    EditableMapObjectType.zone,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 14),
