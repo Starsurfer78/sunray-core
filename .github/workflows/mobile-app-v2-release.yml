@@ -39,13 +39,11 @@ jobs:
       - name: Setup Android signing (optional)
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile-app-v2/android/upload-keystore.jks
-            cat > mobile-app-v2/android/key.properties <<EOF
-            storePassword=$ANDROID_STORE_PASSWORD
-            keyPassword=$ANDROID_KEY_PASSWORD
-            keyAlias=$ANDROID_KEY_ALIAS
-            storeFile=upload-keystore.jks
-            EOF
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile-app-v2/android/app/upload-keystore.jks
+            echo "storePassword=$ANDROID_STORE_PASSWORD" > mobile-app-v2/android/key.properties
+            echo "keyPassword=$ANDROID_KEY_PASSWORD" >> mobile-app-v2/android/key.properties
+            echo "keyAlias=$ANDROID_KEY_ALIAS" >> mobile-app-v2/android/key.properties
+            echo "storeFile=upload-keystore.jks" >> mobile-app-v2/android/key.properties
           fi
 
       - name: Build APK
