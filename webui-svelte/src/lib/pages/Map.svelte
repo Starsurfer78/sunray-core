@@ -87,6 +87,7 @@
   type DraftDocument = {
     savedAt: number;
     map: RobotMap;
+    gpsOrigin?: { lat: number; lon: number } | null;
   };
 
   type Segment = { a: Point; b: Point };
@@ -240,6 +241,7 @@
     const draft: DraftDocument = {
       savedAt: Date.now(),
       map: structuredClone($mapStore.map),
+      gpsOrigin: $mapGpsOrigin,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     draftAvailable = true;
@@ -280,6 +282,7 @@
     if (!draft) return false;
 
     mapStore.load(draft.map);
+    mapGpsOrigin.set(draft.gpsOrigin ?? null);
     showInfo("Lokalen Entwurf wiederhergestellt", "warning");
     return true;
   }
@@ -624,6 +627,7 @@
   }
 
   function newMap() {
+    mapGpsOrigin.set(null);
     mapStore.reset();
     mapStore.setTool("perimeter");
     hydrationDone = true;
