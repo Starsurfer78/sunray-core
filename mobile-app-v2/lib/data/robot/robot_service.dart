@@ -384,6 +384,8 @@ class RobotService {
       final mowFaultPin = decoded['mow_fault_pin'] as bool?;
       final mowDistanceM = decoded['mow_dist_m'] as num?;
       final mowDurationSec = decoded['mow_time_s'] as num?;
+      final wifiRssiDbm = decoded['wifi_rssi_dbm'] as num?;
+      final bluetoothConnected = decoded['bt_connected'] as bool?;
 
       _stateSink.applyTelemetry(
         RobotStatus(
@@ -413,6 +415,8 @@ class RobotService {
           uiSeverity: uiSeverity,
           mowDistanceM: mowDistanceM?.toDouble(),
           mowDurationSec: mowDurationSec?.toInt(),
+          wifiRssiDbm: wifiRssiDbm?.toInt(),
+          bluetoothConnected: bluetoothConnected,
         ),
       );
       _reconnectAttempt = 0;

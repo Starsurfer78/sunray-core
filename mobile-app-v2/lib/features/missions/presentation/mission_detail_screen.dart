@@ -272,10 +272,12 @@ class _MissionDetailScreenState extends State<MissionDetailScreen> {
                         ),
                         const SizedBox(height: 10),
                         TextButton(
-                          onPressed: () {
-                            controller.deleteMission(mission.id);
-                            context.go('/missions');
-                          },
+                          onPressed: controller.connectedRobot == null
+                              ? null
+                              : () {
+                                  controller.deleteMission(mission.id);
+                                  context.go('/missions');
+                                },
                           child: const Text('Mission löschen'),
                         ),
                       ],

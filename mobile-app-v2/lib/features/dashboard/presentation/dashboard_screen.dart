@@ -13,9 +13,6 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  static const double _cardHeight = 208;
-  static const double _statusPillBottom = _cardHeight + 12;
-  static const double _missionTeaserBottom = _cardHeight + 64;
   static const Color _alfredGreen = Color(0xFF2F7D4A);
 
   String? _selectedZoneId;
@@ -48,9 +45,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         showCenterButton: false,
                         onZoneTap: (zoneId) {
                           setState(() {
-                            _selectedZoneId = _selectedZoneId == zoneId
-                                ? null
-                                : zoneId;
+                            _selectedZoneId =
+                                _selectedZoneId == zoneId ? null : zoneId;
                           });
                         },
                       )
@@ -63,7 +59,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _DashboardTopBar(
                   view: view,
                   robotName: controller.robotName,
+                  savedRobotsCount: controller.savedRobots.length,
                   unreadNotifications: controller.unreadNotifications,
+                  isConnected:
+                      controller.connectionStatus.connectionState ==
+                      ConnectionStateKind.connected,
                   onOpenDashboard: () => context.go('/dashboard'),
                   onOpenHelp: () => _openHelp(context),
                   onOpenNotifications: () => context.push('/notifications'),
@@ -81,68 +81,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     onOpenService: () => context.push('/service'),
                   ),
                 ),
-              Positioned(
-                left: 12,
-                bottom: _statusPillBottom,
-                child: _StatusPill(view: view),
-              ),
-              if (view.hasMap) ...<Widget>[
-                if (view.showMissionTeaser)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: _missionTeaserBottom,
-                    child: _MissionTeaser(
-                      title: controller.missionName,
-                      subtitle: view.missionSubtitle!,
-                      onTap: () => context.push('/missions'),
-                    ),
-                  ),
-              ],
+              // StatusPill + MissionTeaser + ActionModule in einer Column
+              // → kein Überlappen durch hardcodierte Höhen mehr
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: _DashboardActionModule(
-                  view: view,
-                  mapAreaSquareMeters: controller.mapAreaSquareMeters,
-                  batteryPercent: controller.batteryPercent,
-                  gpsLabel:
-                      controller.connectionStatus.rtkState ?? 'GPS unbekannt',
-                  isConnected:
-                      controller.connectionStatus.connectionState ==
-                      ConnectionStateKind.connected,
-                  isDocked:
-                      controller.connectionStatus.chargerConnected == true,
-                  onPrimaryPressed: () {
-                    if (!controller.hasMap) {
-                      controller.beginMapCreation();
-                      context.push('/map');
-                      return;
-                    }
-                    if (view.primaryAction == _DashboardPrimaryAction.pause) {
-                      controller.pauseMowing();
-                      return;
-                    }
-                    context.push('/dashboard/mow');
-                  },
-                  onSecondaryPressed: switch (view.secondaryAction) {
-                    _DashboardSecondaryAction.none => null,
-                    _DashboardSecondaryAction.zoneMow =>
-                      selectedZoneName == null
-                          ? null
-                          : () => _openZoneMowSheet(
-                              context,
-                              controller,
-                              selectedZoneName,
-                            ),
-                    _DashboardSecondaryAction.mission => () => context.push(
-                      '/missions',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    if (view.hasMap) ...<Widget>[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: _StatusPill(view: view),
+                      ),
+                      if (view.showMissionTeaser)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          child: _MissionTeaser(
+                            title: controller.missionName,
+                            subtitle: view.missionSubtitle!,
+                            onTap: () => context.push('/missions'),
+                          ),
+                        ),
+                    ],
+                    _DashboardActionModule(
+                      view: view,
+                      batteryPercent: controller.batteryPercent,
+                      wifiRssiDbm:
+                          controller.connectionStatus.wifiRssiDbm,
+                      bluetoothConnected:
+                          controller.connectionStatus.bluetoothConnected,
+                      isConnected:
+                          controller.connectionStatus.connectionState ==
+                          ConnectionStateKind.connected,
+                      isDocked:
+                          controller.connectionStatus.chargerConnected == true,
+                      onPrimaryPressed: () {
+                        if (!controller.hasMap) {
+                          controller.beginMapCreation();
+                          context.push('/map');
+                          return;
+                        }
+                        if (view.primaryAction ==
+                            _DashboardPrimaryAction.pause) {
+                          controller.pauseMowing();
+                          return;
+                        }
+                        context.push('/dashboard/mow');
+                      },
+                      onSecondaryPressed: switch (view.secondaryAction) {
+                        _DashboardSecondaryAction.none => null,
+                        _DashboardSecondaryAction.zoneMow =>
+                          selectedZoneName == null
+                              ? null
+                              : () => _openZoneMowSheet(
+                                  context,
+                                  controller,
+                                  selectedZoneName,
+                                ),
+                        _DashboardSecondaryAction.mission => () =>
+                          context.push('/missions'),
+                        _DashboardSecondaryAction.station =>
+                          controller.sendToStation,
+                      },
+                      onAntennaFinder: () => _openAntennaFinder(context),
                     ),
-                    _DashboardSecondaryAction.station =>
-                      controller.sendToStation,
-                  },
-                  onAntennaFinder: () => _openAntennaFinder(context),
+                  ],
                 ),
               ),
             ],
@@ -154,13 +160,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String? _selectedZoneName(AppController controller) {
     final zoneId = _selectedZoneId;
-    if (zoneId == null) {
-      return null;
-    }
+    if (zoneId == null) return null;
     for (final zone in controller.mapGeometry.zones) {
-      if (zone.id == zoneId) {
-        return zone.name;
-      }
+      if (zone.id == zoneId) return zone.name;
     }
     return null;
   }
@@ -368,7 +370,9 @@ class _DashboardTopBar extends StatelessWidget {
   const _DashboardTopBar({
     required this.view,
     required this.robotName,
+    required this.savedRobotsCount,
     required this.unreadNotifications,
+    required this.isConnected,
     required this.onOpenDashboard,
     required this.onOpenHelp,
     required this.onOpenNotifications,
@@ -376,7 +380,9 @@ class _DashboardTopBar extends StatelessWidget {
 
   final _DashboardViewData view;
   final String robotName;
+  final int savedRobotsCount;
   final int unreadNotifications;
+  final bool isConnected;
   final VoidCallback onOpenDashboard;
   final VoidCallback onOpenHelp;
   final VoidCallback onOpenNotifications;
@@ -388,42 +394,68 @@ class _DashboardTopBar extends StatelessWidget {
         _DarkCircleAction(icon: Icons.home_rounded, onTap: onOpenDashboard),
         const SizedBox(width: 10),
         Expanded(
-          child: _OverlayPill(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        robotName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              color: const Color(0xFF1C1C1E),
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                      Text(
-                        view.topStatus,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF6C6C70),
+          child: GestureDetector(
+            onTap: savedRobotsCount > 1 ? onOpenDashboard : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          robotName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                shadows: const <Shadow>[
+                                  Shadow(
+                                    color: Color(0x88000000),
+                                    blurRadius: 6,
+                                  ),
+                                ],
+                              ),
                         ),
-                      ),
-                    ],
+                        Text(
+                          isConnected
+                              ? view.topStatus
+                              : 'Verbindung unterbrochen',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: isConnected
+                                    ? Colors.white.withValues(alpha: 0.85)
+                                    : const Color(0xFFFF6B6B),
+                                fontWeight: isConnected
+                                    ? FontWeight.w500
+                                    : FontWeight.w700,
+                                shadows: const <Shadow>[
+                                  Shadow(
+                                    color: Color(0x88000000),
+                                    blurRadius: 6,
+                                  ),
+                                ],
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: Color(0xFF3A3A3C),
-                ),
-              ],
+                  if (savedRobotsCount > 1) ...<Widget>[
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
@@ -533,9 +565,9 @@ class _MissionTeaser extends StatelessWidget {
 class _DashboardActionModule extends StatelessWidget {
   const _DashboardActionModule({
     required this.view,
-    required this.mapAreaSquareMeters,
     required this.batteryPercent,
-    required this.gpsLabel,
+    required this.wifiRssiDbm,
+    required this.bluetoothConnected,
     required this.isConnected,
     required this.isDocked,
     required this.onPrimaryPressed,
@@ -544,9 +576,9 @@ class _DashboardActionModule extends StatelessWidget {
   });
 
   final _DashboardViewData view;
-  final int mapAreaSquareMeters;
   final int batteryPercent;
-  final String gpsLabel;
+  final int? wifiRssiDbm;
+  final bool? bluetoothConnected;
   final bool isConnected;
   final bool isDocked;
   final VoidCallback onPrimaryPressed;
@@ -580,11 +612,9 @@ class _DashboardActionModule extends StatelessWidget {
       ),
       child: view.hasMap
           ? _MappedActionContent(
-              nextActionValue: view.nextActionValue,
-              nextActionLabel: view.nextActionLabel,
-              mapAreaSquareMeters: mapAreaSquareMeters,
               batteryPercent: batteryPercent,
-              gpsLabel: gpsLabel,
+              wifiRssiDbm: wifiRssiDbm,
+              bluetoothConnected: bluetoothConnected,
               isConnected: isConnected,
               isDocked: isDocked,
               primaryLabel: view.primaryLabel,
@@ -602,11 +632,9 @@ class _DashboardActionModule extends StatelessWidget {
 
 class _MappedActionContent extends StatelessWidget {
   const _MappedActionContent({
-    required this.nextActionValue,
-    required this.nextActionLabel,
-    required this.mapAreaSquareMeters,
     required this.batteryPercent,
-    required this.gpsLabel,
+    required this.wifiRssiDbm,
+    required this.bluetoothConnected,
     required this.isConnected,
     required this.isDocked,
     required this.primaryLabel,
@@ -615,11 +643,9 @@ class _MappedActionContent extends StatelessWidget {
     required this.onSecondaryPressed,
   });
 
-  final String nextActionValue;
-  final String nextActionLabel;
-  final int mapAreaSquareMeters;
   final int batteryPercent;
-  final String gpsLabel;
+  final int? wifiRssiDbm;
+  final bool? bluetoothConnected;
   final bool isConnected;
   final bool isDocked;
   final String primaryLabel;
@@ -635,55 +661,40 @@ class _MappedActionContent extends StatelessWidget {
       children: <Widget>[
         Row(
           children: <Widget>[
-            Icon(
-              isConnected
-                  ? Icons.wifi_tethering_rounded
-                  : Icons.wifi_tethering_error_rounded,
-              size: 16,
-              color: isConnected
+            _StatusChip(
+              icon: _wifiIcon(wifiRssiDbm, isConnected),
+              label: _wifiLabel(wifiRssiDbm, isConnected),
+              color: _wifiColor(wifiRssiDbm, isConnected),
+            ),
+            const SizedBox(width: 8),
+            _StatusChip(
+              icon: bluetoothConnected == true
+                  ? Icons.bluetooth_connected_rounded
+                  : Icons.bluetooth_disabled_rounded,
+              label: bluetoothConnected == null
+                  ? '–'
+                  : bluetoothConnected!
+                  ? 'Verbunden'
+                  : 'Getrennt',
+              color: bluetoothConnected == true
+                  ? const Color(0xFF2563EB)
+                  : const Color(0xFF8A8A90),
+            ),
+            const SizedBox(width: 8),
+            _StatusChip(
+              icon: _batteryIcon(batteryPercent, isDocked),
+              label: isDocked ? 'Lädt' : '$batteryPercent%',
+              color: isDocked
                   ? const Color(0xFF2F7D4A)
-                  : const Color(0xFFB91C1C),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              gpsLabel,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF1C1C1E),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Icon(
-              isDocked ? Icons.home_rounded : Icons.route_rounded,
-              size: 18,
-              color: const Color(0xFF6C6C70),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              isDocked ? 'Dock' : '$batteryPercent%',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF1C1C1E),
-                fontWeight: FontWeight.w800,
-              ),
+                  : batteryPercent > 40
+                  ? const Color(0xFF2F7D4A)
+                  : batteryPercent > 20
+                  ? const Color(0xFFF59E0B)
+                  : const Color(0xFFDC2626),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: _StatBlock(
-                value: '$mapAreaSquareMeters m²',
-                label: 'Kartenfläche',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _StatBlock(value: nextActionValue, label: nextActionLabel),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
         if (secondaryLabel == null)
           SizedBox(
             width: double.infinity,
@@ -710,6 +721,67 @@ class _MappedActionContent extends StatelessWidget {
               ),
             ],
           ),
+      ],
+    );
+  }
+
+  IconData _wifiIcon(int? rssi, bool connected) {
+    if (!connected || rssi == null) return Icons.wifi_off_rounded;
+    if (rssi >= -60) return Icons.wifi_rounded;
+    if (rssi >= -75) return Icons.wifi_2_bar_rounded;
+    return Icons.wifi_1_bar_rounded;
+  }
+
+  String _wifiLabel(int? rssi, bool connected) {
+    if (!connected) return 'Getrennt';
+    if (rssi == null) return '–';
+    if (rssi >= -60) return 'Stark';
+    if (rssi >= -75) return 'Mittel';
+    return 'Schwach';
+  }
+
+  Color _wifiColor(int? rssi, bool connected) {
+    if (!connected || rssi == null) return const Color(0xFF8A8A90);
+    if (rssi >= -60) return const Color(0xFF2F7D4A);
+    if (rssi >= -75) return const Color(0xFFF59E0B);
+    return const Color(0xFFDC2626);
+  }
+
+  IconData _batteryIcon(int percent, bool docked) {
+    if (docked) return Icons.battery_charging_full_rounded;
+    if (percent > 80) return Icons.battery_full_rounded;
+    if (percent > 60) return Icons.battery_5_bar_rounded;
+    if (percent > 40) return Icons.battery_3_bar_rounded;
+    if (percent > 20) return Icons.battery_2_bar_rounded;
+    return Icons.battery_alert_rounded;
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF1C1C1E),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ],
     );
   }
@@ -853,7 +925,11 @@ class _QuickNavButton extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             child: Column(
               children: <Widget>[
-                Icon(icon, size: 20, color: _DashboardScreenState._alfredGreen),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: _DashboardScreenState._alfredGreen,
+                ),
                 const SizedBox(height: 6),
                 Text(
                   label,
@@ -868,37 +944,6 @@ class _QuickNavButton extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _StatBlock extends StatelessWidget {
-  const _StatBlock({required this.value, required this.label});
-
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          value,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            color: const Color(0xFF1C1C1E),
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6C70)),
-        ),
-      ],
     );
   }
 }

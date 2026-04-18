@@ -146,16 +146,32 @@ class ServiceScreen extends StatelessWidget {
                       _ServiceEntry(
                         icon: Icons.memory_rounded,
                         title: 'Firmware & Hardware',
-                        subtitle: 'Versionen nicht aus Telemetrie verdrahtet',
+                        subtitle: _firmwareSubtitle(controller),
                         onTap: () => _openInfoSheet(
                           context,
                           title: 'Firmware & Hardware',
-                          rows: const <_InfoRow>[
-                            _InfoRow(label: 'Pi', value: 'Unbekannt'),
-                            _InfoRow(label: 'STM', value: 'Unbekannt'),
+                          rows: <_InfoRow>[
                             _InfoRow(
-                              label: 'Hardware map',
-                              value: 'Lokal nicht bekannt',
+                              label: 'Pi',
+                              value: controller.connectionStatus.piVersion ??
+                                  'Unbekannt',
+                            ),
+                            _InfoRow(
+                              label: 'STM',
+                              value: controller.connectionStatus.mcuVersion ??
+                                  'Unbekannt',
+                            ),
+                            _InfoRow(
+                              label: 'Laufzeit',
+                              value: _formatUptime(
+                                controller.connectionStatus.uptimeSeconds,
+                              ),
+                            ),
+                            _InfoRow(
+                              label: 'Systemstatus',
+                              value:
+                                  controller.connectionStatus.runtimeHealth ??
+                                  'Unbekannt',
                             ),
                           ],
                         ),
@@ -331,6 +347,22 @@ class ServiceScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _firmwareSubtitle(AppController controller) {
+    final pi = controller.connectionStatus.piVersion;
+    final mcu = controller.connectionStatus.mcuVersion;
+    if (pi != null || mcu != null) {
+      return 'Pi: ${pi ?? '?'} · STM: ${mcu ?? '?'}';
+    }
+    return 'Versionen noch nicht empfangen';
+  }
+
+  String _formatUptime(int? seconds) {
+    if (seconds == null) return 'Unbekannt';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    return '${h}h ${m}min';
   }
 
   Future<void> _openRobotStateSheet(BuildContext context) {

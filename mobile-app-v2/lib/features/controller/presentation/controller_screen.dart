@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_controller.dart';
@@ -27,10 +26,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
   @override
   void initState() {
     super.initState();
-    SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
   }
 
   @override
@@ -43,7 +38,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
   void dispose() {
     _sendTimer?.cancel();
     _controller?.sendManualDriveCommand(linear: 0, angular: 0);
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
 
@@ -137,16 +131,12 @@ class _ControllerScreenState extends State<ControllerScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.watch(context);
-    final isLandscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    final status =
-        controller.connectionStatus.connectionState ==
-            ConnectionStateKind.connected
-        ? controller.connectionStatus
-        : null;
-    final inIdle =
-        controller.connectionStatus.statePhase == null ||
-        controller.connectionStatus.statePhase == 'idle';
+    final isConnected = controller.connectionStatus.connectionState ==
+        ConnectionStateKind.connected;
+    final status = isConnected ? controller.connectionStatus : null;
+    final inIdle = isConnected &&
+        (controller.connectionStatus.statePhase == null ||
+            controller.connectionStatus.statePhase == 'idle');
 
     return Scaffold(
       backgroundColor: const Color(0xFF08111F),
@@ -220,9 +210,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
                                           ),
                                     ),
                                     Text(
-                                      inIdle
-                                          ? 'Manuelle Fahrt ist in Idle aktivierbar.'
-                                          : 'Manuelle Fahrt wird im Backend nur in Idle angewendet.',
+                                      !isConnected
+                                          ? 'Nicht verbunden — bitte zuerst Alfred verbinden.'
+                                          : inIdle
+                                          ? 'Idle erkannt — Sticks sind aktiv.'
+                                          : 'Nicht in Idle — Kommandos werden vom Backend ignoriert.',
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall
@@ -249,71 +241,58 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  if (!isLandscape)
-                    _InfoCard(
-                      child: Text(
-                        'Bitte Gerät ins Querformat drehen. Der Controller-Modus ist für Landscape ausgelegt.',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  if (isLandscape)
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          Expanded(
-                            flex: 3,
-                            child: Align(
-                              alignment: Alignment.bottomLeft,
-                              child: _DroneStick(
-                                title: 'Lenkung',
-                                accentColor: const Color(0xFF38BDF8),
-                                onChanged: (offset) => _updateDrive(
-                                  controller,
-                                  angular: offset.dx,
-                                ),
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Expanded(
+                          flex: 3,
+                          child: Align(
+                            alignment: Alignment.bottomLeft,
+                            child: _DroneStick(
+                              title: 'Lenkung',
+                              accentColor: const Color(0xFF38BDF8),
+                              onChanged: (offset) => _updateDrive(
+                                controller,
+                                angular: -offset.dx,
                               ),
                             ),
                           ),
-                          Expanded(
-                            flex: 2,
-                            child: Center(
-                              child: _ControlPanel(
-                                driveLimit: _driveLimit,
-                                mowMotorOn: _mowMotorOn,
+                        ),
+                        Expanded(
+                          flex: 2,
+                          child: _ControlPanel(
+                            driveLimit: _driveLimit,
+                            mowMotorOn: _mowMotorOn,
+                            linear: _linear * _driveLimit,
+                            angular: _angular * _driveLimit,
+                            connectionStatus: controller.connectionStatus,
+                            onDriveLimitChanged: (value) {
+                              setState(() => _driveLimit = value);
+                              controller.sendManualDriveCommand(
                                 linear: _linear * _driveLimit,
                                 angular: _angular * _driveLimit,
-                                connectionStatus: controller.connectionStatus,
-                                onDriveLimitChanged: (value) {
-                                  setState(() => _driveLimit = value);
-                                  controller.sendManualDriveCommand(
-                                    linear: _linear * _driveLimit,
-                                    angular: _angular * _driveLimit,
-                                  );
-                                },
-                                onToggleMowMotor: () =>
-                                    _toggleMowMotor(controller),
-                              ),
+                              );
+                            },
+                            onToggleMowMotor: () =>
+                                _toggleMowMotor(controller),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Align(
+                            alignment: Alignment.bottomRight,
+                            child: _DroneStick(
+                              title: 'Fahrt',
+                              accentColor: const Color(0xFF22C55E),
+                              onChanged: (offset) =>
+                                  _updateDrive(controller, linear: offset.dy),
                             ),
                           ),
-                          Expanded(
-                            flex: 3,
-                            child: Align(
-                              alignment: Alignment.bottomRight,
-                              child: _DroneStick(
-                                title: 'Fahrt',
-                                accentColor: const Color(0xFF22C55E),
-                                onChanged: (offset) =>
-                                    _updateDrive(controller, linear: offset.dy),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
+                  ),
                 ],
               ),
             ),
@@ -487,91 +466,63 @@ class _ControlPanel extends StatelessWidget {
         connectionStatus.connectionState == ConnectionStateKind.connected;
 
     return _InfoCard(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              'Steuerung',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Antriebslimit ${(driveLimit * 100).round()}%',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 10),
-            Text(
-              connected
-                  ? 'Drive-Kommandos laufen als WebSocket `drive` mit linear/angular.'
-                  : 'Keine aktive Robot-Verbindung. Kommandos werden aktuell nicht gesendet.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: const Color(0xFFCBD5E1)),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Antriebslimit ${(driveLimit * 100).round()}%',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Slider(
-              value: driveLimit,
-              min: 0.2,
-              max: 1.0,
-              divisions: 8,
-              label: '${(driveLimit * 100).round()}%',
-              onChanged: onDriveLimitChanged,
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _TelemetryTile(
-                    label: 'Linear',
-                    value: linear.toStringAsFixed(2),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _TelemetryTile(
-                    label: 'Angular',
-                    value: angular.toStringAsFixed(2),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: connected ? onToggleMowMotor : null,
-                style: FilledButton.styleFrom(
-                  backgroundColor: mowMotorOn
-                      ? const Color(0xFFDC2626)
-                      : const Color(0xFF16A34A),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                icon: Icon(
-                  mowMotorOn ? Icons.power_settings_new : Icons.grass_rounded,
-                ),
-                label: Text(
-                  mowMotorOn ? 'Mähmotor ausschalten' : 'Mähmotor einschalten',
+          ),
+          Slider(
+            value: driveLimit,
+            min: 0.2,
+            max: 1.0,
+            divisions: 8,
+            label: '${(driveLimit * 100).round()}%',
+            onChanged: onDriveLimitChanged,
+          ),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _TelemetryTile(
+                  label: 'Linear',
+                  value: linear.toStringAsFixed(2),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Sicherheit: Das Backend nimmt manuelle Fahrt nur im Op-State `Idle` an und stoppt ohne frische Kommandos nach 500 ms automatisch.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFFFDE68A),
-                fontWeight: FontWeight.w600,
+              const SizedBox(width: 8),
+              Expanded(
+                child: _TelemetryTile(
+                  label: 'Angular',
+                  value: angular.toStringAsFixed(2),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: connected ? onToggleMowMotor : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: mowMotorOn
+                    ? const Color(0xFFDC2626)
+                    : const Color(0xFF16A34A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              icon: Icon(
+                mowMotorOn ? Icons.power_settings_new : Icons.grass_rounded,
+              ),
+              label: Text(
+                mowMotorOn ? 'Mähmotor aus' : 'Mähmotor ein',
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

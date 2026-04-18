@@ -113,7 +113,7 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   int mapAreaSquareMeters = 0;
   int weeklyAreaSquareMeters = 0;
   int batteryPercent = 0;
-  int unreadNotifications = 2;
+  int unreadNotifications = 0;
   bool onlyWhenDry = true;
   bool requiresHighBattery = true;
   String missionName = 'Keine Mission';
@@ -130,6 +130,8 @@ class AppController extends ChangeNotifier implements RobotStateSink {
   OtaInstallState appOtaInstallState = const OtaInstallState();
   int _missionCounter = 1;
   List<AppMission> _missions = const <AppMission>[];
+  String? _lastNotifiedMessage;
+  String? _lastNotifiedError;
 
   final List<_AppSnapshot> _history = <_AppSnapshot>[];
   final List<MapGeometry> _mapUndoStack = <MapGeometry>[];
@@ -274,8 +276,8 @@ class AppController extends ChangeNotifier implements RobotStateSink {
       DashboardStage.noMap => 'Noch keine Karte',
       DashboardStage.mapNoZones => 'Basiskarte bereit',
       DashboardStage.mapZonesCharging => 'In Station',
-      DashboardStage.mapZonesParking => '$robotName steht auf der Karte',
-      DashboardStage.mapZonesMowing => '$robotName mäht gerade',
+      DashboardStage.mapZonesParking => 'Steht auf der Karte',
+      DashboardStage.mapZonesMowing => 'Mäht gerade',
       DashboardStage.mapZonesDelayed => 'Mähen wegen Regen verzögert',
     };
   }
@@ -472,8 +474,24 @@ class AppController extends ChangeNotifier implements RobotStateSink {
             uiSeverity: status.uiSeverity,
             mowDistanceM: status.mowDistanceM,
             mowDurationSec: status.mowDurationSec,
+            wifiRssiDbm: status.wifiRssiDbm,
+            bluetoothConnected: status.bluetoothConnected,
           )
         : status;
+    final incomingMessage = status.uiMessage;
+    if (incomingMessage != null &&
+        incomingMessage.isNotEmpty &&
+        incomingMessage != _lastNotifiedMessage) {
+      unreadNotifications += 1;
+      _lastNotifiedMessage = incomingMessage;
+    }
+    final incomingError = status.lastError;
+    if (incomingError != null &&
+        incomingError.isNotEmpty &&
+        incomingError != _lastNotifiedError) {
+      unreadNotifications += 1;
+      _lastNotifiedError = incomingError;
+    }
     if (status.robotName != null && status.robotName!.trim().isNotEmpty) {
       robotName = status.robotName!.trim();
     }
@@ -1039,7 +1057,15 @@ class AppController extends ChangeNotifier implements RobotStateSink {
             name: mission.name,
             zones: mission.zoneNames.isNotEmpty
                 ? mission.zoneNames
-                : mission.zoneIds,
+                : mission.zoneIds.map((id) {
+                    try {
+                      return mapGeometry.zones
+                          .firstWhere((z) => z.id == id)
+                          .name;
+                    } catch (_) {
+                      return id;
+                    }
+                  }).toList(growable: false),
             scheduleLabel: mission.effectiveScheduleLabel,
             statusLabel: mission.zoneIds.isEmpty ? 'Entwurf' : 'Geplant',
             isEnabled: mission.zoneIds.isNotEmpty,
@@ -1531,6 +1557,8 @@ class AppController extends ChangeNotifier implements RobotStateSink {
     }
     _record();
     unreadNotifications = 0;
+    _lastNotifiedMessage = connectionStatus.uiMessage;
+    _lastNotifiedError = connectionStatus.lastError;
     notifyListeners();
   }
 
