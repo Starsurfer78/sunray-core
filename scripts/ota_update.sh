@@ -55,7 +55,14 @@ git -C "${REPO_DIR}" fetch origin --quiet 2>/dev/null \
     || fail "git fetch failed — check network or remote URL"
 
 CURRENT_HASH=$(git -C "${REPO_DIR}" rev-parse HEAD)
-REMOTE_HASH=$(git -C "${REPO_DIR}" rev-parse origin/HEAD 2>/dev/null \
+CURRENT_BRANCH=$(git -C "${REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+UPSTREAM_REF=$(git -C "${REPO_DIR}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo "")
+if [[ -z "${UPSTREAM_REF}" && -n "${CURRENT_BRANCH}" && "${CURRENT_BRANCH}" != "HEAD" ]]; then
+    if git -C "${REPO_DIR}" show-ref --verify --quiet "refs/remotes/origin/${CURRENT_BRANCH}"; then
+        UPSTREAM_REF="origin/${CURRENT_BRANCH}"
+    fi
+fi
+REMOTE_HASH=$(git -C "${REPO_DIR}" rev-parse "${UPSTREAM_REF:-origin/HEAD}" 2>/dev/null \
     || git -C "${REPO_DIR}" rev-parse origin/main 2>/dev/null \
     || git -C "${REPO_DIR}" rev-parse origin/master 2>/dev/null \
     || echo "")
