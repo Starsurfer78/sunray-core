@@ -303,7 +303,6 @@ namespace sunray
                 // When reversing, flip linear AND angular steering polarity
                 if (segment.reverse) {
                     linear *= -1.0f;
-                    angular *= -1.0f;
                 }
 
                 // ── ADAPTIVE_SPEED: reduce forward speed when mow motor is overloaded ─
