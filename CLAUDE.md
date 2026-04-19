@@ -4,7 +4,8 @@ Production runtime and operator stack for Alfred (Raspberry Pi 4B + STM32).
 Hardware-coupled, timing-sensitive, and safety-relevant.
 
 ## Global Rules
-1. **Safety & Correctness**: Prioritize over speed. Do not guess on hardware ops.
+1. **Caveman Skill**: Automatically invoke `caveman` skill as first action for token-efficient, compact output.
+2. **Safety & Correctness**: Prioritize over speed. Do not guess on hardware ops.
 2. **Context First**: Always check `TASK.md` and `SYSTEM_OVERVIEW.md` before architecture changes.
 3. **No Duplication**: The C++ backend (`core/`) is the ONLY source of truth for planning, missions, and safety. WebUI/Mobile are dumb renderers.
 4. **Keep Context Fresh**: If you discover a new architectural invariant or complete a major milestone, update `TASK.md` or use the `manage_core_memory` tool immediately.
