@@ -270,10 +270,11 @@ void cmdAnswer(String s)
 inline bool acceptOdomTick(volatile unsigned long& nextAllowedMs)
 {
   const unsigned long now = millis();
-  if (now < nextAllowedMs)
-    return false;
-  nextAllowedMs = now + ODOMETRY_DEBOUNCE_MS;
-  return true;
+  if (now - nextAllowedMs >= ODOMETRY_DEBOUNCE_MS) {
+    nextAllowedMs = now;
+    return true;
+  }
+  return false;
 }
 
 void OdometryMowISR()
@@ -310,16 +311,17 @@ void OdometryRightISR()
 
 void stopButtonISR()
 {
-  if (millis() < stopButtonTimeout)
-    return;
-  stopButtonTimeout = millis() + 5;
-  if (digitalRead(pinStopButton) == HIGH)
-  {
-    stopButton = true;
-  }
-  else
-  {
-    stopButton = false;
+  unsigned long now = millis();
+  if (now - stopButtonTimeout >= 5) {
+    stopButtonTimeout = now;
+    if (digitalRead(pinStopButton) == HIGH)
+    {
+      stopButton = true;
+    }
+    else
+    {
+      stopButton = false;
+    }
   }
 }
 
@@ -899,9 +901,9 @@ void processConsole()
   char ch;
   if (CONSOLE.available())
   {
-    unsigned long timeout = millis() + 10;
+    unsigned long timeout = millis();
     // battery.resetIdle();
-    while ((CONSOLE.available()) && (millis() < timeout))
+    while ((CONSOLE.available()) && (millis() - timeout < 10))
     {
       ch = CONSOLE.read();
       if ((ch == '\r') || (ch == '\n'))
@@ -921,9 +923,9 @@ void processConsole()
   }
   if (CONSOLE2.available())
   {
-    unsigned long timeout = millis() + 10;
+    unsigned long timeout = millis();
     // battery.resetIdle();
-    while ((CONSOLE2.available()) && (millis() < timeout))
+    while ((CONSOLE2.available()) && (millis() - timeout < 10))
     {
       ch = CONSOLE2.read();
       if ((ch == '\r') || (ch == '\n'))
@@ -1007,15 +1009,17 @@ void testPins()
 void loop()
 {
 
-  if (millis() > nextMotorControlTime)
+  unsigned long now = millis();
+
+  if (now - nextMotorControlTime >= 20)
   {
-    nextMotorControlTime = millis() + 20;
+    nextMotorControlTime = now;
     motor();
     mower();
     readSensorsHighFrequency();
   }
 
-  if (millis() > motorTimeout)
+  if (now > motorTimeout)
   {
     leftSpeedSet = 0;
     rightSpeedSet = 0;
@@ -1026,9 +1030,9 @@ void loop()
 
   processConsole();
 
-  if (millis() > nextInfoTime)
+  if (now - nextInfoTime >= 1000)
   {
-    nextInfoTime = millis() + 1000;
+    nextInfoTime = now;
 #ifdef DEBUG
     printInfo();
 #endif
@@ -1038,19 +1042,19 @@ void loop()
 #endif
   }
 
-  if (millis() > nextBatTime)
+  if (now - nextBatTime >= 100)
   {
-    nextBatTime = millis() + 100;
+    nextBatTime = now;
     readSensors();
   }
 
-  if (millis() > nextMotorSenseTime)
+  if (now - nextMotorSenseTime >= 100)
   {
-    nextMotorSenseTime = millis() + 100;
+    nextMotorSenseTime = now;
     readMotorCurrent();
   }
 
-  if (millis() > motorOverloadTimeout)
+  if (now > motorOverloadTimeout)
   {
     if (!motorPermanentFault)
       motorOverload = false; // IMP-07: permanent fault blocks recovery
