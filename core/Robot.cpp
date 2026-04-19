@@ -793,11 +793,17 @@ namespace sunray
                 prevLiftDebounced = liftDebounced_;
                 if (sensors_.motorFault && !previousSensors_.motorFault)
                 {
-                    const std::string message =
-                        messages::humanReadableReasonMessage("motor_fault", "ERR_MOTOR_FAULT");
-                    recordEvent("error", "safety_event", "motor_fault", message, "ERR_MOTOR_FAULT");
-                    showUiNotice(message, "error", "motor_fault", 12000);
-                    op->onMotorError(ctx);
+                    if (opMgr_.activeOp()->name() == "Mow" || opMgr_.activeOp()->name() == "NavToStart") {
+                        const std::string message = messages::humanReadableReasonMessage("motor_fault", "Mähmotor Überlast — weiche aus");
+                        recordEvent("warn", "safety_event", "motor_fault_avoid", message, "ERR_MOTOR_FAULT");
+                        showUiNotice(message, "warn", "motor_fault_avoid", 6000);
+                        op->onObstacle(ctx); // Treat motor fault as obstacle during mowing (like original Sunray)
+                    } else {
+                        const std::string message = messages::humanReadableReasonMessage("motor_fault", "ERR_MOTOR_FAULT");
+                        recordEvent("error", "safety_event", "motor_fault", message, "ERR_MOTOR_FAULT");
+                        showUiNotice(message, "error", "motor_fault", 12000);
+                        op->onMotorError(ctx);
+                    }
                 }
                 if (sensors_.rain && !previousSensors_.rain)
                 {

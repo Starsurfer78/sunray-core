@@ -693,9 +693,23 @@ static std::vector<std::string> csvSplit(const std::string& s) {
     return out;
 }
 
-int          SerialRobotDriver::fieldInt  (const std::string& s) { return std::stoi(s);          }
-unsigned long SerialRobotDriver::fieldULong(const std::string& s) { return std::stoul(s);  }  // BUG-003 fix
-float        SerialRobotDriver::fieldFloat(const std::string& s) { return std::stof(s);          }
+int SerialRobotDriver::fieldInt(const std::string& s) {
+    if (s.empty()) return 0;
+    try { return std::stoi(s); }
+    catch (...) { return 0; }
+}
+
+unsigned long SerialRobotDriver::fieldULong(const std::string& s) {
+    if (s.empty()) return 0;
+    try { return std::stoul(s); }
+    catch (...) { return 0; }
+}
+
+float SerialRobotDriver::fieldFloat(const std::string& s) {
+    if (s.empty()) return 0.0f;
+    try { return std::stof(s); }
+    catch (...) { return 0.0f; }
+}
 
 // Parse motor response frame; supports compact v1.1.25+ and legacy schema.
 void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
