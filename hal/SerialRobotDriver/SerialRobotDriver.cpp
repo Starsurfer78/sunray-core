@@ -310,9 +310,14 @@ void SerialRobotDriver::tickMotor(uint64_t now) {
     if (now < nextMotorMs_) return;
 
     nextMotorMs_ = now + motorPeriodMs_;
+
+    // Apply Mower Motor Soft-Start Ramp (exactly like original Sunray)
+    // Avoids massive inrush current and driver fault triggering on startup.
+    pwmMowCurr_ = 0.99f * pwmMowCurr_ + 0.01f * static_cast<float>(pwmMowSet_);
+
     std::string cmd = "AT+M," + std::to_string(pwmRight_)
                     + ","     + std::to_string(pwmLeft_)
-                    + ","     + std::to_string(pwmMow_);
+                    + ","     + std::to_string(static_cast<int>(std::lround(pwmMowCurr_)));
     sendAt(cmd);
     motorTxCount_++;
 }
@@ -396,7 +401,7 @@ void SerialRobotDriver::setMotorPwm(int left, int right, int mow) {
     if (config_->get<bool>("invert_right_motor", false)) right = -right;
     pwmLeft_  = left;
     pwmRight_ = right;
-    pwmMow_   = mow;
+    pwmMowSet_ = mow;
 }
 
 // Alfred: no-op (MCU recovers fault internally).
@@ -441,7 +446,7 @@ OdometryData SerialRobotDriver::readOdometry() {
     // PWM manually, otherwise the PID controller goes insane during reverse driving.
     if (pwmLeft_ < 0)  data.leftTicks  = -data.leftTicks;
     if (pwmRight_ < 0) data.rightTicks = -data.rightTicks;
-    if (pwmMow_ < 0)   data.mowTicks   = -data.mowTicks;
+    if (pwmMowCurr_ < 0.0f) data.mowTicks = -data.mowTicks;
 
     lastTicksLeft_  = rawTicksLeft_;
     lastTicksRight_ = rawTicksRight_;

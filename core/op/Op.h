@@ -93,16 +93,22 @@ namespace sunray
 
         // ── Motor helpers ──────────────────────────────────────────────────────────
 
+        int currentMowPwm = 0; // Remember desired mow PWM across calls
+
         /// Stop all motors immediately.
         void stopMotors()
         {
             if (driveController)
                 driveController->reset();
+            currentMowPwm = 0;
             hw.setMotorPwm(0, 0, 0);
         }
 
         /// Set mow motor (on=true: PWM 200, off: PWM 0).
-        void setMowMotor(bool on) { hw.setMotorPwm(0, 0, on ? 200 : 0); }
+        void setMowMotor(bool on) {
+            currentMowPwm = on ? 200 : 0;
+            hw.setMotorPwm(0, 0, currentMowPwm);
+        }
 
         /// Differential-drive speed control (replaces motor.setLinearAngularSpeed).
         ///   v:     linear velocity  (m/s, + = forward)
@@ -114,7 +120,7 @@ namespace sunray
             const auto pwm = driveController
                                  ? driveController->compute(config, v, omega, odometry, dt_ms)
                                  : control::OpenLoopDriveController::compute(config, v, omega);
-            hw.setMotorPwm(pwm.left, pwm.right, 0); // mow unchanged by speed calls
+            hw.setMotorPwm(pwm.left, pwm.right, currentMowPwm);
         }
     };
 

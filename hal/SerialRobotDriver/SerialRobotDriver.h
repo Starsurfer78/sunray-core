@@ -122,7 +122,8 @@ private:
     // Latched PWM (applied at next 50 Hz tick)
     int pwmLeft_  = 0;
     int pwmRight_ = 0;
-    int pwmMow_   = 0;
+    int pwmMowSet_ = 0;
+    float pwmMowCurr_ = 0.0f;
     
     // Logical PWM (before hardware inversion, used for odometry sign reconstruction)
     int logicalPwmLeft_ = 0;

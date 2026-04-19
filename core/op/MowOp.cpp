@@ -11,7 +11,8 @@ namespace sunray
     void MowOp::begin(OpContext &ctx)
     {
         ctx.logger.info("Mow", "OP_MOW");
-        ctx.hw.setMotorPwm(0, 0, 200); // start mow blade
+        ctx.currentMowPwm = 200; // start mow blade
+        ctx.hw.setMotorPwm(0, 0, ctx.currentMowPwm);
 
         // N2.5: prefer WaypointExecutor plan check; fall back to legacy RuntimeState
         const bool hasActiveMowRoute =
@@ -43,6 +44,8 @@ namespace sunray
             return;
         }
 
+        ctx.currentMowPwm = ctx.config.get<int>("mow_pwm", 200); // Default for MowOp
+
         // Dynamically control mow motor based on current route segment:
         // - On  during coverage (edge/infill) and same-zone stripe transitions.
         // - Off during inter-zone transit, dock approach, and recovery segments.
@@ -52,7 +55,7 @@ namespace sunray
             const int mowPwm = enableMowMotor && ctx.runtimeState->currentMowOn()
                                    ? ctx.config.get<int>("mow_pwm", 200)
                                    : 0;
-            ctx.hw.setMotorPwm(0, 0, mowPwm);
+            ctx.currentMowPwm = mowPwm; // Store for setLinearAngularSpeed
         }
 
         if (ctx.lineTracker && ctx.map && ctx.runtimeState && ctx.stateEst)
