@@ -781,6 +781,19 @@ namespace sunray
                 }
             }
         }
+        else
+        {
+            if (Op *op = opMgr_.activeOp())
+            {
+                if (sensors_.rain && !previousSensors_.rain)
+                {
+                    const std::string message = messages::humanReadableReasonMessage("rain_detected");
+                    recordEvent("info", "safety_event", "rain_detected", message);
+                    showUiNotice(message, "warn", "rain_detected", 6000);
+                    op->onRainTriggered(ctx);
+                }
+            }
+        }
         previousSensors_ = sensors_;
     }
 

@@ -1826,9 +1826,11 @@ namespace sunray
                     {
                         for (const auto &z : map["zones"])
                         {
-                            fc["features"].push_back({{"type", "Feature"},
-                                                      {"properties", {{"type", "zone"}, {"id", z.value("id", "")}}},
-                                                      {"geometry", {{"type", "Polygon"}, {"coordinates", nlohmann::json::array({toRing(z["polygon"])})}}}});
+                            if (z.contains("polygon") && !z["polygon"].empty()) {
+                                fc["features"].push_back({{"type", "Feature"},
+                                                          {"properties", {{"type", "zone"}, {"id", z.value("id", "")}}},
+                                                          {"geometry", {{"type", "Polygon"}, {"coordinates", nlohmann::json::array({toRing(z["polygon"])})}}}});
+                            }
                         }
                     }
                     // dock (LineString — full path, not just first point)
