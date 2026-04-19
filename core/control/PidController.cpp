@@ -14,27 +14,23 @@
 namespace sunray::control {
 
 void PidController::reset() {
-    integral_ = 0.0f;
-    previousError_ = 0.0f;
-    initialized_ = false;
+    esum_ = 0.0f;
+    eold_ = 0.0f;
 }
 
-float PidController::update(float error, float dt_s, float kp, float ki, float kd) {
-    if (dt_s <= 0.0f) return kp * error;
+float PidController::compute(float w, float x, float dt_s, float kp, float ki, float kd, float max_output) {
+    if (dt_s <= 0.0f) return 0.0f;
 
-    // Keep the integrator bounded so long saturation periods do not dominate
-    // the response once the wheel speed catches up again.
-    integral_ += error * dt_s;
-    integral_ = std::clamp(integral_, -1.0f, 1.0f);
+    float e = w - x;
+    esum_ += e;
 
-    float derivative = 0.0f;
-    if (initialized_) {
-        derivative = (error - previousError_) / dt_s;
-    }
+    // anti wind-up
+    esum_ = std::clamp(esum_, -max_output, max_output);
 
-    previousError_ = error;
-    initialized_ = true;
-    return kp * error + ki * integral_ + kd * derivative;
+    float y = kp * e + ki * dt_s * esum_ + kd / dt_s * (e - eold_);
+    eold_ = e;
+
+    return std::clamp(y, -max_output, max_output);
 }
 
 } // namespace sunray::control

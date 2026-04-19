@@ -32,11 +32,20 @@ public:
                             unsigned long dt_ms);
 
 private:
+    // ─────────────────────────────────────────────────────────────────────────
+    // PID Instances
+    // ─────────────────────────────────────────────────────────────────────────
     PidController leftPid_;
     PidController rightPid_;
-    float leftFiltered_ms_ = 0.0f;
-    float rightFiltered_ms_ = 0.0f;
+
+    float leftPwmCurr_ = 0.0f;
+    float rightPwmCurr_ = 0.0f;
+
+    float leftFilteredRpm_ = 0.0f;
+    float rightFilteredRpm_ = 0.0f;
+    
     float lastCommandedLinear_ms_ = 0.0f;
+    
     bool filterInitialized_ = false;
 };
 
