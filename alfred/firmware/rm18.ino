@@ -906,7 +906,7 @@ void processConsole()
   {
     unsigned long timeout = millis();
     // battery.resetIdle();
-    while ((CONSOLE.available()) && (millis() - timeout < 10))
+    while ((CONSOLE.available()) && (millis() - timeout < 5))
     {
       ch = CONSOLE.read();
       if ((ch == '\r') || (ch == '\n'))
@@ -928,7 +928,7 @@ void processConsole()
   {
     unsigned long timeout = millis();
     // battery.resetIdle();
-    while ((CONSOLE2.available()) && (millis() - timeout < 10))
+    while ((CONSOLE2.available()) && (millis() - timeout < 5))
     {
       ch = CONSOLE2.read();
       if ((ch == '\r') || (ch == '\n'))
