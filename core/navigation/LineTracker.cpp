@@ -300,8 +300,11 @@ namespace sunray
                 // Stanley formula: p*headingError + atan2(k*crossTrack, 0.001+|speed|)
                 angular = p * trackerDiffDelta_ + std::atan2(k * lateralError_, 0.001f + std::fabs(speed));
 
-                if (segment.reverse)
+                // When reversing, flip linear AND angular steering polarity
+                if (segment.reverse) {
                     linear *= -1.0f;
+                    angular *= -1.0f;
+                }
 
                 // ── ADAPTIVE_SPEED: reduce forward speed when mow motor is overloaded ─
                 // Uses the STM32 overload flag (AT+S/AT+M summary field).
