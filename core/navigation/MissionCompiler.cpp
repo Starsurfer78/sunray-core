@@ -1036,10 +1036,34 @@ namespace sunray
 
                 if (transition.points.empty())
                 {
-                    // No A* path found. Mark the route as invalid so the validator and the
-                    // mission start gate can detect and reject it. Do NOT insert a direct
-                    // point: that would create a silent shortcut through obstacles or the
-                    // zone boundary that is invisible to the RouteValidator.
+                    // Constrained A* failed (zone polygon blocked the path, e.g. concave zone
+                    // or narrow section). Retry without constraintZone so A* can briefly exit
+                    // the zone polygon. Points get TRANSIT_INTER_ZONE semantic so the
+                    // RouteValidator skips zone-containment but still checks perimeter/exclusions.
+                    if (!zonePoly.empty())
+                    {
+                        const RoutePlan fallback = map.previewPath(
+                            from, to, WayType::MOW, WayType::MOW, 0.0f, false,
+                            settings.reverseAllowed, settings.clearance,
+                            settings.clearance + map.plannerSettings().obstacleInflation_m,
+                            {});
+                        if (!fallback.points.empty())
+                        {
+                            for (auto point : fallback.points)
+                            {
+                                if (!route.points.empty() && samePoint(route.points.back().p, point.p))
+                                    continue;
+                                point.semantic = RouteSemantic::TRANSIT_INTER_ZONE;
+                                point.zoneId = zoneId;
+                                point.componentId = componentId;
+                                route.points.push_back(point);
+                            }
+                            route.sourceMode = WayType::MOW;
+                            route.active = true;
+                            return true;
+                        }
+                    }
+
                     route.valid = false;
                     if (route.invalidReason.empty())
                     {

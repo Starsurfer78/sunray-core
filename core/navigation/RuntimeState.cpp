@@ -254,23 +254,21 @@ namespace sunray
             const bool havePath = planPath(map, {robotX, robotY}, approachTarget);
             if (!havePath || localRoute_.points.empty())
             {
-                shouldDock_ = false; // reset — will be set again on the fallback path below
-                if (!map.isInsideAllowedArea(robotX, robotY))
-                {
-                    dockPointsIdx_ = 0;
-                    shouldDock_ = true;
-                    shouldMow_ = false;
-                    wayMode_ = WayType::DOCK;
-                    freeRoute_ = FreeRouteContext{};
-                    localRoute_ = RoutePlan{};
-                    freePointsIdx_ = 0;
-                    setLastTargetPoint(robotX, robotY);
-                    trackReverse_ = map.dockRoutePlan().points[dockPointsIdx_].reverse;
-                    trackSlow_ = true;
-                    targetPoint_ = map.dockRoutePlan().points[dockPointsIdx_].p;
-                    return true;
-                }
-                return false;
+                // planPath failed (e.g. dock approach target is at/outside perimeter edge).
+                // Fall back to direct DOCK mode so DockOp's TransitionRouter can
+                // still create a proper obstacle-aware path in begin().
+                dockPointsIdx_ = 0;
+                shouldDock_ = true;
+                shouldMow_ = false;
+                wayMode_ = WayType::DOCK;
+                freeRoute_ = FreeRouteContext{};
+                localRoute_ = RoutePlan{};
+                freePointsIdx_ = 0;
+                setLastTargetPoint(robotX, robotY);
+                trackReverse_ = map.dockRoutePlan().points[dockPointsIdx_].reverse;
+                trackSlow_ = true;
+                targetPoint_ = map.dockRoutePlan().points[dockPointsIdx_].p;
+                return true;
             }
 
             dockPointsIdx_ = 0;
