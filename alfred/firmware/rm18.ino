@@ -497,12 +497,14 @@ void readSensors()
   w = 0.5;
   liftLeftLP = w * liftLeftLP + (1.0 - w) * ((float)liftLeft);
   liftRightLP = w * liftRightLP + (1.0 - w) * ((float)liftRight);
-  if ((abs(liftLeft - 530) < 200) && (abs(liftRight - 530) < 200))
-  { // IMP-03 fix: AND — reset LP only when both sensors are in normal position
+  if ((abs(liftLeft - 530) < 200) || (abs(liftRight - 530) < 200))
+  { // IMP-03 fix: OR — reset LP when AT LEAST ONE sensor is in normal position
     liftLeftLP = liftLeft;
     liftRightLP = liftRight;
   }
-  lift = ((abs(liftLeftLP - 530) > 200) || (abs(liftRightLP - 530) > 200)); // BUG-01 fix: OR so single-side lift is detected; calibrated on grey/orange mower
+  // Change to AND: Robot must be lifted on BOTH sides to trigger the lift event.
+  // This prevents false triggers when only one wheel dips into a hole.
+  lift = ((abs(liftLeftLP - 530) > 200) && (abs(liftRightLP - 530) > 200));
 
 #ifdef DEBUG
   if (stopButton)
