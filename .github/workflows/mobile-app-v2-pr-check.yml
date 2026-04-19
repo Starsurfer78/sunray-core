@@ -1,0 +1,44 @@
+name: mobile-app-v2 PR Check
+
+on:
+  pull_request:
+    paths:
+      - 'mobile-app-v2/**'
+      - '.github/workflows/mobile-app-v2-pr-check.yml'
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - 'mobile-app-v2/**'
+
+jobs:
+  flutter-checks:
+    name: Flutter Lint, Format & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile-app-v2
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Check Formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Run Analyzer
+        run: flutter analyze
+
+      - name: Run Tests
+        run: flutter test

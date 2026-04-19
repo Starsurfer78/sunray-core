@@ -127,11 +127,11 @@ class MapEditorScreen extends ConsumerWidget {
                 showCenterButton: editorState.mode == MapEditorMode.view,
               ),
             ),
-            Positioned.fill(
+            const Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: <Color>[

@@ -179,11 +179,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             )
           else ...<Widget>[
-            Positioned.fill(
+            const Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: <Color>[
@@ -1438,10 +1438,10 @@ class _DashboardControlCard extends StatelessWidget {
                         ),
                   ),
                   const SizedBox(height: 10),
-                  Wrap(
+                  const Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: const <Widget>[
+                    children: <Widget>[
                       _StepBadge(label: 'Perimeter'),
                       _StepBadge(label: 'No-Go'),
                       _StepBadge(label: 'Docking'),
