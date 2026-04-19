@@ -14,13 +14,8 @@ void UndockOp::begin(OpContext& ctx) {
     startX = ctx.x;
     startY = ctx.y;
     chargerDropped = !ctx.battery.chargerConnected;
-    
-    // Try to start tracking the dock path backwards
-    if (ctx.runtimeState && ctx.map) {
-        hasDockPath = ctx.runtimeState->startUndocking(*ctx.map, ctx.x, ctx.y);
-    } else {
-        hasDockPath = false;
-    }
+    blindReverseDone = false;
+    hasDockPath = false;
 }
 
 void UndockOp::end(OpContext& ctx) {
@@ -30,7 +25,53 @@ void UndockOp::end(OpContext& ctx) {
 void UndockOp::run(OpContext& ctx) {
     if (!ctx.battery.chargerConnected) chargerDropped = true;
 
-    // --- Mode 1: Follow the dock path ---
+    // --- Phase 1: Blind reverse (get off contacts without steering) ---
+    if (!blindReverseDone) {
+        const float speed = ctx.config.get<float>("undock_speed_ms", 0.08f);
+        const float distanceM = ctx.config.get<float>("undock_distance_m", 0.32f);
+        const unsigned long chargerTimeoutMs = static_cast<unsigned long>(
+            ctx.config.get<int>("undock_charger_timeout_ms", 5000));
+        const unsigned long positionTimeoutMs = static_cast<unsigned long>(
+            ctx.config.get<int>("undock_position_timeout_ms", 10000));
+
+        const float dx = ctx.x - startX;
+        const float dy = ctx.y - startY;
+        const float travelled = std::sqrt(dx * dx + dy * dy);
+
+        if (chargerDropped && travelled >= distanceM) {
+            ctx.logger.info("Undock", "blind reverse complete");
+            blindReverseDone = true;
+            ctx.stopMotors();
+            
+            // Try to start tracking the dock path backwards from the CURRENT position
+            if (ctx.runtimeState && ctx.map && ctx.map->dockRoutePlan().points.size() >= 2) {
+                hasDockPath = ctx.runtimeState->startUndocking(*ctx.map, ctx.x, ctx.y);
+                ctx.logger.info("Undock", "switched to tracking mapped dock path");
+            } else {
+                ctx.logger.info("Undock", "no mapped dock path, undock complete => NavToStart");
+                if (initiatedByOperator) ctx.opMgr.navToStart().initiatedByOperator = true;
+                changeOp(ctx, ctx.opMgr.navToStart());
+            }
+            return;
+        }
+
+        if (!chargerDropped && ctx.now_ms - startTime_ms >= chargerTimeoutMs) {
+            ctx.logger.error("Undock", "charger still connected => ERROR");
+            changeOp(ctx, ctx.opMgr.error());
+            return;
+        }
+
+        if (ctx.now_ms - startTime_ms >= positionTimeoutMs) {
+            ctx.logger.error("Undock", "undock position timeout => ERROR");
+            changeOp(ctx, ctx.opMgr.error());
+            return;
+        }
+
+        ctx.setLinearAngularSpeed(-speed, 0.0f);
+        return;
+    }
+
+    // --- Phase 2: Follow the dock path ---
     if (hasDockPath && ctx.runtimeState && ctx.map && ctx.lineTracker && ctx.stateEst) {
         ctx.lineTracker->track(ctx, *ctx.map, *ctx.runtimeState, *ctx.stateEst);
         
@@ -41,42 +82,7 @@ void UndockOp::run(OpContext& ctx) {
             if (initiatedByOperator) ctx.opMgr.navToStart().initiatedByOperator = true;
             changeOp(ctx, ctx.opMgr.navToStart());
         }
-        return;
     }
-
-    // --- Mode 2: Legacy fallback (blind reverse) ---
-    const float speed = ctx.config.get<float>("undock_speed_ms", 0.08f);
-    const float distanceM = ctx.config.get<float>("undock_distance_m", 0.32f);
-    const unsigned long chargerTimeoutMs = static_cast<unsigned long>(
-        ctx.config.get<int>("undock_charger_timeout_ms", 5000));
-    const unsigned long positionTimeoutMs = static_cast<unsigned long>(
-        ctx.config.get<int>("undock_position_timeout_ms", 10000));
-
-    const float dx = ctx.x - startX;
-    const float dy = ctx.y - startY;
-    const float travelled = std::sqrt(dx * dx + dy * dy);
-
-    if (chargerDropped && travelled >= distanceM) {
-        ctx.logger.info("Undock", "undock complete => NavToStart");
-        ctx.stopMotors();
-        if (initiatedByOperator) ctx.opMgr.navToStart().initiatedByOperator = true;
-        changeOp(ctx, ctx.opMgr.navToStart());
-        return;
-    }
-
-    if (!chargerDropped && ctx.now_ms - startTime_ms >= chargerTimeoutMs) {
-        ctx.logger.error("Undock", "charger still connected => ERROR");
-        changeOp(ctx, ctx.opMgr.error());
-        return;
-    }
-
-    if (ctx.now_ms - startTime_ms >= positionTimeoutMs) {
-        ctx.logger.error("Undock", "undock position timeout => ERROR");
-        changeOp(ctx, ctx.opMgr.error());
-        return;
-    }
-
-    ctx.setLinearAngularSpeed(-speed, 0.0f);
 }
 
 void UndockOp::onObstacle(OpContext& ctx) {
