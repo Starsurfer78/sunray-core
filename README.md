@@ -33,8 +33,6 @@ Die Browser-Oberflaeche lebt in [webui-svelte](webui-svelte/README.md) und deckt
 Die aktuelle Android-App lebt in [mobile-app-v2](mobile-app-v2/README.md).
 Sie bildet den freigegebenen Hauptfluss fuer Discovery, Kartenanlage, Zonen, Zeitplaene, Betrieb, Controller-Modus und OTA ab.
 
-Der Ordner `mobile-app` bleibt derzeit nur noch als Altstand und Referenz im Repository.
-
 ## Schnellstart
 
 ### Backend bauen
@@ -81,7 +79,6 @@ sunray-core/
 ├── tests/            Backend-Tests
 ├── webui-svelte/     Svelte-WebUI
 ├── mobile-app-v2/    aktuelle Flutter-App
-├── mobile-app/       Altstand / Referenz
 ├── scripts/          Install-, OTA- und Deploy-Helfer
 └── docs/             technische Notizen und Produktspezifikation
 ```
