@@ -902,15 +902,14 @@ void processCmd(bool checkCrc)
 void processConsole()
 {
   char ch;
-  if (CONSOLE.available())
+  
+  // Read whatever is in the buffer without blocking
+  while (CONSOLE.available())
   {
-    unsigned long timeout = millis();
-    // battery.resetIdle();
-    while ((CONSOLE.available()) && (millis() - timeout < 5))
+    ch = CONSOLE.read();
+    if ((ch == '\r') || (ch == '\n'))
     {
-      ch = CONSOLE.read();
-      if ((ch == '\r') || (ch == '\n'))
-      {
+      if (cmd.length() > 0) {
 #ifdef DEBUG
         CONSOLE.println(cmd);
 #endif
@@ -918,21 +917,19 @@ void processConsole()
         CONSOLE.print(cmdResponse);
         cmd = "";
       }
-      else if (cmd.length() < 500)
-      {
-        cmd += ch;
-      }
+    }
+    else if (cmd.length() < 500)
+    {
+      cmd += ch;
     }
   }
-  if (CONSOLE2.available())
+
+  while (CONSOLE2.available())
   {
-    unsigned long timeout = millis();
-    // battery.resetIdle();
-    while ((CONSOLE2.available()) && (millis() - timeout < 5))
+    ch = CONSOLE2.read();
+    if ((ch == '\r') || (ch == '\n'))
     {
-      ch = CONSOLE2.read();
-      if ((ch == '\r') || (ch == '\n'))
-      {
+      if (cmd.length() > 0) {
 #ifdef DEBUG
         CONSOLE2.println(cmd);
 #endif
@@ -940,10 +937,10 @@ void processConsole()
         CONSOLE2.print(cmdResponse);
         cmd = "";
       }
-      else if (cmd.length() < 500)
-      {
-        cmd += ch;
-      }
+    }
+    else if (cmd.length() < 500)
+    {
+      cmd += ch;
     }
   }
 }
