@@ -694,7 +694,8 @@ namespace sunray
         // Charge excluded: driving while charging risks dock-pin disconnect → Error op.
         const bool inIdle   = (op == "Idle");
         const bool inManual = (op == "Manual");
-        const bool fresh    = (driveTs > 0 && now_ms_ - driveTs < 500UL);
+        // Use a 1500 ms timeout to prevent stuttering/dropout over poor Wi-Fi.
+        const bool fresh    = (driveTs > 0 && now_ms_ - driveTs < 1500UL);
 
         if (inIdle && fresh)
         {
@@ -707,7 +708,7 @@ namespace sunray
         {
             if (!fresh)
             {
-                // No command for >500 ms → return to Idle.
+                // No command for >1500 ms → return to Idle.
                 opMgr_.changeOperationTypeByOperator(ctx, "Idle");
                 return;
             }
@@ -729,7 +730,9 @@ namespace sunray
 
             const float lin = manualLinear1000_.load() / 1000.f;
             const float ang = manualAngular1000_.load() / 1000.f;
-            constexpr float MAX_PWM = 0.35f;
+            // Full 1.0 multiplier. The UI already scales speeds (0.0 to 1.0).
+            // Previous 0.35f limited PWM to ~89 (stall torque for heavy mowers = stuttering).
+            constexpr float MAX_PWM = 1.0f;
             float left  = (lin - ang * 0.5f) * MAX_PWM;
             float right = (lin + ang * 0.5f) * MAX_PWM;
             left  = left  < -1.f ? -1.f : left  > 1.f ? 1.f : left;
