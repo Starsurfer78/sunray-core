@@ -443,10 +443,10 @@ OdometryData SerialRobotDriver::readOdometry() {
     // FIRMWARE ODOMETRY SIGN FIX:
     // The STM32 Alfred firmware only counts UP in the ISR (`odomTicksLeft++`), regardless of direction.
     // Thus `dLeft` and `dRight` are always positive magnitudes. We MUST apply the sign of the commanded
-    // PWM manually, otherwise the PID controller goes insane during reverse driving.
-    if (pwmLeft_ < 0)  data.leftTicks  = -data.leftTicks;
-    if (pwmRight_ < 0) data.rightTicks = -data.rightTicks;
-    if (pwmMowCurr_ < 0.0f) data.mowTicks = -data.mowTicks;
+    // LOGICAL PWM manually, otherwise the PID controller goes insane during reverse driving.
+    if (logicalPwmLeft_ < 0)  data.leftTicks  = -data.leftTicks;
+    if (logicalPwmRight_ < 0) data.rightTicks = -data.rightTicks;
+    if (logicalPwmMow_ < 0) data.mowTicks = -data.mowTicks;
 
     lastTicksLeft_  = rawTicksLeft_;
     lastTicksRight_ = rawTicksRight_;
