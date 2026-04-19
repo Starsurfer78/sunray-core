@@ -325,6 +325,27 @@ namespace sunray
             return true;
         }
 
+        bool RuntimeState::startUndocking(const Map &map, float robotX, float robotY)
+        {
+            if (map.dockRoutePlan().points.size() < 2)
+                return false;
+
+            dockPointsIdx_ = static_cast<int>(map.dockRoutePlan().points.size()) - 1;
+            shouldDock_ = false;
+            shouldMow_ = false;
+            wayMode_ = WayType::DOCK; // Use DOCK mode to follow the dock path backwards
+            freeRoute_ = FreeRouteContext{};
+            localRoute_ = RoutePlan{};
+            freePointsIdx_ = 0;
+            
+            setLastTargetPoint(robotX, robotY);
+            targetPoint_ = map.dockRoutePlan().points[dockPointsIdx_ - 1].p;
+            trackReverse_ = true; // Force reverse for the first undock segment
+            trackSlow_ = true;
+            
+            return true;
+        }
+
         bool RuntimeState::isDocking() const
         {
             return shouldDock_ && (wayMode_ == WayType::DOCK || wayMode_ == WayType::FREE);
@@ -411,6 +432,23 @@ namespace sunray
             (void)sim;
             if (map.dockRoutePlan().points.empty())
                 return false;
+                
+            if (!shouldDock_) {
+                // We are undocking (going backwards along the dock path)
+                --dockPointsIdx_;
+                if (dockPointsIdx_ <= 0)
+                    return false; // Reached the start of the dock path
+                
+                lastTargetPoint_ = targetPoint_;
+                targetPoint_ = map.dockRoutePlan().points[dockPointsIdx_ - 1].p;
+                // For the first segment leaving the station we force reverse,
+                // afterwards we drive forward
+                trackReverse_ = (dockPointsIdx_ == static_cast<int>(map.dockRoutePlan().points.size()) - 1);
+                trackSlow_ = false;
+                return true;
+            }
+            
+            // We are docking
             ++dockPointsIdx_;
             if (dockPointsIdx_ >= static_cast<int>(map.dockRoutePlan().points.size()))
                 return false;

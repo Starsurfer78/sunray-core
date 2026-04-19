@@ -379,6 +379,7 @@ namespace sunray
         float startX = 0.0f;
         float startY = 0.0f;
         bool chargerDropped = false;
+        bool hasDockPath = false;
 
         std::string name() const override { return "Undock"; }
         void begin(OpContext &ctx) override;

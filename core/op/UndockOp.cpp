@@ -1,5 +1,8 @@
 // UndockOp.cpp — leave charger safely before navigating to the mow start.
 #include "core/op/Op.h"
+#include "core/navigation/RuntimeState.h"
+#include "core/navigation/LineTracker.h"
+#include "core/navigation/Map.h"
 
 #include <cmath>
 
@@ -11,6 +14,13 @@ void UndockOp::begin(OpContext& ctx) {
     startX = ctx.x;
     startY = ctx.y;
     chargerDropped = !ctx.battery.chargerConnected;
+    
+    // Try to start tracking the dock path backwards
+    if (ctx.runtimeState && ctx.map) {
+        hasDockPath = ctx.runtimeState->startUndocking(*ctx.map, ctx.x, ctx.y);
+    } else {
+        hasDockPath = false;
+    }
 }
 
 void UndockOp::end(OpContext& ctx) {
@@ -18,6 +28,23 @@ void UndockOp::end(OpContext& ctx) {
 }
 
 void UndockOp::run(OpContext& ctx) {
+    if (!ctx.battery.chargerConnected) chargerDropped = true;
+
+    // --- Mode 1: Follow the dock path ---
+    if (hasDockPath && ctx.runtimeState && ctx.map && ctx.lineTracker && ctx.stateEst) {
+        ctx.lineTracker->track(ctx, *ctx.map, *ctx.runtimeState, *ctx.stateEst);
+        
+        // If we reached the end of the undocking path (which is the start of the docking path)
+        if (!ctx.runtimeState->isDocking() && !ctx.runtimeState->isUndocking()) {
+            ctx.logger.info("Undock", "undock path complete => NavToStart");
+            ctx.stopMotors();
+            if (initiatedByOperator) ctx.opMgr.navToStart().initiatedByOperator = true;
+            changeOp(ctx, ctx.opMgr.navToStart());
+        }
+        return;
+    }
+
+    // --- Mode 2: Legacy fallback (blind reverse) ---
     const float speed = ctx.config.get<float>("undock_speed_ms", 0.08f);
     const float distanceM = ctx.config.get<float>("undock_distance_m", 0.32f);
     const unsigned long chargerTimeoutMs = static_cast<unsigned long>(
@@ -28,8 +55,6 @@ void UndockOp::run(OpContext& ctx) {
     const float dx = ctx.x - startX;
     const float dy = ctx.y - startY;
     const float travelled = std::sqrt(dx * dx + dy * dy);
-
-    if (!ctx.battery.chargerConnected) chargerDropped = true;
 
     if (chargerDropped && travelled >= distanceM) {
         ctx.logger.info("Undock", "undock complete => NavToStart");

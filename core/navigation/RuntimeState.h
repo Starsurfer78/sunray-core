@@ -24,6 +24,7 @@ namespace sunray
             bool startPlannedMowing(const Map &map, float robotX, float robotY, const MissionPlan &plan);
             bool startDocking(const Map &map, float robotX, float robotY);
             bool retryDocking(const Map &map, float robotX, float robotY, float lateralOffsetM = 0.0f);
+            bool startUndocking(const Map &map, float robotX, float robotY);
 
             void setIsDocked(bool flag) { isDocked_ = flag; }
             bool isDocking() const;
