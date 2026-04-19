@@ -427,10 +427,17 @@ OdometryData SerialRobotDriver::readOdometry() {
     const long dMow   = static_cast<long>(rawTicksMow_)   - static_cast<long>(lastTicksMow_);
 
     // Sanity clamp: >1000 ticks in one cycle (20 ms) is physically impossible
-    // Allow negative deltas for backward/inverted motion.
     data.leftTicks  = (std::abs(dLeft)  <= 1000) ? static_cast<int>(dLeft)  : 0;
     data.rightTicks = (std::abs(dRight) <= 1000) ? static_cast<int>(dRight) : 0;
     data.mowTicks   = (std::abs(dMow)   <= 1000) ? static_cast<int>(dMow)   : 0;
+
+    // FIRMWARE ODOMETRY SIGN FIX:
+    // The STM32 Alfred firmware only counts UP in the ISR (`odomTicksLeft++`), regardless of direction.
+    // Thus `dLeft` and `dRight` are always positive magnitudes. We MUST apply the sign of the commanded
+    // PWM manually, otherwise the PID controller goes insane during reverse driving.
+    if (pwmLeft_ < 0)  data.leftTicks  = -data.leftTicks;
+    if (pwmRight_ < 0) data.rightTicks = -data.rightTicks;
+    if (pwmMow_ < 0)   data.mowTicks   = -data.mowTicks;
 
     lastTicksLeft_  = rawTicksLeft_;
     lastTicksRight_ = rawTicksRight_;
