@@ -26,7 +26,7 @@ constexpr uint64_t kWifiReconnectIntervalMs = 10000;
 constexpr uint64_t kImuPeriodMs = 20;
 constexpr uint64_t kMotorPeriodMinMs = 5;
 constexpr uint64_t kSummaryPeriodMs = 500;
-constexpr uint64_t kConsolePeriodMs = 1000;
+constexpr uint64_t kConsolePeriodMs = 5000;
 constexpr uint64_t kLedPeriodMs = 3000;
 constexpr uint64_t kWifiPeriodMs = 7000;
 constexpr uint64_t kTempPeriodMs = 59000;
@@ -43,9 +43,9 @@ int expectedHzFromPeriodMs(uint64_t periodMs) {
     return std::max(1, static_cast<int>(1000 / periodMs));
 }
 
-// Warn when measured rate drops more than a small margin below expected.
+// Warn when measured rate drops below 75 % of expected (allows normal jitter).
 int warnBelowHz(int expectedHz) {
-    return std::max(1, expectedHz - 2);
+    return std::max(1, expectedHz * 3 / 4);
 }
 
 enum class MotorFrameSchema {
@@ -345,10 +345,15 @@ void SerialRobotDriver::tickConsole(uint64_t now) {
         mcuConnected_ = false;
     }
     const int expectedMotorHz = expectedHzFromPeriodMs(motorPeriodMs_);
-    if (motorRxCount_ < warnBelowHz(expectedMotorHz)) {
+    const int windowS = static_cast<int>(kConsolePeriodMs / 1000);
+    const int expectedMotorCount = expectedMotorHz * windowS;
+    const int warnThreshold = expectedMotorCount * 3 / 4;
+    const int expectedSummaryCount = 2 * windowS;
+    if (motorRxCount_ < warnThreshold && now >= nextFreqWarnMs_) {
         std::cerr << "[SRD] WARN: motor freq " << motorRxCount_
-                  << "/" << expectedMotorHz
-                  << "  summary " << summaryRxCount_ << "/2\n";
+                  << "/" << expectedMotorCount
+                  << "  summary " << summaryRxCount_ << "/" << expectedSummaryCount << "\n";
+        nextFreqWarnMs_ = now + 30000;
     }
     motorTxCount_ = motorRxCount_ = summaryTxCount_ = summaryRxCount_ = 0;
 }

@@ -171,6 +171,7 @@ private:
     int motorRxCount_   = 0;
     int summaryTxCount_ = 0;
     int summaryRxCount_ = 0;
+    uint64_t nextFreqWarnMs_ = 0;  ///< rate-limit motor-freq warning to once per 30 s
 
     // Timing (nowMs() timestamps for each periodic task)
     uint64_t nextMotorMs_   = 0;

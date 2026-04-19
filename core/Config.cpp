@@ -69,7 +69,7 @@ namespace sunray
             {"ntrip_pass", "pass"},
 
             // ── Odometrie ────────────────────────────────────────────────────────
-            {"ticks_per_revolution", 320}, // RM24? User input says RM24 in comment but 320 ticks.
+            {"ticks_per_revolution", 324}, // RM24? User input says RM24 in comment but 320 ticks.
             {"wheel_diameter_m", 0.205},   // RM18? User input says 205 mm.
             {"wheel_base_m", 0.390},       // RM18? User input says 39 cm.
 
@@ -77,7 +77,7 @@ namespace sunray
             {"robot_length_m", 0.60}, // MOWER_SIZE = 60 cm
             {"robot_width_m", 0.39},  // Matching wheel base roughly
             {"gps_offset_x_m", 0.0},  // Antennen-Offset im Roboter-KS (x=vorwaerts)
-            {"gps_offset_y_m", 0.19}, // 19 cm vor Radachse
+            {"gps_offset_y_m", 0.0}, // 19 cm vor Radachse
 
             // ── Motor PID ─────────────────────────────────────────────────────────
             {"motor_pid_lp", 0.0}, // User input: 0.0

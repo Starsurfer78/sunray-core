@@ -61,7 +61,7 @@ namespace sunray
 
         float LineTracker::distancePI(float a, float b)
         {
-            float d = scalePI(a - b);
+            float d = scalePI(b - a);
             if (d < -PI)
                 d += TWO_PI;
             if (d > PI)
@@ -157,7 +157,11 @@ namespace sunray
 
             if ((targetDist_ < 0.5f) || (lastTargetDist < 0.5f) || (distToPath > 0.5f) || rotateLeft_ || rotateRight_)
             {
-                angleToTargetFits_ = (std::fabs(trackerDiffDelta_) / PI * 180.0f < 120.0f);
+                // Hysteresis stop-threshold: only exit rotation when well-aligned (< 20°).
+                // Previously 120° — that let Stanley take over at 90–120° error, which
+                // immediately cleared the rotation flags, causing the rotate↔Stanley
+                // oscillation that made the robot thrash wildly.
+                angleToTargetFits_ = (std::fabs(trackerDiffDelta_) / PI * 180.0f < 20.0f);
             }
             else
             {

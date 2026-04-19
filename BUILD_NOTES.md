@@ -62,6 +62,10 @@ Notes:
 | Deployment destination | flashed to STM32 at address `0x08000000` via OpenOCD |
 | Confidence | `FACT` |
 
+IDE BUILD:
+| Firmware command | `cp alfred/firmware/rm18.ino /tmp/rm18/rm18.ino && arduino-cli compile --fqbn "STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103VETX,upload_method=swdMethod" --output-dir /tmp/rm18_build /tmp/rm18 && cp /tmp/rm18_build/rm18.ino.bin alfred/firmware/rm18.ino.bin` |
+
+
 Evidence:
 - [flash_alfred.sh](/mnt/LappiDaten/Projekte/sunray-core/scripts/flash_alfred.sh)
 - [ALFRED_FLASHING.md](/mnt/LappiDaten/Projekte/sunray-core/docs/ALFRED_FLASHING.md)

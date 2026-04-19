@@ -8,7 +8,20 @@
       "Bash(ctest --test-dir build --output-on-failure -R \"86|87|96|252|299|300\")",
       "Bash(cmake --build /mnt/LappiDaten/Projekte/sunray-core/build --target tests)",
       "Bash(ctest --test-dir /mnt/LappiDaten/Projekte/sunray-core/build -R \"299|300\" --output-on-failure)",
-      "Bash(ls /mnt/LappiDaten/Projekte/sunray-core/build/tests*)"
+      "Bash(ls /mnt/LappiDaten/Projekte/sunray-core/build/tests*)",
+      "Bash(arduino-cli board *)",
+      "Bash(arduino-cli core *)",
+      "Bash(xxd /mnt/LappiDaten/Projekte/sunray-core/alfred/firmware/rm18.ino.bin)",
+      "Bash(arduino-cli compile *)",
+      "Bash(mkdir -p /tmp/rm18)",
+      "Bash(cp /mnt/LappiDaten/Projekte/sunray-core/alfred/firmware/rm18.ino /tmp/rm18/rm18.ino)",
+      "Read(//tmp/rm18_build/**)",
+      "Bash(cp /tmp/rm18_build/rm18.ino.bin /mnt/LappiDaten/Projekte/sunray-core/alfred/firmware/rm18.ino.bin)",
+      "Bash(grep -E \"\\\\.\\(cpp|h|ts|js\\)$\")",
+      "Bash(python3 -c \"import json,sys; c=json.load\\(sys.stdin\\); keys=['motor_pid_kp','motor_pid_ki','motor_pid_kd','motor_pid_lp','stanley_k_normal','stanley_p_normal','stanley_k_slow','stanley_p_slow','motor_set_speed_ms','wheel_base_m','wheel_diameter_m','ticks_per_revolution']; [print\\(f'{k}: {c.get\\(k,\\\\\"NOT SET\\\\\"\\)}'\\) for k in keys]\")",
+      "Bash(npm run *)",
+      "Bash(cmake -S . -B build_linux -DCMAKE_BUILD_TYPE=Debug)",
+      "Bash(cmake --build build_linux --target sunray-core -j4)"
     ]
   }
 }

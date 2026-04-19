@@ -700,9 +700,26 @@
     return semantic === "coverage_edge" || semantic === "coverage_infill";
   }
 
+  // Route points from the backend are always in local meters (origin = map GPS origin).
+  // When the map uses WGS84 coords the canvas renders everything in degrees, so route
+  // points must be converted to lon/lat to sit on top of the map geometry.
+  function routeLocalToWorld(x: number, y: number, cm: CoordMode, origin: { lat: number; lon: number } | null): Point {
+    if (cm === "wgs84" && origin) {
+      const R = 6371000.0;
+      const DEG = Math.PI / 180;
+      return {
+        x: origin.lon + x / (R * Math.cos(origin.lat * DEG) * DEG),
+        y: origin.lat + y / (R * DEG),
+      };
+    }
+    return { x, y };
+  }
+
   function activePlanRuns(
     points: PlannerPreviewRoutePoint[],
     activeIndex: number,
+    cm: CoordMode,
+    origin: { lat: number; lon: number } | null,
   ): ActivePlanRun[] {
     if (points.length < 2) return [];
 
@@ -718,8 +735,8 @@
       const semantic: RouteSemantic =
         points[index + 1].semantic ?? points[index].semantic ?? "unknown";
       const status = statusForSegment(index);
-      const a: Point = { x: points[index].p[0], y: points[index].p[1] };
-      const b: Point = { x: points[index + 1].p[0], y: points[index + 1].p[1] };
+      const a: Point = routeLocalToWorld(points[index].p[0], points[index].p[1], cm, origin);
+      const b: Point = routeLocalToWorld(points[index + 1].p[0], points[index + 1].p[1], cm, origin);
       const lastRun = runs[runs.length - 1];
       if (
         lastRun &&
@@ -814,22 +831,28 @@
     $telemetry.waypoint_index >= 0
       ? $telemetry.waypoint_index
       : activePlanWaypointIndex;
+  $: activePlanWorldWaypoints = activePlanWaypoints.map((wp) => ({
+    ...wp,
+    ...routeLocalToWorld(wp.x, wp.y, coordMode, $mapGpsOrigin),
+  }));
   $: activePlanDriven =
     $telemetry.waypoint_index > 0
-      ? activePlanWaypoints.slice(0, $telemetry.waypoint_index)
+      ? activePlanWorldWaypoints.slice(0, $telemetry.waypoint_index)
       : [];
   $: activePlanRemaining =
     $telemetry.waypoint_index >= 0
-      ? activePlanWaypoints.slice($telemetry.waypoint_index)
-      : activePlanWaypoints;
+      ? activePlanWorldWaypoints.slice($telemetry.waypoint_index)
+      : activePlanWorldWaypoints;
   $: activePlanSemanticRuns = activePlanRuns(
     activePlanRoutePoints,
     currentActivePlanIndex,
+    coordMode,
+    $mapGpsOrigin,
   );
 
   $: targetScreen = $telemetry.has_target
     ? worldToScreen(
-        { x: $telemetry.target_x, y: $telemetry.target_y },
+        routeLocalToWorld($telemetry.target_x, $telemetry.target_y, coordMode, $mapGpsOrigin),
         currentScale,
         offsetX,
         offsetY,
