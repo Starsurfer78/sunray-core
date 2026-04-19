@@ -1821,6 +1821,16 @@ namespace sunray
                                                       {"geometry", {{"type", "Polygon"}, {"coordinates", nlohmann::json::array({toRing(ex)})}}}});
                         }
                     }
+                    // zones
+                    if (map.contains("zones") && map["zones"].is_array())
+                    {
+                        for (const auto &z : map["zones"])
+                        {
+                            fc["features"].push_back({{"type", "Feature"},
+                                                      {"properties", {{"type", "zone"}, {"id", z.value("id", "")}}},
+                                                      {"geometry", {{"type", "Polygon"}, {"coordinates", nlohmann::json::array({toRing(z["polygon"])})}}}});
+                        }
+                    }
                     // dock (LineString — full path, not just first point)
                     if (map.contains("dock") && !map["dock"].empty())
                     {
@@ -1935,6 +1945,7 @@ namespace sunray
                 outMap["origin"]     = { {"lat", lat0}, {"lon", lon0} };
                 outMap["perimeter"]  = nlohmann::json::array();
                 outMap["exclusions"] = nlohmann::json::array();
+                outMap["zones"]      = nlohmann::json::array();
                 outMap["dock"]       = nlohmann::json::array();
                 outMap["obstacles"]  = nlohmann::json::array();
 
@@ -1952,12 +1963,23 @@ namespace sunray
                         outMap["exclusions"].push_back(
                             ringToLocal(feat["geometry"]["coordinates"][0]));
 
+                    } else if (ftype == "zone" && gtype == "Polygon") {
+                        outMap["zones"].push_back({
+                            {"id", feat["properties"].value("id", "zone_" + std::to_string(outMap["zones"].size()))},
+                            {"polygon", ringToLocal(feat["geometry"]["coordinates"][0])}
+                        });
+
                     } else if (ftype == "dock") {
                         if (gtype == "Point") {
                             auto [x, y] = toLocal(
                                 feat["geometry"]["coordinates"][0].get<double>(),
                                 feat["geometry"]["coordinates"][1].get<double>());
                             outMap["dock"].push_back({ x, y });
+                        } else if (gtype == "LineString") {
+                            for (const auto& c : feat["geometry"]["coordinates"]) {
+                                auto [x, y] = toLocal(c[0].get<double>(), c[1].get<double>());
+                                outMap["dock"].push_back({ x, y });
+                            }
                         } else if (gtype == "Polygon") {
                             // dock stored as polygon: use centroid
                             const auto& ring = feat["geometry"]["coordinates"][0];

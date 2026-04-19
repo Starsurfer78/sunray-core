@@ -1491,6 +1491,7 @@ namespace sunray
             nlohmann::json planJson = {
                 {"missionId", plan.missionId},
                 {"zoneOrder", plan.zoneOrder},
+                {"waypoints", std::move(wpArray)},
                 {"planRef",
                  {{"id", plan.missionId.empty() ? std::string("active-mission") : plan.missionId},
                   {"revision", static_cast<int>(plan.route.points.size())},

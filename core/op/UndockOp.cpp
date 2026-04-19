@@ -55,8 +55,8 @@ void UndockOp::run(OpContext& ctx) {
 }
 
 void UndockOp::onObstacle(OpContext& ctx) {
-    ctx.logger.error("Undock", "obstacle during undock => ERROR");
-    changeOp(ctx, ctx.opMgr.error());
+    ctx.logger.warn("Undock", "obstacle (bumper) during undock ignored to prevent false triggers from charger baseplate");
+    // Do not transition to error, let the robot continue undocking
 }
 
 void UndockOp::onStuck(OpContext& ctx) {
