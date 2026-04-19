@@ -697,6 +697,9 @@ void SerialRobotDriver::parseMotorFrame(const std::string& frame) {
             const bool bumperRight = (flags & (1U << 5)) != 0;
             sensors_.bumperLeft = bumperLeft || (!bumperRight && bumperCombined);
             sensors_.bumperRight = bumperRight;
+            // The STM32 Alfred firmware currently combines both lift sensors into a single bit (bit 1).
+            // To prevent false positives from uneven terrain, we pass the raw lift flag but will handle
+            // debounce/filtering in Robot.cpp, or assume the STM32 handles it.
             sensors_.lift = (flags & (1U << 1)) != 0;
             sensors_.stopButton = (flags & (1U << 2)) != 0;
             setMotorFaultFast((flags & (1U << 3)) != 0);

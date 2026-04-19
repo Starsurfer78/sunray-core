@@ -713,7 +713,7 @@ namespace sunray
             }
 
             if (sensors_.stopButton || sensors_.bumperLeft || sensors_.bumperRight
-                || sensors_.lift || sensors_.motorFault)
+                || liftDebounced_ || sensors_.motorFault)
             {
                 static uint64_t lastStopLogTs = 0;
                 if (now_ms_ - lastStopLogTs > 5000UL)
@@ -741,7 +741,20 @@ namespace sunray
 
     void Robot::tickSafetyStop(OpContext &ctx)
     {
-        if (sensors_.bumperLeft || sensors_.bumperRight || sensors_.lift || sensors_.motorFault)
+        // Custom lift debounce logic: Lift must be active for X ms continuously.
+        const unsigned long liftDebounceMs = static_cast<unsigned long>(config_->get<int>("lift_debounce_ms", 100));
+        
+        if (sensors_.lift) {
+            if (liftStartTime_ == 0) liftStartTime_ = now_ms_;
+            if (now_ms_ - liftStartTime_ >= liftDebounceMs) {
+                liftDebounced_ = true;
+            }
+        } else {
+            liftStartTime_ = 0;
+            liftDebounced_ = false;
+        }
+        
+        if (sensors_.bumperLeft || sensors_.bumperRight || liftDebounced_ || sensors_.motorFault)
         {
             driveController_.reset();
             hw_->setMotorPwm(0, 0, 0);
@@ -751,12 +764,22 @@ namespace sunray
                 if ((sensors_.bumperLeft && !previousSensors_.bumperLeft) ||
                     (sensors_.bumperRight && !previousSensors_.bumperRight))
                 {
-                    const std::string message = messages::humanReadableReasonMessage("bumper_triggered");
-                    recordEvent("warn", "safety_event", "bumper_triggered", message);
-                    showUiNotice(message, "warn", "bumper_triggered", 4000);
+                    if (opMgr_.activeOp()->name() != "Undock") {
+                        const std::string message = messages::humanReadableReasonMessage("bumper_triggered");
+                        recordEvent("warn", "safety_event", "bumper_triggered", message);
+                        showUiNotice(message, "warn", "bumper_triggered", 4000);
+
+                        // Add an obstacle to the map
+                        map_.addObstacle(state_.x, state_.y, now_ms_, false);
+                    } else {
+                        logger_->warn(TAG, "Bumper triggered during Undock (ignored)");
+                    }
                     op->onObstacle(ctx);
                 }
-                if (sensors_.lift && !previousSensors_.lift)
+                
+                // Track previous debounced state to only trigger once
+                static bool prevLiftDebounced = false;
+                if (liftDebounced_ && !prevLiftDebounced)
                 {
                     const std::string message =
                         messages::humanReadableReasonMessage("lift_triggered", "ERR_LIFT");
@@ -764,6 +787,7 @@ namespace sunray
                     showUiNotice(message, "error", "lift_triggered", 12000);
                     op->onLiftTriggered(ctx);
                 }
+                prevLiftDebounced = liftDebounced_;
                 if (sensors_.motorFault && !previousSensors_.motorFault)
                 {
                     const std::string message =

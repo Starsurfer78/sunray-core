@@ -471,6 +471,10 @@ namespace sunray
 
         /// Log tag used in all Logger calls.
         static constexpr const char *TAG = "Robot";
+        
+        // --- Lift debounce ---
+        unsigned long liftStartTime_ = 0;
+        bool liftDebounced_ = false;
     };
 
 } // namespace sunray
