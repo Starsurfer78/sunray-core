@@ -123,6 +123,11 @@ private:
     int pwmLeft_  = 0;
     int pwmRight_ = 0;
     int pwmMow_   = 0;
+    
+    // Logical PWM (before hardware inversion, used for odometry sign reconstruction)
+    int logicalPwmLeft_ = 0;
+    int logicalPwmRight_ = 0;
+    int logicalPwmMow_ = 0;
 
     // Sensor snapshots (updated by AT frame parsers)
     SensorData  sensors_{};

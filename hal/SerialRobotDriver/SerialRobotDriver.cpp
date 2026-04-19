@@ -388,6 +388,10 @@ void SerialRobotDriver::tickShutdown(uint64_t now) {
 
 // Latch PWM setpoints. Applied on next AT+M tick; optional inversion via config.
 void SerialRobotDriver::setMotorPwm(int left, int right, int mow) {
+    logicalPwmLeft_  = left;
+    logicalPwmRight_ = right;
+    logicalPwmMow_   = mow;
+
     if (config_->get<bool>("invert_left_motor", false)) left = -left;
     if (config_->get<bool>("invert_right_motor", false)) right = -right;
     pwmLeft_  = left;

@@ -773,7 +773,7 @@ namespace sunray
                         showUiNotice(message, "warn", "bumper_triggered", 4000);
 
                         // Add an obstacle to the map
-                        map_.addObstacle(state_.x, state_.y, now_ms_, false);
+                        map_.addObstacle(stateEst_.x(), stateEst_.y(), now_ms_, false);
                     } else {
                         logger_->warn(TAG, "Bumper triggered during Undock (ignored)");
                     }

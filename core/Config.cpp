@@ -80,7 +80,7 @@ namespace sunray
             {"gps_offset_y_m", 0.19}, // 19 cm vor Radachse
 
             // ── Motor PID ─────────────────────────────────────────────────────────
-            {"motor_pid_lp", 0.0}, // Encoder-Tiefpassfilter (0=deaktiviert)
+            {"motor_pid_lp", 0.1}, // Encoder-Tiefpassfilter (0=deaktiviert)
             {"motor_pid_kp", 0.5},
             {"motor_pid_ki", 0.01},
             {"motor_pid_kd", 0.01},
