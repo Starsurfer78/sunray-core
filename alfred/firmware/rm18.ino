@@ -277,27 +277,30 @@ inline bool acceptOdomTick(volatile unsigned long& nextAllowedMs)
   return false;
 }
 
+// Use direct register read for STM32F103 (Port D, Pin 3)
 void OdometryMowISR()
 {
-  if (digitalRead(pinMotorMowImp) == LOW)
+  if ((GPIOD->IDR & GPIO_IDR_IDR3) == 0) // equivalent to digitalRead(PD3) == LOW
     return;
   if (!acceptOdomTick(motorMowTicksTimeout))
     return;
   odomTicksMow++;
 }
 
+// Use direct register read for STM32F103 (Port D, Pin 1)
 void OdometryLeftISR()
 {
-  if (digitalRead(pinMotorLeftImp) == LOW)
+  if ((GPIOD->IDR & GPIO_IDR_IDR1) == 0) // equivalent to digitalRead(PD1) == LOW
     return;
   if (!acceptOdomTick(motorLeftTicksTimeout))
     return;
   odomTicksLeft++;
 }
 
+// Use direct register read for STM32F103 (Port D, Pin 0)
 void OdometryRightISR()
 {
-  if (digitalRead(pinMotorRightImp) == LOW)
+  if ((GPIOD->IDR & GPIO_IDR_IDR0) == 0) // equivalent to digitalRead(PD0) == LOW
     return;
   if (!acceptOdomTick(motorRightTicksTimeout))
     return;
